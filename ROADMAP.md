@@ -18,6 +18,11 @@ Fred decided these on 2026-11-17:
   `/bin/sh` one day.
 - The only dependencies are the C library and libtam.
 - The repository copies tam-pane's structure.
+- tam-clam has a lint mode that warns about legal but risky code.
+- The language target is POSIX.1-2024.
+- The line editor has tam-clam's own key bindings, designed to be
+  ergonomic and mnemonic. There is no vi mode, and readline's bindings are
+  not the model.
 
 The versions below are a proposal. Fred has not yet set when tam-clam
 enters a Tamlinux release.
@@ -54,11 +59,15 @@ enters a Tamlinux release.
 - **0.1.4** Passes our POSIX spec tests, run against dash, bash --posix,
   mksh and busybox ash, and survives a fuzzing campaign on the parser
   and expander.
+- **0.1.5** Lint mode: `tam-clam --lint script` parses without running
+  and warns about legal but risky code, such as an unquoted `$x` inside
+  `[ ]` or a `cd` whose failure is not checked.
 
 ### Phase P3: interactive (0.2.x), `plans/P3-interactive.md`
 
 - **0.2.0** Our own line editor on libtam's `tam_tty`, `tam_key` and
-  `tam_uni`: emacs keys, UTF-8, wide characters, bracketed paste.
+  `tam_uni`: our own ergonomic, mnemonic key bindings, UTF-8, wide
+  characters, bracketed paste.
 - **0.2.1** History: an append-only file with timestamps, safe for several
   shells at once, and incremental search.
 - **0.2.2** Job control: `fg`, `bg`, `jobs`, Ctrl+Z, process groups.

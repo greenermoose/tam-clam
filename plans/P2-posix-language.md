@@ -31,6 +31,25 @@ against dash, bash --posix, mksh and busybox ash, and survives fuzzing.
   gives us a syntax checker).
 - **0.1.4** The spec suite and fuzzing (below). Bugs found become
   regression tests.
+- **0.1.5** Lint mode (below).
+
+## Lint mode
+
+`tam-clam --lint FILE...` parses each file with the same parser that runs
+it, runs nothing, and prints one warning per risky construct with its file,
+line and column, in the style of shellcheck. The status is 0 when there
+are no warnings, 1 when there are, and 2 on a syntax error. First checks:
+
+- an unquoted expansion inside `[ ]` or `test`, or as a `case` word;
+- `cd` in a script whose failure is not checked;
+- `$*` where `"$@"` was almost certainly meant;
+- `for f in $(ls ...)` and other splitting of command output;
+- a variable that is used but never set in the file.
+
+Each check has a short name, so a line can silence one check with a
+comment (`# lint: allow unquoted-test`), and each has a spec test.
+Lint is built on the column-precise locations that the error messages
+need anyway.
 
 ## Spec suite
 
@@ -77,7 +96,12 @@ records which behaviour tam-clam follows and why.
 - **Performance of `$(...)`.** Every substitution forks. A no-fork path
   for builtins is in P4 as an idea, after correctness.
 
+## Decisions
+
+- 2026-11-17, Fred: the target is POSIX.1-2024, which added `$'...'`
+  strings and `set -o pipefail` to the shell language.
+- 2026-11-17, Fred: yes to a lint mode (0.1.5).
+
 ## Open points
 
-- Which POSIX edition do we target? Proposed: POSIX.1-2024, which added
-  `$'...'` strings and `set -o pipefail` to the shell language.
+- None.

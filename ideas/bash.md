@@ -26,8 +26,11 @@
   shell input. adopt (P2, `printf`), it makes safe code generation easy.
 - **`$EPOCHSECONDS`, `$EPOCHREALTIME`, `$SRANDOM`.** Cheap, useful
   variables. consider (P4).
-- **readline's keys** (emacs mode defaults, `~/.inputrc` names). adopt the
-  keys (P3), not the library.
+- **readline's keys** (emacs mode defaults, `~/.inputrc` names). reject
+  as the model: Fred decided on 2026-11-17 that tam-clam has its own,
+  more ergonomic and mnemonic set (see `plans/P3-interactive.md`).
+  readline's names for actions are still a useful checklist of what an
+  editor needs.
 - **`complete` and `compgen`** so bash-completion scripts work. consider
   (P3); a large interface, but thousands of completions come with it.
 - **`PROMPT_COMMAND`** and **`PS0`** (printed before a command runs).

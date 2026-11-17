@@ -22,7 +22,8 @@ data.
 - **Nothing executable from the environment.** No function import
   (Shellshock, `bash.md`), no `ENV` file outside interactive shells,
   prompts not re-parsed as code. From the start.
-- **POSIX exactly, in POSIX mode.** Where POSIX leaves a choice, follow
+- **POSIX exactly, in POSIX mode,** targeting POSIX.1-2024 (Fred's
+  decision, 2026-11-17). Where POSIX leaves a choice, follow
   dash and bash --posix when they agree, and write down the choice when
   they do not (`oils.md`, known differences). P2.
 - **Read standard input a byte at a time,** so a command reads the lines
@@ -86,8 +87,9 @@ data.
 - **Up and Down search by what is typed** (fish, zsh). P3 0.2.1.
 - **Abbreviations** that expand in place, so history keeps the real
   command (fish). P4 0.3.4.
-- **readline's emacs keys** (bash); **named editor actions** users can
-  bind (zsh's widgets). P3 0.2.0.
+- **Our own key bindings, ergonomic and mnemonic,** not readline's and
+  with no vi mode (Fred's decision, 2026-11-17); **named editor
+  actions** users can rebind (zsh's widgets). P3 0.2.0.
 - **A right prompt** and **`precmd` and `preexec` hooks** (zsh), with
   bash's `PROMPT_COMMAND` and `PS0`. P3 0.2.5.
 - **Good defaults with no configuration file** (fish). P3.
@@ -170,7 +172,8 @@ data.
   allows, with column-precise messages: a lint pass for free. P2 0.1.3.
 - **Lint warnings for legal but risky code** (unquoted `$x` in `[ ]`,
   `cd` without a check in a script) in the same parser that runs the
-  code. Open point for Fred, P1.
+  code, with each warning at its line and column. Fred said yes on
+  2026-11-17. P2 0.1.5.
 - **A formatter** built on a lossless syntax tree (fish's `fish_indent`,
   Oils). consider, P2.
 - **The Linux console as a first-class terminal:** the editor and

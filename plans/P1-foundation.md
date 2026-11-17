@@ -100,8 +100,12 @@ builds on.
   we follow dash and bash --posix when they agree, and record the choice
   in `arch/` when they do not.
 
+## Decisions
+
+- 2026-11-17, Fred: yes to a lint mode that warns about constructs that
+  are legal but almost always mistakes. It is planned in P2 (0.1.5),
+  once the whole language parses.
+
 ## Open points
 
-- Should `tam-clam` warn, the way shellcheck would, about constructs that
-  are legal but almost always mistakes (such as `[ $x = y ]` with `$x`
-  unquoted)? A lint mode could be a separate command.
+- None.

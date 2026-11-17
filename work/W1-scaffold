@@ -3,7 +3,7 @@ W1 TAM-CLAM SCAFFOLD, IDEAS AND THE 0.0.1 SKELETON
 Date: 2026-11-17
 AI harness: Claude Code 2.1.326
 AI model: claude-opus-5-5
-Commits: 8dedd64, c82327b
+Commits: 8dedd64, c82327b, aaf38cd
 
 
 GUIDANCE
@@ -32,6 +32,16 @@ GUIDANCE
     Scope: "Scaffold + skeleton 0.0.1"
     Clones: "A focused set" (dash, zsh, fish, mksh, oils, busybox)
     GitHub: "Create and push dev"
+
+  Fred, on the open points at the end of the session:
+
+    "1 yes
+    2 yes
+    3 no, we will have our own set of keybindings that are more
+    ergonomic and mnemonic"
+
+  That is: yes to a lint mode, yes to POSIX.1-2024, and no vi mode;
+  tam-clam gets its own key bindings rather than readline's.
 
 
 DONE
@@ -72,6 +82,7 @@ HANDOFF
     terminal). It is not installed and is nobody's login shell.
   - Next is 0.0.2: pipelines, and-or lists, !, redirections and
     here-documents (plans/P1-foundation.md).
-  - Open points for Fred are in each plan, notably the lint mode (P1),
-    the POSIX edition (P2) and vi keys (P3).
+  - Fred's decisions are recorded in ROADMAP.md and the plans: lint
+    mode is P2 0.1.5; the target is POSIX.1-2024; P3 needs a key map
+    drafted in arch/keys.md and agreed with Fred before 0.2.0.
   - Install dash so the script tests compare against it, if Fred wants.

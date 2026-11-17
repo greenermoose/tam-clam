@@ -52,8 +52,10 @@ rest of `lib/`. The biggest files:
 - **`${ command; }`** (bash 5.3, after ksh93 and zsh): command
   substitution without a fork, in the current shell. consider (P4); it is
   fast and avoids a subshell, but its scoping rules are new.
-- **readline's default key bindings and `~/.inputrc` names.** Users'
-  fingers know them. adopt the keys (P3), not the library.
+- **readline's default key bindings and `~/.inputrc` names.** reject as
+  the model: tam-clam has its own ergonomic, mnemonic key bindings
+  (Fred, 2026-11-17). readline's list of actions is a checklist for
+  ours.
 - **Programmable completion (`complete`, `compgen`).** The
   bash-completion project has thousands of scripts written for it.
   consider (P3): supporting enough of `complete -F` to run them would give
