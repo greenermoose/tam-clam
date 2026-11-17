@@ -1,0 +1,11 @@
+single  quotes keep $ and \ and "
+double quotes keep 'single' and \ and " and $
+a backslash before other letters stays: \x
+back slash spaces
+mixedsingledoubleplain
+
+ x
+continued
+inside double
+inside \
+single
