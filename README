@@ -1,0 +1,103 @@
+TAM-CLAM - THE TAMLINUX SHELL
+
+tam-clam is our own command shell. It is built fresh, from the ground up,
+and it builds on the best ideas and the best code of bash, zsh, fish,
+dash, ksh, mksh, Oils and every other shell we can find. Where another
+shell's code works well, we take it and refactor it into tam-clam's own
+shape. Where it doesn't, we leave it out. tam-clam is not a fork or a
+clone of any of them.
+
+The goal is a bullet-proof shell: one that never crashes, never corrupts
+its history, never runs a command differently from what you typed, and
+tells you clearly what went wrong and where.
+
+
+WHAT IT WILL DO
+
+  Run POSIX shell scripts exactly. The language core is the POSIX shell
+  language, so scripts written for /bin/sh, dash or bash --posix run
+  unchanged, and tam-clam can one day be /bin/sh.
+
+  Add the bash and zsh features people really use: arrays, [[ ]], local,
+  process substitution, a strong history and programmable completion.
+
+  Be pleasant to type in, like fish: syntax highlighting as you type,
+  suggestions from history, abbreviations, and completions for common
+  commands, all in our own line editor.
+
+  Offer safer modes for new scripts, like Oils: errors that are never
+  silently ignored, no surprise word splitting, and messages that point at
+  the exact line and column. They are opt-in, so POSIX scripts keep
+  running as written.
+
+  Until a feature lands, tam-clam refuses it with a clear message instead
+  of running the command some other way. Version 0.0.1, for example, runs
+  simple commands and says "pipelines are not supported yet" for a pipe.
+
+
+HOW IT IS BUILT
+
+  - Small modules with one job each, and explicit state: every function is
+    handed the shell it works on, and the only global state is the flags
+    signal handlers set.
+  - Memory for each command comes from an arena and is freed in one step
+    when the command finishes. Every allocation is checked, and input has
+    size and depth limits, so a hostile script cannot exhaust the machine.
+  - A hand-written recursive-descent parser follows the POSIX grammar. No
+    yacc, no generated tables.
+  - Every dependency has to earn its place. The goal is the C library and
+    libtam, and nothing else: no readline, no ncurses, no terminfo, no
+    pcre. The line editor is our own, built on libtam's terminal and key
+    modules.
+  - Tested three ways: unit tests for each module, script tests compared
+    against a reference shell (dash, or bash --posix), and builds with
+    the address and undefined-behaviour sanitizers.
+  - Plain Make. There is no other build system.
+
+  arch/principles.md has the full set of principles.
+
+
+BUILDING
+
+  Needs: a C11 compiler, make, and libtam installed under LIBTAM_PREFIX
+  (default $HOME/.local).
+
+    make              build build/tam-clam
+    make test         unit tests, then the script tests
+    make sanitize     the tests again, built with ASan and UBSan
+    make install      install to PREFIX (default $HOME/.local)
+    make uninstall    remove the installed binary
+    make clean        remove build/
+
+
+USING IT
+
+    tam-clam -c 'echo hello; ls /'
+    tam-clam script.sh
+    tam-clam                  read commands from standard input
+
+  Run with no arguments on a terminal, it prompts with "$ ". The line
+  editor, history and completion arrive in 0.2.x; see ROADMAP.md.
+
+
+WHERE THINGS ARE
+
+  src/, include/   the shell (one module per file)
+  tests/           unit tests, script tests and refusal tests
+  ideas/           ideas we collect from other shells
+  arch/            architecture: principles, data structures, evaluations
+  plans/           one plan per work phase (P1, P2, ...)
+  bugs/            one record per bug (B1, B2, ...)
+  work/            one record per work session (W1, W2, ...)
+  tools/           helper scripts for developing tam-clam
+  ROADMAP.md       milestones with their version numbers
+  UPSTREAM.md      every piece of code we took from another project
+  COPYRIGHT        copyright and license notices
+  LICENSE          GNU General Public License, version 3
+
+
+LICENSE
+
+  tam-clam is free software under the GNU General Public License, version
+  3 or later. Code taken from other projects keeps its notices; see
+  COPYRIGHT and UPSTREAM.md.

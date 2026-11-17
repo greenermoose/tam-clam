@@ -1,0 +1,22 @@
+tam-clam copyright and license notices
+
+The portions of tam-clam written by a human are Copyright (C) 2026 Fred Horch.
+
+tam-clam is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free
+Software Foundation, either version 3 of the License, or (at your option)
+any later version. See LICENSE for the full text.
+
+tam-clam is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+FOR A PARTICULAR PURPOSE.
+
+
+CODE TAKEN FROM OTHER PROJECTS
+
+UPSTREAM.md lists each piece, its source file and commit, and how it was
+changed. The notices for those projects follow.
+
+  None yet. tam-clam 0.0.1 is written fresh; the other shells have only
+  been read. When code is taken, its project's notice goes here in the
+  same change.

@@ -1,0 +1,11 @@
+# Reference clones of other shells, read by tools/pull-references.
+# One project per line:  name  url  local-path  branch  depth
+# depth: "full" for a normal clone, or a number for a shallow clone.
+# Lines starting with # are comments. Add a project by adding a line.
+bash      https://git.savannah.gnu.org/git/bash.git           ~/Code/bash      master  full
+dash      https://git.kernel.org/pub/scm/utils/dash/dash.git  ~/Code/dash      master  1
+zsh       https://github.com/zsh-users/zsh.git                ~/Code/zsh       master  1
+fish      https://github.com/fish-shell/fish-shell.git        ~/Code/fish      master  1
+mksh      https://github.com/MirBSD/mksh.git                  ~/Code/mksh      master  1
+oils      https://github.com/oils-for-unix/oils.git           ~/Code/oils      master  1
+busybox   https://git.busybox.net/busybox                     ~/Code/busybox   master  1

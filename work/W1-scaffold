@@ -1,0 +1,77 @@
+W1 TAM-CLAM SCAFFOLD, IDEAS AND THE 0.0.1 SKELETON
+
+Date: 2026-11-17
+AI harness: Claude Code 2.1.326
+AI model: claude-opus-5-5
+Commits: 8dedd64, c82327b
+
+
+GUIDANCE
+
+  Fred, the opening request:
+
+    "Create our own shell, called tam-clam, inspired by bash, zsh, and
+    other shells. Do the following:
+
+    1) Create a folder ~/Code/tamlinux/tam-clam/ and set it up as a git
+    repo
+    2) Put in a README that explains we are writing our own shell,
+    inspired by bash, etc.
+    3) The goal is a shell that has no dependencies other than standard
+    C libraries and libtam
+    4) See tam-pane for the repo structure; duplicate it for tam-clam
+
+    Ask if you have any questions. We want to write a bullet-proof shell
+    that has the best ideas from all the shells people have written.
+    Review a bunch of shells and write up your ideas in the ideas folder.
+    You can see the full bash source code in ~/Code/bash."
+
+  Fred's answers to the planning questions:
+
+    Language: "POSIX sh core + extras"
+    Scope: "Scaffold + skeleton 0.0.1"
+    Clones: "A focused set" (dash, zsh, fish, mksh, oils, busybox)
+    GitHub: "Create and push dev"
+
+
+DONE
+
+  - Repository with tam-pane's structure: README, ROADMAP.md, COPYRIGHT,
+    UPSTREAM.md, AI_PROVENANCE.md, plain Makefile, and the ideas, arch,
+    plans (P1 to P6), bugs and work folders. GPL v3, branches main and
+    dev.
+  - Reference clones listed in ideas/sources and fetched with
+    tools/pull-references (copied from tam-pane).
+  - Ideas: bash, dash, zsh, fish, mksh, Oils and busybox ash read from
+    source; ksh93, yash, rc, es, elvish, nushell, xonsh, PowerShell and
+    tcsh as starter notes; ideas/synthesis.md gathers them by topic.
+  - arch/: principles (bullet-proof rules), data structures, dependency
+    ledger, and a bash evaluation from the source.
+  - 0.0.1 in C11: arena, input (standard input a byte at a time), lexer
+    (all POSIX operators and quotes, with flags for unsupported
+    expansions), parser (lists of simple commands; everything else
+    refused with a message), quote removal, PATH search in the child
+    with ENOEXEC fallback, builtins exit, cd, :, true, false, and a
+    plain interactive prompt with SIGINT handling.
+  - Checked: make clean && make has no warnings. make test and make
+    sanitize pass: 122 unit checks and 43 script tests, the scripts also
+    under bash --posix (dash is not installed). readelf -d lists only
+    libc.so.6. An interactive run under script(1) showed the prompts,
+    recovery after a refused pipe, a continuation line and exit 4.
+
+
+FAILED
+
+  - tools/pull-references could not update ~/Code/bash: Savannah
+    returned HTTP 500. The clone stayed at 9c465866, which was read.
+
+
+HANDOFF
+
+  - Fred tries 0.0.1 (build/tam-clam -c '...', or run it on a
+    terminal). It is not installed and is nobody's login shell.
+  - Next is 0.0.2: pipelines, and-or lists, !, redirections and
+    here-documents (plans/P1-foundation.md).
+  - Open points for Fred are in each plan, notably the lint mode (P1),
+    the POSIX edition (P2) and vi keys (P3).
+  - Install dash so the script tests compare against it, if Fred wants.

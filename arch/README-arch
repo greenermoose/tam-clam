@@ -1,0 +1,28 @@
+ARCHITECTURE
+
+This folder documents tam-clam's system architecture: the modules and how
+they connect, the data structures, the algorithms, the dependencies, and
+the evaluations of other shells that shaped them.
+
+
+FILES
+
+  principles.md          the design rules every change follows
+  data-structures.md     the shell state, tokens, the syntax tree and the
+                         arena, as they are built today, and what comes
+                         next
+  dependencies.md        every library tam-clam uses, why, and which
+                         version removes it
+  bash-evaluation.md     how bash works; what to take and what not to
+                         repeat
+
+  Later phases add their own files here, for example expansion.md and
+  jobs.md (P2), line-editor.md and history.md (P3).
+
+
+KEEPING IT TRUE
+
+  These documents describe the code as it is. A change that alters a
+  structure, an algorithm or a dependency updates the matching file in
+  the same commit. Where code and document disagree, the code is right
+  and the document is a bug.
