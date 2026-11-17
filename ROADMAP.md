@@ -17,7 +17,6 @@ Fred decided these on 2026-11-17:
   history, completion). Safer modes are opt-in. tam-clam can become
   `/bin/sh` one day.
 - The only dependencies are the C library and libtam.
-- The repository copies tam-pane's structure.
 - tam-clam has a lint mode that warns about legal but risky code.
 - The language target is POSIX.1-2024.
 - The line editor has tam-clam's own key bindings, designed to be
