@@ -43,6 +43,10 @@ GUIDANCE
   That is: yes to a lint mode, yes to POSIX.1-2024, and no vi mode;
   tam-clam gets its own key bindings rather than readline's.
 
+  On a readline-style key map, after the costs were explained: "agreed,
+  record it and close the open point". No readline map is built in; the
+  binding format must be able to express one, as an optional file later.
+
 
 DONE
 

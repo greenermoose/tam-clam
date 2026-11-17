@@ -49,6 +49,14 @@ readline's emacs bindings are not the model.
   has a name (as zsh's widgets do), so a user can rebind it.
 - Keys always name the physical key (Ctrl, Alt, Meta, a letter), never a
   placeholder.
+- The draft also lists the keys that are not ours to choose because the
+  terminal or other programs give them meaning: Ctrl+C, Ctrl+Z, Ctrl+D,
+  and Ctrl+S and Ctrl+Q where flow control is on.
+- Decided by Fred on 2026-11-17: no readline-style key map is built in.
+  tam-clam ships only its own map. The binding format must be able to
+  express readline's keys, so that if users ask for them later, a
+  readline map can be a small optional file rather than a built-in
+  setting.
 
 ## Acceptance
 
@@ -72,7 +80,5 @@ readline's emacs bindings are not the model.
 ## Open points
 
 - The key map itself (`arch/keys.md`), to agree with Fred before 0.2.0.
-- Is there also an optional map with readline's bindings for people
-  arriving from bash, or only ours?
 - Fred's energy rule: no timers or background polling while the shell
   waits for input. Does that rule out showing a clock in the prompt?
