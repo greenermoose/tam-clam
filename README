@@ -11,6 +11,8 @@ The goal is a bullet-proof shell: one that never crashes, never corrupts
 its history, never runs a command differently from what you typed, and
 tells you clearly what went wrong and where.
 
+Follows the tam-idol 0.1.0 standard.
+
 
 WHAT IT WILL DO
 
@@ -88,11 +90,13 @@ WHERE THINGS ARE
   arch/            architecture: principles, data structures, evaluations
   plans/           one plan per work phase (P1, P2, ...)
   bugs/            one record per bug (B1, B2, ...)
+  reviews/         one record per review (R1, R2, ...)
   work/            WHATNOW (read it first: what is next) and one record
                    per work session (W1, W2, ...)
   tools/           helper scripts for developing tam-clam
   ROADMAP.md       milestones with their version numbers
   UPSTREAM.md      every piece of code we took from another project
+  AI-BLAME.md      how AI work is recorded here
   COPYRIGHT        copyright and license notices
   LICENSE          GNU General Public License, version 3
 

@@ -1,0 +1,34 @@
+W3 BRINGING TAM-CLAM UP TO THE TAM-IDOL STANDARD
+
+Date: 2026-11-18
+AI harness: agy 1.5.12
+AI model: gemini-4-hydrogen-medium
+Commits: the commit that adds this record
+
+
+GUIDANCE
+
+  Fred: "Take the next slice of work for tam-idol. Check to see if
+  WHATNOW needs to be updated first."
+
+
+DONE
+
+  - Renamed AI_PROVENANCE.md to AI-BLAME.md and updated its wording.
+  - Added "Follows the tam-idol 0.1.0 standard." and updated
+    WHERE THINGS ARE in README.
+  - Brought arch/README-arch, bugs/README-bugs, ideas/README-ideas,
+    plans/README-plans and work/README-work into line with tam-idol
+    0.1.0, keeping tam-clam's own notes under IN THIS REPOSITORY.
+  - Added reviews/README-reviews.
+  - tam-idol/tools/idol-check passes on tam-clam.
+
+
+FAILED
+
+  - Nothing.
+
+
+HANDOFF
+
+  - 0.0.2 (pipelines and redirections) is next; see NEXT in WHATNOW.
