@@ -9,7 +9,7 @@ Updated: 2026-11-18, with W3
 STATE
 
   Version 0.0.1, the skeleton, on branch dev, pushed. Follows the
-  tam-idol 0.1.0 standard (W3). It runs simple commands with quoting, ;
+  tam-idol 0.2.0 standard (W3). It runs simple commands with quoting, ;
   and newline lists, comments, PATH search and exit statuses, the
   builtins exit, cd, :, true and false, and -c, script and
   standard-input modes. Everything else (pipes, $x, if, redirections)
