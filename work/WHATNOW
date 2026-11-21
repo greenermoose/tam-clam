@@ -3,19 +3,19 @@ WHATNOW
 What tam-clam is doing now and what comes next. Read this first; revise
 it at the end of every session (work/README-work).
 
-Updated: 2026-11-18, with W3
+Updated: 2026-11-21, with 0.0.2
 
 
 STATE
 
-  Version 0.0.1, the skeleton, on branch dev, pushed. Follows the
-  tam-idol 0.2.0 standard (W3). It runs simple commands with quoting, ;
-  and newline lists, comments, PATH search and exit statuses, the
-  builtins exit, cd, :, true and false, and -c, script and
-  standard-input modes. Everything else (pipes, $x, if, redirections)
-  is refused with a clear message, never approximated. readelf -d lists
-  only libc.so.6. make test and make sanitize pass: unit tests, script
-  tests against bash --posix, and refusal tests.
+  Version 0.0.2, pipelines and redirections, on branch dev. It adds
+  pipelines (`|`, `!`), and-or lists (`&&`, `||`) with multi-line
+  continuation, all POSIX redirection operators (`<`, `>`, `>|`, `>>`,
+  `<>`, `<&`, `>&` with IO numbers and `-` to close), here-documents
+  (`<<`, `<<-` with quoted delimiter support and in-memory size cap),
+  and descriptor save/restore around builtins. readelf -d lists only
+  libc.so.6. make test and make sanitize pass: unit tests, script tests
+  against bash --posix, and refusal tests.
 
   Fred's decisions so far are in ROADMAP.md and the plans: POSIX.1-2024
   is the target; lint mode is P2 0.1.5; tam-clam ships only its own key
@@ -25,27 +25,23 @@ STATE
 
 NEXT
 
-  1. 0.0.2, pipelines and redirections (plans/P1-foundation.md):
-     - parser nodes for pipelines (with !), and-or lists, and a
-       redirection list on a simple command (src/parse.c,
-       include/tam-clam/ast.h);
-     - every redirection operator, with IO numbers and - to close;
-     - here-documents read after the line's newline, kept in memory
-       with a size cap;
-     - redirections on builtins save and restore descriptors (src/exec.c);
-     - the pipeline status is the last command's.
-     Each refusal it replaces moves from tests/refuse/ to tests/scripts/,
-     and every new behaviour gets a script test that must match bash
-     --posix. Bump VERSION to 0.0.2 in the first code commit.
+  1. 0.0.3, variables and parameter expansion (plans/P1-foundation.md):
+     - variable table (src/var.c): shell variables, exported variables,
+       read-only flags, imported from environ at start-up;
+     - assignments before a command and assignment-only commands;
+     - words as a list of parts (literal, quoted literal, parameter) in
+       the parser instead of raw text;
+     - POSIX parameter expansion, special parameters ($? $$ $! $# $@ $*
+       $- $0), positional parameters, PS1/PS2, tilde expansion, and
+       logical cd.
+     Bump VERSION to 0.0.3 in the first code commit.
 
-  2. 0.0.3, variables and parameter expansion; 0.0.4, compound commands
-     and functions (plans/P1-foundation.md). 0.0.3 changes words from raw
-     text to parts in the parser, while the code is still small.
+  2. 0.0.4, compound commands and functions (plans/P1-foundation.md).
 
 
 WAITING FOR FRED
 
-  - Trying 0.0.1: build/tam-clam -c '...', or run it on a terminal. It
+  - Trying 0.0.2: build/tam-clam -c '...', or run it on a terminal. It
     is not installed and is nobody's login shell.
   - Whether to install dash, so the script tests compare against it as
     well as bash --posix.

@@ -275,7 +275,19 @@ static int lex_word(struct tc_lexer *lx, int c, struct tc_token *tok)
 	}
 
 	size_t len = tam_str_len(lx->word);
-	tok->kind = TC_TOK_WORD;
+	enum tc_token_kind kind = TC_TOK_WORD;
+	if ((c == '<' || c == '>') && !(flags & TC_WORD_QUOTED) && len > 0) {
+		int all_digits = 1;
+		for (size_t i = 0; i < len; i++) {
+			if (lx->word[i] < '0' || lx->word[i] > '9') {
+				all_digits = 0;
+				break;
+			}
+		}
+		if (all_digits)
+			kind = TC_TOK_IO_NUMBER;
+	}
+	tok->kind = kind;
 	tok->flags = flags;
 	tok->len = len;
 	tok->text = tc_arena_strndup(&lx->sh->arena, lx->word, len);
@@ -340,7 +352,8 @@ void tc_lexer_reset(struct tc_lexer *lx)
 const char *tc_token_name(enum tc_token_kind kind)
 {
 	static const char *const names[] = {
-		[TC_TOK_WORD] = "word", [TC_TOK_NEWLINE] = "newline",
+		[TC_TOK_WORD] = "word", [TC_TOK_IO_NUMBER] = "io_number",
+		[TC_TOK_NEWLINE] = "newline",
 		[TC_TOK_END] = "end of input", [TC_TOK_SEMI] = ";",
 		[TC_TOK_AMP] = "&", [TC_TOK_PIPE] = "|", [TC_TOK_AND_IF] = "&&",
 		[TC_TOK_OR_IF] = "||", [TC_TOK_DSEMI] = ";;", [TC_TOK_LPAREN] = "(",
@@ -353,4 +366,142 @@ const char *tc_token_name(enum tc_token_kind kind)
 	if ((size_t)kind < sizeof(names) / sizeof(names[0]) && names[kind])
 		return names[kind];
 	return "?";
+}
+
+static int hd_append(struct tc_lexer *lx, tam_str_t *buf, char ch)
+{
+	if (tam_str_len(*buf) >= TC_HEREDOC_MAX) {
+		tc_error(lx->sh, lx->in->line,
+			 "here-document longer than %zu bytes", TC_HEREDOC_MAX);
+		return TC_ERR_NOMEM;
+	}
+	tam_str_t next = tam_str_cat_len(*buf, &ch, 1);
+	if (!next) {
+		tc_error(lx->sh, lx->in->line, "out of memory");
+		return TC_ERR_NOMEM;
+	}
+	*buf = next;
+	return TC_OK;
+}
+
+int tc_lex_read_heredoc(struct tc_lexer *lx, const char *delim, bool strip_tabs,
+			bool quoted, unsigned long start_line,
+			const char **out_body, size_t *out_len)
+{
+	*out_body = "";
+	*out_len = 0;
+	tam_str_t body = tam_str_new("");
+	tam_str_t line = tam_str_new("");
+	if (!body || !line) {
+		tam_str_free(body);
+		tam_str_free(line);
+		tc_error(lx->sh, start_line, "out of memory");
+		return TC_ERR_NOMEM;
+	}
+
+	int r = TC_OK;
+	for (;;) {
+		tam_str_clear(line);
+		unsigned long line_no = lx->in->line;
+		int eof = 0;
+		for (;;) {
+			int c = quoted ? getch(lx) : getch_cont(lx);
+			if (c == TC_IN_EOF) {
+				eof = 1;
+				break;
+			}
+			if (c < TC_IN_EOF) {
+				r = input_failure(lx, c);
+				goto out;
+			}
+			if (c == 0) {
+				r = nul_byte(lx);
+				goto out;
+			}
+			if (c == '\n')
+				break;
+			if (tam_str_len(line) >= TC_HEREDOC_MAX) {
+				tc_error(lx->sh, line_no,
+					 "here-document longer than %zu bytes",
+					 TC_HEREDOC_MAX);
+				r = TC_ERR_NOMEM;
+				goto out;
+			}
+			char ch = (char)c;
+			tam_str_t next = tam_str_cat_len(line, &ch, 1);
+			if (!next) {
+				tc_error(lx->sh, line_no, "out of memory");
+				r = TC_ERR_NOMEM;
+				goto out;
+			}
+			line = next;
+		}
+
+		const char *s = line;
+		size_t slen = tam_str_len(line);
+		if (strip_tabs) {
+			while (slen > 0 && *s == '\t') {
+				s++;
+				slen--;
+			}
+		}
+
+		if (!eof && strcmp(s, delim) == 0)
+			break;
+
+		if (eof && slen == 0) {
+			tc_error(lx->sh, line_no,
+				 "warning: here-document at line %lu delimited by end-of-file (wanted `%s')",
+				 start_line, delim);
+			break;
+		}
+
+		if (!quoted) {
+			for (size_t i = 0; i < slen; i++) {
+				if (s[i] == '\\' && i + 1 < slen &&
+				    (s[i + 1] == '$' || s[i + 1] == '`' || s[i + 1] == '\\')) {
+					if ((r = hd_append(lx, &body, s[++i])) != TC_OK)
+						goto out;
+					continue;
+				}
+				if (s[i] == '$' || s[i] == '`') {
+					tc_error(lx->sh, line_no,
+						 "expansions inside here-documents are not supported yet; see ROADMAP.md");
+					r = TC_ERR_SYNTAX;
+					goto out;
+				}
+				if ((r = hd_append(lx, &body, s[i])) != TC_OK)
+					goto out;
+			}
+		} else {
+			for (size_t i = 0; i < slen; i++) {
+				if ((r = hd_append(lx, &body, s[i])) != TC_OK)
+					goto out;
+			}
+		}
+
+		if (eof) {
+			tc_error(lx->sh, line_no,
+				 "warning: here-document at line %lu delimited by end-of-file (wanted `%s')",
+				 start_line, delim);
+			break;
+		}
+		if ((r = hd_append(lx, &body, '\n')) != TC_OK)
+			goto out;
+	}
+
+	size_t blen = tam_str_len(body);
+	char *copy = tc_arena_strndup(&lx->sh->arena, body, blen);
+	if (!copy) {
+		tc_error(lx->sh, start_line, "out of memory");
+		r = TC_ERR_NOMEM;
+		goto out;
+	}
+	*out_body = copy;
+	*out_len = blen;
+
+out:
+	tam_str_free(body);
+	tam_str_free(line);
+	return r;
 }

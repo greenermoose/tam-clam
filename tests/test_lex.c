@@ -161,6 +161,38 @@ int main(void)
 	}
 	stop(&f);
 
+	/* IO numbers: unquoted all-digit words immediately before < or >. */
+	start(&f, "2>err 10<&0 '2'>file 2 >file");
+	{
+		struct tc_token t;
+		CHECK(tc_lex_next(&f.lx, &t) == TC_OK && t.kind == TC_TOK_IO_NUMBER &&
+		      strcmp(t.text, "2") == 0);
+		CHECK(kind_is(&f.lx, TC_TOK_GREAT));
+		CHECK(word_is(&f.lx, "err", 0));
+		CHECK(tc_lex_next(&f.lx, &t) == TC_OK && t.kind == TC_TOK_IO_NUMBER &&
+		      strcmp(t.text, "10") == 0);
+		CHECK(kind_is(&f.lx, TC_TOK_LESSAND));
+		CHECK(word_is(&f.lx, "0", 0));
+		CHECK(word_is(&f.lx, "'2'", TC_WORD_QUOTED));
+		CHECK(kind_is(&f.lx, TC_TOK_GREAT));
+		CHECK(word_is(&f.lx, "file", 0));
+		CHECK(word_is(&f.lx, "2", 0));
+		CHECK(kind_is(&f.lx, TC_TOK_GREAT));
+		CHECK(word_is(&f.lx, "file", 0));
+	}
+	stop(&f);
+
+	/* Here-document body reading. */
+	start(&f, "\t\thello\n\t\tworld\n\tEOF\nafter\n");
+	{
+		const char *body = NULL;
+		size_t blen = 0;
+		CHECK(tc_lex_read_heredoc(&f.lx, "EOF", true, true, 1, &body, &blen) == TC_OK);
+		CHECK(blen == 12 && strcmp(body, "hello\nworld\n") == 0);
+		CHECK(word_is(&f.lx, "after", 0));
+	}
+	stop(&f);
+
 	/* Errors. */
 	CHECK(lex_fails("echo 'abc"));
 	CHECK(lex_fails("echo \"abc"));

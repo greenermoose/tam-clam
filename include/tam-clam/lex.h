@@ -12,9 +12,12 @@
 
 /* The longest word the lexer accepts. */
 #define TC_WORD_MAX ((size_t)1 << 20)
+/* The longest here-document body kept in memory. */
+#define TC_HEREDOC_MAX ((size_t)1 << 20)
 
 enum tc_token_kind {
 	TC_TOK_WORD,
+	TC_TOK_IO_NUMBER, /* digits immediately before < or > */
 	TC_TOK_NEWLINE,
 	TC_TOK_END,       /* end of input */
 	/* Operators, XCU 2.10.1. */
@@ -72,5 +75,9 @@ void tc_lexer_reset(struct tc_lexer *lx);
 void tc_lex_skip_line(struct tc_lexer *lx);
 /* The text of an operator token, for messages. */
 const char *tc_token_name(enum tc_token_kind kind);
+/* Read a here-document body up to delim into the arena. */
+int tc_lex_read_heredoc(struct tc_lexer *lx, const char *delim, bool strip_tabs,
+			bool quoted, unsigned long start_line,
+			const char **out_body, size_t *out_len);
 
 #endif

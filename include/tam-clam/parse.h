@@ -11,11 +11,15 @@
 /* The most simple commands one complete command may hold. */
 #define TC_WORDS_MAX 65536
 
+struct tc_heredoc_pending;
+
 struct tc_parser {
 	struct tc_shell *sh;
 	struct tc_lexer lx;
 	struct tc_token tok;   /* the current token */
 	int have_tok;
+	struct tc_heredoc_pending *hd_head;
+	struct tc_heredoc_pending *hd_tail;
 };
 
 int tc_parser_init(struct tc_parser *p, struct tc_shell *sh, struct tc_input *in);

@@ -80,18 +80,51 @@ int main(void)
 	CHECK(fails("a;;"));
 	CHECK(fails("a ; ;"));
 	CHECK(fails(")"));
+	CHECK(fails("|"));
+	CHECK(fails("a |"));
+	CHECK(fails("a &&"));
+	CHECK(fails("a ||"));
+	CHECK(fails("a >"));
+	CHECK(fails("!"));
 
-	/* Valid shell that 0.0.1 refuses rather than runs wrongly. */
-	CHECK(fails("a | b"));
-	CHECK(fails("a && b"));
-	CHECK(fails("a || b"));
+	/* Pipelines, !, &&/||, redirections, and here-documents. */
+	start(&f, "! a | b && c || d");
+	CHECK(tc_parse_next(&f.p, &n) == TC_OK && n && n->kind == TC_NODE_AND_OR &&
+	      n->u.and_or.nitems == 3);
+	CHECK(n->u.and_or.items[0].op == TC_ANDOR_FIRST &&
+	      n->u.and_or.items[0].cmd->kind == TC_NODE_PIPELINE &&
+	      n->u.and_or.items[0].cmd->u.pipeline.bang &&
+	      n->u.and_or.items[0].cmd->u.pipeline.ncmds == 2);
+	CHECK(n->u.and_or.items[1].op == TC_ANDOR_AND &&
+	      is_simple(n->u.and_or.items[1].cmd, 1, "c"));
+	CHECK(n->u.and_or.items[2].op == TC_ANDOR_OR &&
+	      is_simple(n->u.and_or.items[2].cmd, 1, "d"));
+	stop(&f);
+
+	start(&f, "a |\n\nb &&\nc");
+	CHECK(tc_parse_next(&f.p, &n) == TC_OK && n && n->kind == TC_NODE_AND_OR &&
+	      n->u.and_or.nitems == 2 &&
+	      n->u.and_or.items[0].cmd->kind == TC_NODE_PIPELINE &&
+	      n->u.and_or.items[0].cmd->u.pipeline.ncmds == 2);
+	stop(&f);
+
+	start(&f, "> out\na 2>err <<'EOF'\nhello\nEOF\n");
+	CHECK(tc_parse_next(&f.p, &n) == TC_OK && n && n->kind == TC_NODE_SIMPLE &&
+	      n->u.simple.nwords == 0 && n->u.simple.nredirs == 1 &&
+	      n->u.simple.redirs[0].kind == TC_REDIR_OUT);
+	CHECK(tc_parse_next(&f.p, &n) == TC_OK && is_simple(n, 1, "a") &&
+	      n->u.simple.nredirs == 2 &&
+	      n->u.simple.redirs[0].fd == 2 &&
+	      n->u.simple.redirs[1].kind == TC_REDIR_HEREDOC &&
+	      n->u.simple.redirs[1].heredoc_quoted &&
+	      strcmp(n->u.simple.redirs[1].heredoc_body, "hello\n") == 0);
+	stop(&f);
+
+	/* Valid shell that 0.0.2 still refuses rather than runs wrongly. */
 	CHECK(fails("a &"));
-	CHECK(fails("a > f"));
-	CHECK(fails("a 2>f"));
 	CHECK(fails("(a)"));
 	CHECK(fails("if true; then :; fi"));
 	CHECK(fails("{ a; }"));
-	CHECK(fails("! a"));
 	CHECK(fails("echo $HOME"));
 	CHECK(fails("echo \"$HOME\""));
 	CHECK(fails("echo `date`"));
@@ -100,7 +133,7 @@ int main(void)
 	CHECK(fails("X=1 env"));
 
 	/* An error leaves the next line parseable after recovery. */
-	start(&f, "a | b c\nok\n");
+	start(&f, "a & b c\nok\n");
 	CHECK(tc_parse_next(&f.p, &n) == TC_ERR_SYNTAX);
 	tc_parser_recover(&f.p);
 	CHECK(tc_parse_next(&f.p, &n) == TC_OK && is_simple(n, 1, "ok"));
