@@ -1,0 +1,33 @@
+SANDBOX
+
+This folder holds test files, demos, and small experiments for trying
+this repository's project out by hand. It is for playing with the
+program, separate from automated tests (tests/) and developer helpers
+(tools/).
+
+
+WHAT GOES HERE
+
+  Sample input files, interactive demo scripts, and throwaway configs
+  that let someone exercise the program and see how it behaves. Nothing
+  here is installed by make install, and make test does not rely on it.
+
+
+IN THIS REPOSITORY
+
+  Runnable demos for playing with tam-clam by hand. Run any demo
+  directly from the repository root (it uses build/tam-clam, building
+  it first if needed), or start with the menu:
+
+    ./sandbox/play                  interactive menu of all demos
+    ./sandbox/demo-0.0.1-basics     0.0.1: quoting, lists, builtins,
+                                    and clear refusal of future syntax
+    ./sandbox/demo-0.0.2-pipes      0.0.2: pipelines, !, &&/||,
+                                    redirections, and here-documents
+    ./sandbox/demo-0.0.3-vars       0.0.3: variables, prefix vs special
+                                    assignments, parameter expansion,
+                                    positional params, and tilde
+    ./sandbox/demo-0.0.3-cd         0.0.3: logical cd (-L), physical
+                                    cd (-P), cd -, and CDPATH
+    ./sandbox/demo-interactive      start an interactive tam-clam
+                                    prompt with ideas to try live

@@ -1,0 +1,24 @@
+#!/bin/sh
+# Demo 0.0.1: simple commands, quoting, lists, builtins, and clear refusals.
+set -eu
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+SH="$ROOT/build/tam-clam"
+[ -x "$SH" ] || make -C "$ROOT"
+
+echo "--- 0.0.1: quoting, comments, lists, builtins ---"
+"$SH" <<'SCRIPT'
+# Comments are ignored.
+echo 'single quotes keep $literal and \backslashes'
+echo "double quotes allow \"escapes\" and keep spacing: a   b"
+echo backslash\ space\ works\ too
+true; echo "after true: status=$?"
+false; echo "after false: status=$?"
+: ignored arguments; echo "after colon builtin: status=$?"
+SCRIPT
+
+echo ""
+echo "--- 0.0.1+: unfinished features are refused, never approximated ---"
+for snippet in 'echo *.c' 'if true; then echo hi; fi' 'echo $(date)' 'echo $((1+2))'; do
+	printf '  $ %s\n    -> ' "$snippet"
+	"$SH" -c "$snippet" 2>&1 || true
+done

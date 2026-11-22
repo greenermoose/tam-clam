@@ -1,0 +1,37 @@
+#!/bin/sh
+# Demo 0.0.2: pipelines, !, &&/||, redirections, and here-documents.
+set -eu
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+SH="$ROOT/build/tam-clam"
+[ -x "$SH" ] || make -C "$ROOT"
+
+echo "--- 0.0.2: pipelines, !, and-or lists, redirections, here-documents ---"
+"$SH" <<'SCRIPT'
+echo "--- pipeline & negation ---"
+printf 'cherry\napple\nbanana\n' | sort | tr a-z A-Z
+! false && echo "! false succeeded (status=$?)"
+false || echo "recovered after false via ||"
+
+echo "--- redirections ---"
+TMP=/tmp/tam-clam-demo-redir-$$
+echo "line one" > "$TMP"
+echo "line two" >> "$TMP"
+cat < "$TMP"
+rm -f "$TMP"
+
+echo "--- here-documents (unquoted, quoted, and <<- tab-stripped) ---"
+WHO=Fred
+cat <<EOF
+Hello, $WHO! (PID=$$, default=${UNSET:-tam-clam})
+Escaped dollar: \$WHO
+EOF
+
+cat <<'EOF'
+Quoted delimiter keeps $WHO and `backticks` literal.
+EOF
+
+cat <<-EOF
+	Leading tabs are stripped
+		even when nested.
+	EOF
+SCRIPT

@@ -1,0 +1,19 @@
+#!/bin/sh
+# Launch an interactive tam-clam session with suggested things to try.
+set -eu
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+SH="$ROOT/build/tam-clam"
+[ -x "$SH" ] || make -C "$ROOT"
+
+cat <<EOF
+Starting interactive tam-clam $(cat "$ROOT/VERSION") (type 'exit' or Ctrl-D to leave).
+Things to try:
+  PS1='clam> '               # change the live prompt
+  X=hello; echo "\$X world"   # variables and expansion
+  echo \${Y:-default}         # parameter default
+  echo ~ ~/Code              # tilde expansion
+  cd /tmp && cd -            # logical cd and OLDPWD
+  printf 'b\na\n' | sort     # pipelines
+  echo *.c                   # see refusal of unfinished 0.1.0 features
+EOF
+exec env PS1='tam-clam$ ' PS2='tam-clam> ' "$SH"

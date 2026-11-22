@@ -1,0 +1,32 @@
+#!/bin/sh
+# Interactive menu for tam-clam sandbox demos.
+set -eu
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+SH="$ROOT/build/tam-clam"
+
+if [ ! -x "$SH" ]; then
+	echo "Building tam-clam..."
+	make -C "$ROOT"
+fi
+
+while :; do
+	printf '\n=== tam-clam %s sandbox ===\n' "$(cat "$ROOT/VERSION")"
+	printf '  1) 0.0.1 basics      (quoting, lists, builtins, refusals)\n'
+	printf '  2) 0.0.2 pipes       (pipelines, !, &&/||, redirs, heredocs)\n'
+	printf '  3) 0.0.3 vars        (variables, parameter expansion, $@/$*, tilde)\n'
+	printf '  4) 0.0.3 cd          (logical -L, physical -P, cd -, CDPATH)\n'
+	printf '  5) interactive shell (try tam-clam live at a prompt)\n'
+	printf '  q) quit\n'
+	printf 'Choose [1-5, q]: '
+	IFS= read -r choice || break
+	printf '\n'
+	case "$choice" in
+	1) "$ROOT/sandbox/demo-0.0.1-basics" ;;
+	2) "$ROOT/sandbox/demo-0.0.2-pipes" ;;
+	3) "$ROOT/sandbox/demo-0.0.3-vars" ;;
+	4) "$ROOT/sandbox/demo-0.0.3-cd" ;;
+	5) "$ROOT/sandbox/demo-interactive" ;;
+	q|Q) break ;;
+	*) echo "Unknown choice: $choice" ;;
+	esac
+done

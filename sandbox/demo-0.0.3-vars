@@ -1,0 +1,51 @@
+#!/bin/sh
+# Demo 0.0.3: variables, assignments, parameter expansion, positional params, tilde.
+set -eu
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+SH="$ROOT/build/tam-clam"
+[ -x "$SH" ] || make -C "$ROOT"
+
+echo "--- 0.0.3: variables, assignments, parameter expansion, tilde ---"
+"$SH" -c '
+echo "=== 1. Assignments & persistence ==="
+NAME=tam-clam
+GREETING="Hello from $NAME"
+echo "$GREETING (length=${#GREETING})"
+
+X=outer
+X=inner env | grep "^X="
+echo "after external command: X=$X"
+
+S=persisted :
+echo "after special builtin (:): S=$S"
+
+R=temporary true
+echo "after regular builtin (true): R=${R:-<unset>}"
+
+echo ""
+echo "=== 2. Parameter expansion operators ==="
+EMPTY=
+echo ":- on unset:  ${UNSET:-fallback}"
+echo ":- on empty:  ${EMPTY:-fallback}"
+echo "-  on empty:  <${EMPTY-fallback}>"
+echo ":= assigns:   ${AUTO:=created-on-demand} -> AUTO=$AUTO"
+echo ":+ alternate: ${NAME:+NAME is set}"
+FILE=archive/notes/plan.txt
+echo "trim suffix %:  ${FILE%.txt}"
+echo "trim prefix #:  ${FILE#archive/}"
+
+echo ""
+echo "=== 3. Special & positional parameters ==="
+echo "\$0=$0  \$#=$#  \$1=$1  \$2=$2  \${3}=${3}"
+printf "  \"\$@\" arg: <%s>\n" "$@"
+IFS=,
+echo "  \"\$*\" with IFS=,: $*"
+
+echo ""
+echo "=== 4. Tilde expansion ==="
+HOME=/home/demo
+echo "  ~       -> " ~
+echo "  ~/docs  -> " ~/docs
+DIRS=~:~/bin
+echo "  DIRS=~:~/bin -> $DIRS"
+' demo-shell "first arg" second "third arg"

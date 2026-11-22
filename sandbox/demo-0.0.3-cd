@@ -1,0 +1,34 @@
+#!/bin/sh
+# Demo 0.0.3: POSIX logical cd (-L), physical cd (-P), cd -, and CDPATH.
+set -eu
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+SH="$ROOT/build/tam-clam"
+[ -x "$SH" ] || make -C "$ROOT"
+
+echo "--- 0.0.3: logical cd (-L), physical cd (-P), cd -, and CDPATH ---"
+"$SH" <<'SCRIPT'
+BASE=/tmp/tam-clam-demo-cd-$$
+rm -rf "$BASE"
+mkdir -p "$BASE/real/sub" "$BASE/projects/demo-app"
+ln -s "$BASE/real" "$BASE/link"
+
+cd "$BASE/link"
+echo "1. cd -L into symlink:  PWD=$PWD"
+cd sub
+echo "2. cd sub:              PWD=$PWD"
+cd ..
+echo "3. cd .. (logical):     PWD=$PWD"
+cd -P "$BASE/link"
+echo "4. cd -P (physical):    PWD=$PWD"
+echo "5. cd - (back to OLDPWD):"
+cd -
+echo "   now PWD=$PWD"
+
+CDPATH="$BASE/projects"
+echo "6. CDPATH=$CDPATH; cd demo-app:"
+cd demo-app
+echo "   now PWD=$PWD"
+
+cd /
+rm -rf "$BASE"
+SCRIPT
