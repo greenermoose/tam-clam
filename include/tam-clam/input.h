@@ -11,6 +11,8 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+struct tc_shell;
+
 /* tc_input_getc returns a byte (0 to 255) or one of these. */
 enum {
 	TC_IN_EOF = -1,
@@ -33,6 +35,7 @@ struct tc_input {
 	bool prompt;            /* write prompts (interactive) */
 	bool at_line_start;
 	bool want_ps1;          /* next prompt is PS1, not PS2 */
+	const struct tc_shell *sh; /* shell for PS1/PS2 lookup */
 };
 
 void tc_input_from_string(struct tc_input *in, const char *s, size_t len);

@@ -19,7 +19,6 @@ static void start(struct fixture *f, const char *src)
 	tc_shell_init(&f->sh, "test");
 	tc_input_from_string(&f->in, src, strlen(src));
 	tc_parser_init(&f->p, &f->sh, &f->in);
-	/* Expected error messages go to /dev/null. */
 	f->saved_stderr = dup(2);
 	int null = open("/dev/null", O_WRONLY);
 	dup2(null, 2);
@@ -120,17 +119,28 @@ int main(void)
 	      strcmp(n->u.simple.redirs[1].heredoc_body, "hello\n") == 0);
 	stop(&f);
 
-	/* Valid shell that 0.0.2 still refuses rather than runs wrongly. */
+	/* 0.0.3: assignments, parameter expansions, and tilde now parse. */
+	start(&f, "X=1 Y=$X\nA=1 env\necho $HOME \"$HOME\" ~ ${x:-a b}\n");
+	CHECK(tc_parse_next(&f.p, &n) == TC_OK && n && n->kind == TC_NODE_SIMPLE &&
+	      n->u.simple.nassigns == 2 && n->u.simple.nwords == 0 &&
+	      strcmp(n->u.simple.assigns[0].name, "X") == 0 &&
+	      strcmp(n->u.simple.assigns[1].name, "Y") == 0);
+	CHECK(tc_parse_next(&f.p, &n) == TC_OK && n && n->kind == TC_NODE_SIMPLE &&
+	      n->u.simple.nassigns == 1 && is_simple(n, 1, "env"));
+	CHECK(tc_parse_next(&f.p, &n) == TC_OK && is_simple(n, 5, "echo"));
+	stop(&f);
+
+	/* Valid shell that 0.0.3 still refuses rather than runs wrongly. */
 	CHECK(fails("a &"));
 	CHECK(fails("(a)"));
 	CHECK(fails("if true; then :; fi"));
 	CHECK(fails("{ a; }"));
-	CHECK(fails("echo $HOME"));
-	CHECK(fails("echo \"$HOME\""));
 	CHECK(fails("echo `date`"));
+	CHECK(fails("echo $(date)"));
+	CHECK(fails("echo $((1+2))"));
+	CHECK(fails("echo $'abc'"));
 	CHECK(fails("echo *.c"));
-	CHECK(fails("echo ~"));
-	CHECK(fails("X=1 env"));
+	CHECK(fails("echo ${x%*}"));
 
 	/* An error leaves the next line parseable after recovery. */
 	start(&f, "a & b c\nok\n");

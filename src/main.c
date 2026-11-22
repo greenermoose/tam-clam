@@ -3,7 +3,7 @@
  *
  *   tam-clam -c 'commands' [name [args...]]
  *   tam-clam script [args...]
- *   tam-clam [-s]               read commands from standard input
+ *   tam-clam [-s] [args...]     read commands from standard input
  */
 #include <errno.h>
 #include <fcntl.h>
@@ -27,7 +27,7 @@ static void usage(int fd)
 	static const char text[] =
 		"usage: tam-clam -c COMMANDS [NAME [ARGS...]]\n"
 		"       tam-clam SCRIPT [ARGS...]\n"
-		"       tam-clam [-s]\n"
+		"       tam-clam [-s] [ARGS...]\n"
 		"       tam-clam --version\n";
 	(void)tc_write_all(fd, text, sizeof(text) - 1);
 }
@@ -37,6 +37,7 @@ static int run(struct tc_shell *sh, struct tc_input *in)
 {
 	struct tc_parser p;
 	sh->in = in;
+	in->sh = sh;
 	if (tc_parser_init(&p, sh, in) != TC_OK) {
 		tc_error(sh, 0, "out of memory");
 		return TC_STATUS_USAGE;
@@ -111,13 +112,17 @@ int main(int argc, char **argv)
 			break;
 		} else if (strcmp(a, "--version") == 0) {
 			static const char v[] = "tam-clam " TC_VERSION "\n";
-			return tc_write_all(STDOUT_FILENO, v, sizeof(v) - 1) < 0 ? 1 : 0;
+			int wr = tc_write_all(STDOUT_FILENO, v, sizeof(v) - 1) < 0 ? 1 : 0;
+			tc_shell_finish(&sh);
+			return wr;
 		} else if (strcmp(a, "--help") == 0) {
 			usage(STDOUT_FILENO);
+			tc_shell_finish(&sh);
 			return 0;
 		} else if (strcmp(a, "-c") == 0) {
 			if (++i >= argc) {
 				tc_error(&sh, 0, "-c: a command string is needed");
+				tc_shell_finish(&sh);
 				return TC_STATUS_USAGE;
 			}
 			command = argv[i];
@@ -126,10 +131,13 @@ int main(int argc, char **argv)
 		} else if (strcmp(a, "-s") == 0) {
 			read_stdin = 1;
 			i++;
+			if (i < argc && strcmp(argv[i], "--") == 0)
+				i++;
 			break;
 		} else {
 			tc_error(&sh, 0, "%s: option not supported yet", a);
 			usage(STDERR_FILENO);
+			tc_shell_finish(&sh);
 			return TC_STATUS_USAGE;
 		}
 	}
@@ -137,20 +145,42 @@ int main(int argc, char **argv)
 	struct tc_input in;
 	int status;
 	if (command) {
-		/* The word after the command string becomes $0. */
-		if (i < argc)
-			sh.name = argv[i];
+		/* The word after the command string becomes $0; the rest $1..$N. */
+		if (i < argc) {
+			sh.name = argv[i++];
+			if (i < argc &&
+			    tc_shell_set_params(&sh, argc - i, argv + i) != TC_OK) {
+				tc_error(&sh, 0, "out of memory");
+				tc_shell_finish(&sh);
+				return TC_STATUS_USAGE;
+			}
+		}
 		tc_input_from_string(&in, command, strlen(command));
 		status = run(&sh, &in);
 	} else if (!read_stdin && i < argc) {
 		int fd;
-		if ((status = open_script(&sh, argv[i], &fd)) != 0)
+		if ((status = open_script(&sh, argv[i], &fd)) != 0) {
+			tc_shell_finish(&sh);
 			return status;
-		sh.name = argv[i];
+		}
+		sh.name = argv[i++];
+		if (i < argc &&
+		    tc_shell_set_params(&sh, argc - i, argv + i) != TC_OK) {
+			tc_error(&sh, 0, "out of memory");
+			close(fd);
+			tc_shell_finish(&sh);
+			return TC_STATUS_USAGE;
+		}
 		tc_input_from_fd(&in, fd, false);
 		status = run(&sh, &in);
 		close(fd);
 	} else {
+		if (i < argc &&
+		    tc_shell_set_params(&sh, argc - i, argv + i) != TC_OK) {
+			tc_error(&sh, 0, "out of memory");
+			tc_shell_finish(&sh);
+			return TC_STATUS_USAGE;
+		}
 		tc_input_from_fd(&in, STDIN_FILENO, true);
 		sh.interactive = isatty(STDIN_FILENO) && isatty(STDERR_FILENO);
 		if (sh.interactive) {

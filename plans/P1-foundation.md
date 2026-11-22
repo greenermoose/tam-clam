@@ -1,7 +1,8 @@
 # P1: Foundation (0.0.x)
 
-**Status:** in progress. 0.0.1, the skeleton, built on 2026-11-17 and
-waiting for Fred to try it. Next: 0.0.2, pipelines and redirections.
+**Status:** in progress. 0.0.3, variables and parameter expansion, built on
+2026-11-22 and waiting for Fred to try it. Next: 0.0.4, compound commands
+and functions.
 
 ## Goal
 

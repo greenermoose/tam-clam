@@ -1,0 +1,8 @@
+L1=/link
+L2=/link/sub
+L3=/link
+P1=/real
+BASE/link
+BACK=/link
+BASE/other/target
+CDPATH=/other/target

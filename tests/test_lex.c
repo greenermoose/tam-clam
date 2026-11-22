@@ -44,7 +44,6 @@ static int lex_fails(const char *src)
 {
 	struct fixture f;
 	start(&f, src);
-	/* Silence the expected message. */
 	int saved = dup(2), null = open("/dev/null", O_WRONLY);
 	dup2(null, 2);
 	struct tc_token t;
@@ -72,7 +71,7 @@ int main(void)
 	CHECK(kind_is(&f.lx, TC_TOK_END));
 	stop(&f);
 
-	/* Quotes stay in the word; flags say so. */
+	/* Quotes stay in raw text; flags say so. */
 	start(&f, "'a b' \"c d\" e\\ f");
 	CHECK(word_is(&f.lx, "'a b'", TC_WORD_QUOTED));
 	CHECK(word_is(&f.lx, "\"c d\"", TC_WORD_QUOTED));
@@ -133,7 +132,7 @@ int main(void)
 	stop(&f);
 
 	/* Flags for what expansion will need. */
-	start(&f, "$x \"$y\" '$z' \\$w `a` *.c a? [ab] ~ a~ X=1 =1 'X'=1 x1_=");
+	start(&f, "$x \"$y\" '$z' \\$w `a` *.c a? [ab] ~ a~ X=1 =1 'X'=1 x1_= $");
 	CHECK(word_is(&f.lx, "$x", TC_WORD_DOLLAR));
 	CHECK(word_is(&f.lx, "\"$y\"", TC_WORD_QUOTED | TC_WORD_DOLLAR));
 	CHECK(word_is(&f.lx, "'$z'", TC_WORD_QUOTED));
@@ -148,6 +147,36 @@ int main(void)
 	CHECK(word_is(&f.lx, "=1", 0));
 	CHECK(word_is(&f.lx, "'X'=1", TC_WORD_QUOTED));
 	CHECK(word_is(&f.lx, "x1_=", TC_WORD_ASSIGN));
+	/* Bare '$' is literal, not TC_WORD_DOLLAR. */
+	CHECK(word_is(&f.lx, "$", 0));
+	stop(&f);
+
+	/* Word parts: literal, quoted, and parameter expansion. */
+	start(&f, "pre${x:-a b}'post' ${#foo} ${10}");
+	{
+		struct tc_token t;
+		CHECK(tc_lex_next(&f.lx, &t) == TC_OK && t.kind == TC_TOK_WORD);
+		CHECK(t.parts && t.parts->kind == TC_WPART_LITERAL &&
+		      strcmp(t.parts->text, "pre") == 0);
+		struct tc_wpart *p2 = t.parts->next;
+		CHECK(p2 && p2->kind == TC_WPART_PARAM &&
+		      strcmp(p2->text, "x") == 0 &&
+		      p2->op == TC_PARAM_USE_DEFAULT && p2->colon &&
+		      p2->arg && strcmp(p2->arg->text, "a b") == 0);
+		struct tc_wpart *p3 = p2->next;
+		CHECK(p3 && p3->kind == TC_WPART_QUOTED &&
+		      strcmp(p3->text, "post") == 0 && p3->next == NULL);
+
+		CHECK(tc_lex_next(&f.lx, &t) == TC_OK && t.parts &&
+		      t.parts->kind == TC_WPART_PARAM &&
+		      t.parts->op == TC_PARAM_LEN &&
+		      strcmp(t.parts->text, "foo") == 0);
+
+		CHECK(tc_lex_next(&f.lx, &t) == TC_OK && t.parts &&
+		      t.parts->kind == TC_WPART_PARAM &&
+		      t.parts->op == TC_PARAM_PLAIN &&
+		      strcmp(t.parts->text, "10") == 0);
+	}
 	stop(&f);
 
 	/* Line numbers. */
@@ -182,14 +211,31 @@ int main(void)
 	}
 	stop(&f);
 
-	/* Here-document body reading. */
+	/* Here-document body reading (quoted and unquoted). */
 	start(&f, "\t\thello\n\t\tworld\n\tEOF\nafter\n");
 	{
 		const char *body = NULL;
 		size_t blen = 0;
-		CHECK(tc_lex_read_heredoc(&f.lx, "EOF", true, true, 1, &body, &blen) == TC_OK);
+		struct tc_wpart *parts = NULL;
+		CHECK(tc_lex_read_heredoc(&f.lx, "EOF", true, true, 1,
+					  &body, &blen, &parts) == TC_OK);
 		CHECK(blen == 12 && strcmp(body, "hello\nworld\n") == 0);
+		CHECK(parts == NULL);
 		CHECK(word_is(&f.lx, "after", 0));
+	}
+	stop(&f);
+
+	start(&f, "hi $NAME\nEOF\n");
+	{
+		const char *body = NULL;
+		size_t blen = 0;
+		struct tc_wpart *parts = NULL;
+		CHECK(tc_lex_read_heredoc(&f.lx, "EOF", false, false, 1,
+					  &body, &blen, &parts) == TC_OK);
+		CHECK(parts && parts->kind == TC_WPART_QUOTED &&
+		      strcmp(parts->text, "hi ") == 0);
+		CHECK(parts->next && parts->next->kind == TC_WPART_PARAM &&
+		      strcmp(parts->next->text, "NAME") == 0);
 	}
 	stop(&f);
 
@@ -197,6 +243,10 @@ int main(void)
 	CHECK(lex_fails("echo 'abc"));
 	CHECK(lex_fails("echo \"abc"));
 	CHECK(lex_fails("echo \"abc\\"));
+	CHECK(lex_fails("echo ${}"));
+	CHECK(lex_fails("echo ${x"));
+	CHECK(lex_fails("echo ${1a}"));
+	CHECK(lex_fails("echo ${#x:-1}"));
 	{
 		static const char nul[] = "echo a\0b";
 		struct fixture g;

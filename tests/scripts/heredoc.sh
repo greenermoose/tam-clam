@@ -1,6 +1,9 @@
+VAR=world
 cat <<EOF
 alpha
-beta
+hello $VAR
+${UNSET:-fallback}
+\$literal
 EOF
 cat <<'EOF'
 $literal

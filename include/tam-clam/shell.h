@@ -7,8 +7,10 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <sys/types.h>
 
 #include "tam-clam/arena.h"
+#include "tam-clam/var.h"
 
 struct tc_input;
 
@@ -36,14 +38,22 @@ struct tc_shell {
 	char self_path[TC_SELF_PATH_MAX]; /* this executable, for ENOEXEC */
 	bool interactive;
 	int status;                /* status of the last command ($?) */
-	bool exit_requested;       /* the exit builtin ran */
+	bool exit_requested;       /* the exit builtin or fatal error ran */
 	int exit_status;
+	pid_t root_pid;            /* $$: main shell PID */
+	pid_t last_bg_pid;         /* $!: 0 until background jobs in 0.1.1 */
+	struct tc_vars vars;       /* shell variables and environment */
+	char **params;             /* positional parameters $1..$N */
+	size_t nparams;
 	struct tc_arena arena;     /* memory for the command being run */
 	struct tc_input *in;       /* the input being read, for line numbers */
 };
 
 void tc_shell_init(struct tc_shell *sh, const char *name);
 void tc_shell_finish(struct tc_shell *sh);
+
+/* Replace positional parameters ($1..$N) with heap copies of argv[0..n). */
+int tc_shell_set_params(struct tc_shell *sh, int n, char *const *argv);
 
 /* Report an error on standard error as "name: line N: message". line 0
  * leaves the line out. Never fails loudly: a failed write is ignored. */

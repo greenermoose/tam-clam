@@ -16,6 +16,7 @@ static void input_common(struct tc_input *in)
 	in->prompt = false;
 	in->at_line_start = true;
 	in->want_ps1 = true;
+	in->sh = NULL;
 }
 
 void tc_input_from_string(struct tc_input *in, const char *s, size_t len)
@@ -44,10 +45,14 @@ void tc_input_new_command(struct tc_input *in)
 
 static void write_prompt(struct tc_input *in)
 {
-	/* PS1 and PS2 become variables in 0.0.3; these are their defaults. */
-	const char *p = in->want_ps1 ? "$ " : "> ";
+	const char *p = NULL;
+	if (in->sh)
+		p = tc_var_get(&in->sh->vars, in->want_ps1 ? "PS1" : "PS2");
+	else
+		p = in->want_ps1 ? "$ " : "> ";
 	in->want_ps1 = false;
-	(void)tc_write_all(STDERR_FILENO, p, strlen(p));
+	if (p && *p)
+		(void)tc_write_all(STDERR_FILENO, p, strlen(p));
 }
 
 static int fill(struct tc_input *in)

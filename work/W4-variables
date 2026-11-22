@@ -1,0 +1,49 @@
+W4 VARIABLES AND PARAMETER EXPANSION
+
+Date: 2026-11-22
+AI harness: agy 1.5.14
+AI model: Gemini 4 Neon (Medium)
+
+GUIDANCE
+
+  Fred: "/plan Do the next work slice for tam-clam."
+  Fred: "/plan pass them through as a single word. Update the plan so I
+  can see it again."
+  Fred: "Approved. proceed."
+
+DONE
+
+  - Added variable table (include/tam-clam/var.h, src/var.c) with
+    export/readonly flags, environ import (skipping invalid names),
+    lazy envp caching, and command-prefix overrides/save-restore.
+  - Replaced raw word text expansion with structured tc_wpart lists
+    (LITERAL, QUOTED, PARAM) built in src/lex.c, with depth-limited
+    ${...} parsing and unquoted here-document part lexing.
+  - Added assignment-only and prefix assignments in src/parse.c and
+    src/exec.c, following POSIX persistence rules (special builtins
+    ':' and 'exit' persist; regular builtins and externals isolate).
+  - Implemented POSIX parameter expansion in src/expand.c: $name,
+    ${name}, :-/-/=/==/:/?/+/:+, ${#name}, plain-string %/%%/#/#,
+    special parameters ($? $$ $! $# $@ $* $- $0), positional parameters
+    from -c/script/-s, "$@" multi-word and empty unquoted elision, and
+    tilde expansion (word start and assignment RHS).
+  - Wired PS1/PS2 prompts in src/input.c and upgraded cd in
+    src/builtins.c to POSIX -L (default) and -P with PWD, OLDPWD, and
+    CDPATH.
+  - Bumped VERSION to 0.0.3, updated ROADMAP.md and P1-foundation.md,
+    added test_var, updated test_lex/test_parse/test_expand, moved
+    assign/dollar out of tests/refuse/, added vars/param/param-err/
+    tilde/cd-logical script tests and positional startup checks.
+  - Verified with make clean && make (0 warnings), make test (255 unit
+    checks, 65 script checks against bash --posix), make sanitize
+    (ASan+UBSan clean), and readelf -d (only libc.so.6).
+
+FAILED
+
+  - Nothing.
+
+HANDOFF
+
+  - Next is 0.0.4: compound commands (if, while, until, for, case,
+    { }, subshells) and functions with recursion and nesting limits.
+    See work/WHATNOW and plans/P1-foundation.md.

@@ -5,7 +5,7 @@
  *   list             : and_or (';' and_or)* ';'?
  *   and_or           : pipeline (('&&' | '||') linebreak pipeline)*
  *   pipeline         : '!'? simple_command ('|' linebreak simple_command)*
- *   simple_command   : (WORD | io_redirect)+
+ *   simple_command   : (ASSIGNMENT_WORD | io_redirect)* (WORD | io_redirect)*
  *
  * Valid shell syntax that tam-clam does not support yet is refused with a
  * clear message, never run some other way. */
@@ -55,7 +55,8 @@ static int flush_heredocs(struct tc_parser *p)
 					    hd->redir->heredoc_quoted,
 					    hd->redir->line,
 					    &hd->redir->heredoc_body,
-					    &hd->redir->heredoc_len);
+					    &hd->redir->heredoc_len,
+					    &hd->redir->heredoc_parts);
 		if (r != TC_OK)
 			return r;
 	}
@@ -136,20 +137,47 @@ static int is_redir_op(enum tc_token_kind k)
 	}
 }
 
-/* Refuse words that need expansions tam-clam does not do yet. */
-static int check_word(struct tc_parser *p, const struct tc_token *t, int prefix)
+static int check_parts(struct tc_parser *p, const struct tc_wpart *parts,
+		       unsigned long line, bool allow_glob)
 {
-	if (prefix && (t->flags & TC_WORD_ASSIGN))
-		return unsupported(p, t->line, "variable assignments");
-	if (t->flags & TC_WORD_DOLLAR)
-		return unsupported(p, t->line, "expansions starting with `$'");
+	for (const struct tc_wpart *wp = parts; wp; wp = wp->next) {
+		if (wp->kind != TC_WPART_PARAM)
+			continue;
+		if (wp->arg_flags & TC_WORD_CMDSUB)
+			return unsupported(p, line, "command substitutions (`$(...)')");
+		if (wp->arg_flags & TC_WORD_ARITH)
+			return unsupported(p, line, "arithmetic expansions (`$((...))')");
+		if (wp->arg_flags & TC_WORD_BACKQ)
+			return unsupported(p, line, "command substitutions (`...`)");
+		if (wp->arg_flags & TC_WORD_ANSI_Q)
+			return unsupported(p, line, "ANSI-C quoting (`$'...'')");
+		bool is_trim = (wp->op == TC_PARAM_TRIM_SUFFIX_S ||
+				wp->op == TC_PARAM_TRIM_SUFFIX_L ||
+				wp->op == TC_PARAM_TRIM_PREFIX_S ||
+				wp->op == TC_PARAM_TRIM_PREFIX_L);
+		if ((is_trim || !allow_glob) && (wp->arg_flags & TC_WORD_GLOB))
+			return unsupported(p, line, "patterns (`*', `?', `[')");
+		int r = check_parts(p, wp->arg, line, allow_glob && !is_trim);
+		if (r != TC_OK)
+			return r;
+	}
+	return TC_OK;
+}
+
+/* Refuse words that need expansions tam-clam does not do yet. */
+static int check_word(struct tc_parser *p, const struct tc_token *t, bool is_assign)
+{
+	if (t->flags & TC_WORD_CMDSUB)
+		return unsupported(p, t->line, "command substitutions (`$(...)')");
+	if (t->flags & TC_WORD_ARITH)
+		return unsupported(p, t->line, "arithmetic expansions (`$((...))')");
 	if (t->flags & TC_WORD_BACKQ)
 		return unsupported(p, t->line, "command substitutions (`...`)");
-	if (t->flags & TC_WORD_GLOB)
+	if (t->flags & TC_WORD_ANSI_Q)
+		return unsupported(p, t->line, "ANSI-C quoting (`$'...'')");
+	if (!is_assign && (t->flags & TC_WORD_GLOB))
 		return unsupported(p, t->line, "patterns (`*', `?', `[')");
-	if (t->flags & TC_WORD_TILDE)
-		return unsupported(p, t->line, "tilde expansions (`~')");
-	return TC_OK;
+	return check_parts(p, t->parts, t->line, is_assign);
 }
 
 static int parse_io_number(struct tc_parser *p, const struct tc_token *t, int *out)
@@ -187,11 +215,59 @@ struct word_link {
 	struct word_link *next;
 };
 
+struct assign_link {
+	struct tc_assign a;
+	struct assign_link *next;
+};
+
 struct redir_link {
 	struct tc_redir r;
 	struct tc_heredoc_pending *hd;
 	struct redir_link *next;
 };
+
+static int split_assign(struct tc_parser *p, const struct tc_token *t,
+			struct tc_assign *out)
+{
+	struct tc_arena *a = &p->sh->arena;
+	const struct tc_wpart *first = t->parts;
+	const char *eq = first ? memchr(first->text, '=', first->len) : NULL;
+	if (!eq) {
+		tc_error(p->sh, t->line, "internal error: malformed assignment");
+		return TC_ERR_SYNTAX;
+	}
+	size_t nlen = (size_t)(eq - first->text);
+	char *name = tc_arena_strndup(a, first->text, nlen);
+	if (!name) {
+		tc_error(p->sh, t->line, "out of memory");
+		return TC_ERR_NOMEM;
+	}
+
+	struct tc_wpart *vparts = NULL;
+	size_t rem = first->len - nlen - 1;
+	if (rem > 0) {
+		struct tc_wpart *head = tc_arena_alloc(a, sizeof(*head));
+		if (!head) {
+			tc_error(p->sh, t->line, "out of memory");
+			return TC_ERR_NOMEM;
+		}
+		*head = *first;
+		head->text = eq + 1;
+		head->len = rem;
+		vparts = head;
+	} else {
+		vparts = first->next;
+	}
+
+	out->name = name;
+	out->value.text = t->text + nlen + 1;
+	out->value.len = t->len - nlen - 1;
+	out->value.parts = vparts;
+	out->value.flags = t->flags & ~TC_WORD_ASSIGN;
+	out->value.line = t->line;
+	out->line = t->line;
+	return TC_OK;
+}
 
 static int parse_redir(struct tc_parser *p, struct redir_link **out)
 {
@@ -214,7 +290,7 @@ static int parse_redir(struct tc_parser *p, struct redir_link **out)
 		return unexpected(p);
 
 	enum tc_redir_kind kind = token_to_redir(op);
-	if (kind != TC_REDIR_HEREDOC && (r = check_word(p, &p->tok, 0)) != TC_OK)
+	if (kind != TC_REDIR_HEREDOC && (r = check_word(p, &p->tok, false)) != TC_OK)
 		return r;
 
 	struct tc_arena *a = &p->sh->arena;
@@ -226,6 +302,7 @@ static int parse_redir(struct tc_parser *p, struct redir_link **out)
 	rl->r.fd = fd;
 	rl->r.target.text = p->tok.text;
 	rl->r.target.len = p->tok.len;
+	rl->r.target.parts = p->tok.parts;
 	rl->r.target.flags = p->tok.flags;
 	rl->r.target.line = p->tok.line;
 	rl->r.strip_tabs = (op == TC_TOK_DLESSDASH);
@@ -233,7 +310,7 @@ static int parse_redir(struct tc_parser *p, struct redir_link **out)
 	rl->r.line = line;
 
 	if (kind == TC_REDIR_HEREDOC) {
-		char *delim = tc_expand_word(a, &rl->r.target);
+		char *delim = tc_expand_delim(a, &rl->r.target);
 		struct tc_heredoc_pending *hd = tc_arena_alloc(a, sizeof(*hd));
 		if (!delim || !hd)
 			goto nomem;
@@ -265,9 +342,10 @@ static int parse_simple(struct tc_parser *p, struct tc_node **out)
 		return unexpected(p);
 
 	struct tc_arena *a = &p->sh->arena;
+	struct assign_link *ahead = NULL, **atail = &ahead;
 	struct word_link *whead = NULL, **wtail = &whead;
 	struct redir_link *rhead = NULL, **rtail = &rhead;
-	size_t nw = 0, nr = 0;
+	size_t na = 0, nw = 0, nr = 0;
 	unsigned long line = p->tok.line;
 	int r;
 
@@ -280,13 +358,35 @@ static int parse_simple(struct tc_parser *p, struct tc_node **out)
 			rtail = &rl->next;
 			nr++;
 		} else if (p->tok.kind == TC_TOK_WORD) {
-			if (nw == 0 && is_reserved(&p->tok)) {
+			if (nw == 0 && (p->tok.flags & TC_WORD_ASSIGN)) {
+				if ((r = check_word(p, &p->tok, true)) != TC_OK)
+					return r;
+				if (na == TC_WORDS_MAX) {
+					tc_error(p->sh, p->tok.line,
+						 "more than %d assignments in one command",
+						 TC_WORDS_MAX);
+					return TC_ERR_NOMEM;
+				}
+				struct assign_link *al = tc_arena_alloc(a, sizeof(*al));
+				if (!al)
+					goto nomem;
+				if ((r = split_assign(p, &p->tok, &al->a)) != TC_OK)
+					return r;
+				al->next = NULL;
+				*atail = al;
+				atail = &al->next;
+				na++;
+				if ((r = advance(p)) != TC_OK)
+					return r;
+				continue;
+			}
+			if (nw == 0 && na == 0 && nr == 0 && is_reserved(&p->tok)) {
 				tc_error(p->sh, p->tok.line,
 					 "the reserved word `%s' is not supported yet; see ROADMAP.md",
 					 p->tok.text);
 				return TC_ERR_SYNTAX;
 			}
-			if ((r = check_word(p, &p->tok, nw == 0)) != TC_OK)
+			if ((r = check_word(p, &p->tok, false)) != TC_OK)
 				return r;
 			if (nw == TC_WORDS_MAX) {
 				tc_error(p->sh, p->tok.line,
@@ -299,6 +399,7 @@ static int parse_simple(struct tc_parser *p, struct tc_node **out)
 				goto nomem;
 			wl->w.text = p->tok.text;
 			wl->w.len = p->tok.len;
+			wl->w.parts = p->tok.parts;
 			wl->w.flags = p->tok.flags;
 			wl->w.line = p->tok.line;
 			wl->next = NULL;
@@ -313,11 +414,15 @@ static int parse_simple(struct tc_parser *p, struct tc_node **out)
 	}
 
 	struct tc_node *node = tc_arena_alloc(a, sizeof(*node));
+	struct tc_assign *assigns = na ? tc_arena_alloc(a, na * sizeof(*assigns)) : NULL;
 	struct tc_word *words = nw ? tc_arena_alloc(a, nw * sizeof(*words)) : NULL;
 	struct tc_redir *redirs = nr ? tc_arena_alloc(a, nr * sizeof(*redirs)) : NULL;
-	if (!node || (nw && !words) || (nr && !redirs))
+	if (!node || (na && !assigns) || (nw && !words) || (nr && !redirs))
 		goto nomem;
 	size_t i = 0;
+	for (struct assign_link *al = ahead; al; al = al->next)
+		assigns[i++] = al->a;
+	i = 0;
 	for (struct word_link *wl = whead; wl; wl = wl->next)
 		words[i++] = wl->w;
 	i = 0;
@@ -330,6 +435,8 @@ static int parse_simple(struct tc_parser *p, struct tc_node **out)
 
 	node->kind = TC_NODE_SIMPLE;
 	node->line = line;
+	node->u.simple.assigns = assigns;
+	node->u.simple.nassigns = na;
 	node->u.simple.words = words;
 	node->u.simple.nwords = nw;
 	node->u.simple.redirs = redirs;
@@ -483,8 +590,6 @@ nomem:
 	return TC_ERR_NOMEM;
 }
 
-/* Builds a right-leaning chain of TC_NODE_SEQ without recursion, so a long
- * line of commands cannot exhaust the stack. */
 static int parse_list(struct tc_parser *p, struct tc_node **out)
 {
 	struct tc_node *first;

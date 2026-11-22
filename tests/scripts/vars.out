@@ -1,0 +1,8 @@
+hello hello
+1 1
+hello
+X=exported
+after=hello
+special=persist
+regular=
+*.c

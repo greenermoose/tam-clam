@@ -1,0 +1,5 @@
+/tmp/myhome
+/tmp/myhome/sub/dir
+~ ~
+/tmp/myhome:/tmp/myhome/bin
+~no_such_user_xyz_999

@@ -5,8 +5,8 @@ of versions. Versions follow semantic versioning: during 0.x, the minor
 number marks a phase's big step and the patch number marks each
 milestone inside it.
 
-**Current version:** 0.0.2 (pipelines and redirections, 2026-11-21; development
-continues on branch `dev`).
+**Current version:** 0.0.3 (variables and parameter expansion, 2026-11-22;
+development continues on branch `dev`).
 
 ## Decided
 

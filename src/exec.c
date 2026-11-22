@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
-/* Running commands, pipelines, and-or lists, and redirections. The PATH
- * search happens in the child, as in dash: each candidate is tried with
- * execve, so there is no window between checking a file and running it. */
+/* Running commands, assignments, pipelines, and-or lists, and redirections.
+ * The PATH search happens in the child, as in dash: each candidate is tried
+ * with execve, so there is no window between checking a file and running it. */
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -16,18 +16,26 @@
 #include "tam-clam/expand.h"
 #include "tam-clam/signals.h"
 
-extern char **environ;
-
 /* Used when PATH is unset. */
 #define TC_DEFAULT_PATH "/usr/local/bin:/usr/bin:/bin"
 #define TC_PATH_MAX 4096
 
+static int fatal_exp_error(struct tc_shell *sh)
+{
+	if (!sh->interactive) {
+		sh->exit_requested = true;
+		sh->exit_status = 1;
+	}
+	return 1;
+}
+
 /* execve, and for a file the kernel cannot run (ENOEXEC), run it as a
  * shell script with this shell, as POSIX requires. Returns only on
  * failure, with errno set. */
-static void try_exec(const struct tc_shell *sh, const char *path, char **argv)
+static void try_exec(const struct tc_shell *sh, const char *path,
+		     char **argv, char **envp)
 {
-	execve(path, argv, environ);
+	execve(path, argv, envp);
 	if (errno != ENOEXEC || sh->self_path[0] == '\0')
 		return;
 	size_t argc = 0;
@@ -42,28 +50,39 @@ static void try_exec(const struct tc_shell *sh, const char *path, char **argv)
 	nargv[1] = (char *)path;
 	for (size_t i = 1; i <= argc; i++)
 		nargv[i + 1] = argv[i];
-	execve(sh->self_path, nargv, environ);
+	execve(sh->self_path, nargv, envp);
 	free(nargv);
 	errno = ENOEXEC;
 }
 
 /* In the child: find and run argv[0]. Returns the exit status to use
  * when nothing could be run. */
-static int run_external(const struct tc_shell *sh, char **argv, unsigned long line)
+static int run_external(struct tc_shell *sh, char **argv,
+			const struct tc_var_kv *overrides, size_t noverrides,
+			unsigned long line)
 {
 	const char *name = argv[0];
 	if (name[0] == '\0') {
 		tc_error(sh, line, "%s: command not found", name);
 		return TC_STATUS_NOTFOUND;
 	}
+
+	char **envp = noverrides > 0
+			  ? tc_var_envp_override(&sh->vars, overrides, noverrides, &sh->arena)
+			  : tc_var_envp(&sh->vars);
+	if (!envp) {
+		tc_error(sh, line, "out of memory");
+		return TC_STATUS_USAGE;
+	}
+
 	if (strchr(name, '/')) {
-		try_exec(sh, name, argv);
+		try_exec(sh, name, argv, envp);
 		int e = errno;
 		tc_error(sh, line, "%s: %s", name, strerror(e));
 		return (e == ENOENT || e == ENOTDIR) ? TC_STATUS_NOTFOUND : TC_STATUS_NOEXEC;
 	}
 
-	const char *path = getenv("PATH");
+	const char *path = tc_var_lookup_override(&sh->vars, overrides, noverrides, "PATH");
 	if (!path)
 		path = TC_DEFAULT_PATH;
 	size_t nlen = strlen(name);
@@ -79,7 +98,7 @@ static int run_external(const struct tc_shell *sh, char **argv, unsigned long li
 			memcpy(buf, dir, use);
 			buf[use] = '/';
 			memcpy(buf + use + 1, name, nlen + 1);
-			try_exec(sh, buf, argv);
+			try_exec(sh, buf, argv, envp);
 			if (errno == EACCES)
 				denied = 1;
 			else if (errno != ENOENT && errno != ENOTDIR && errno != ELOOP &&
@@ -113,7 +132,7 @@ static int wait_child(pid_t pid)
 			break;
 		if (r < 0 && errno == EINTR)
 			continue;
-		return TC_STATUS_NOEXEC; /* ECHILD: cannot happen without a bug */
+		return TC_STATUS_NOEXEC;
 	}
 	if (WIFEXITED(ws))
 		return WEXITSTATUS(ws);
@@ -160,14 +179,29 @@ static int parse_dup_fd(const char *s, int *out)
 static int apply_heredoc(struct tc_shell *sh, const struct tc_redir *r,
 			 int target_fd, pid_t *writer_pid)
 {
+	const char *body = r->heredoc_body;
+	size_t blen = r->heredoc_len;
+	if (!r->heredoc_quoted) {
+		char *exp = NULL;
+		size_t elen = 0;
+		int er = tc_expand_heredoc(sh, r->heredoc_parts, r->line, &exp, &elen);
+		if (er != TC_EXP_OK) {
+			if (er == TC_EXP_ERR)
+				(void)fatal_exp_error(sh);
+			return -1;
+		}
+		body = exp;
+		blen = elen;
+	}
+
 	int pfd[2];
 	if (pipe(pfd) < 0) {
 		tc_error(sh, r->line, "cannot create pipe: %s", strerror(errno));
 		return -1;
 	}
-	if (r->heredoc_len > 0) {
-		if (r->heredoc_len <= 4096) {
-			if (tc_write_all(pfd[1], r->heredoc_body, r->heredoc_len) < 0) {
+	if (blen > 0) {
+		if (blen <= 4096) {
+			if (tc_write_all(pfd[1], body, blen) < 0) {
 				tc_error(sh, r->line, "here-document write error: %s",
 					 strerror(errno));
 				close(pfd[0]);
@@ -187,7 +221,7 @@ static int apply_heredoc(struct tc_shell *sh, const struct tc_redir *r,
 			if (pid == 0) {
 				tc_signals_child();
 				close(pfd[0]);
-				(void)tc_write_all(pfd[1], r->heredoc_body, r->heredoc_len);
+				(void)tc_write_all(pfd[1], body, blen);
 				close(pfd[1]);
 				_exit(0);
 			}
@@ -216,9 +250,11 @@ static int apply_one_redir(struct tc_shell *sh, const struct tc_redir *r,
 	if (r->kind == TC_REDIR_HEREDOC)
 		return apply_heredoc(sh, r, target_fd, writer_pid);
 
-	char *word = tc_expand_word(&sh->arena, &r->target);
-	if (!word) {
-		tc_error(sh, r->line, "out of memory");
+	char *word = NULL;
+	int er = tc_expand_single(sh, &r->target, false, &word);
+	if (er != TC_EXP_OK) {
+		if (er == TC_EXP_ERR)
+			(void)fatal_exp_error(sh);
 		return -1;
 	}
 
@@ -348,45 +384,123 @@ static int apply_redirs(struct tc_shell *sh, const struct tc_redir *redirs,
 	return 0;
 }
 
-static char **expand_argv(struct tc_shell *sh, const struct tc_node *n)
+/* Apply assignments directly to sh->vars (left-to-right). */
+static int apply_assigns_persist(struct tc_shell *sh,
+				 const struct tc_assign *assigns, size_t n)
 {
-	size_t nw = n->u.simple.nwords;
-	char **argv = tc_arena_alloc(&sh->arena, (nw + 1) * sizeof(*argv));
-	if (!argv) {
-		tc_error(sh, n->line, "out of memory");
-		return NULL;
-	}
-	for (size_t i = 0; i < nw; i++) {
-		argv[i] = tc_expand_word(&sh->arena, &n->u.simple.words[i]);
-		if (!argv[i]) {
-			tc_error(sh, n->line, "out of memory");
-			return NULL;
+	for (size_t i = 0; i < n; i++) {
+		char *val = NULL;
+		int er = tc_expand_single(sh, &assigns[i].value, true, &val);
+		if (er != TC_EXP_OK)
+			return er == TC_EXP_ERR ? fatal_exp_error(sh) : TC_STATUS_USAGE;
+		int sr = tc_var_set(&sh->vars, assigns[i].name, val, 0);
+		if (sr == TC_VAR_ERR_READONLY) {
+			tc_error(sh, assigns[i].line, "%s: readonly variable",
+				 assigns[i].name);
+			return fatal_exp_error(sh);
+		}
+		if (sr != TC_VAR_OK) {
+			tc_error(sh, assigns[i].line, "out of memory");
+			return TC_STATUS_USAGE;
 		}
 	}
-	argv[nw] = NULL;
-	return argv;
+	return 0;
+}
+
+/* Expand prefix assignments into tc_var_kv array in sh->arena, checking
+ * readonly status for each name. */
+static int expand_assigns_kv(struct tc_shell *sh,
+			     const struct tc_assign *assigns, size_t n,
+			     struct tc_var_kv **out_kvs)
+{
+	*out_kvs = NULL;
+	if (n == 0)
+		return 0;
+	struct tc_var_kv *kvs = tc_arena_alloc(&sh->arena, n * sizeof(*kvs));
+	if (!kvs) {
+		tc_error(sh, assigns[0].line, "out of memory");
+		return TC_STATUS_USAGE;
+	}
+	for (size_t i = 0; i < n; i++) {
+		if (tc_var_is_readonly(&sh->vars, assigns[i].name)) {
+			tc_error(sh, assigns[i].line, "%s: readonly variable",
+				 assigns[i].name);
+			return fatal_exp_error(sh);
+		}
+		char *val = NULL;
+		int er = tc_expand_single(sh, &assigns[i].value, true, &val);
+		if (er != TC_EXP_OK)
+			return er == TC_EXP_ERR ? fatal_exp_error(sh) : TC_STATUS_USAGE;
+		kvs[i].name = assigns[i].name;
+		kvs[i].value = val;
+	}
+	*out_kvs = kvs;
+	return 0;
 }
 
 static int exec_simple_child(struct tc_shell *sh, const struct tc_node *n)
 {
+	size_t na = n->u.simple.nassigns;
+	size_t nw = n->u.simple.nwords;
 	char **argv = NULL;
-	if (n->u.simple.nwords > 0) {
-		argv = expand_argv(sh, n);
-		if (!argv)
-			return TC_STATUS_USAGE;
+	size_t argc = 0;
+
+	if (nw > 0) {
+		int er = tc_expand_words(sh, n->u.simple.words, nw, &argv, &argc);
+		if (er != TC_EXP_OK)
+			return er == TC_EXP_ERR ? 1 : TC_STATUS_USAGE;
 	}
+
+	if (argc == 0) {
+		if (na > 0) {
+			int ar = apply_assigns_persist(sh, n->u.simple.assigns, na);
+			if (ar != 0)
+				return ar;
+		}
+		pid_t *writers = NULL;
+		size_t nwriters = 0;
+		if (apply_redirs(sh, n->u.simple.redirs, n->u.simple.nredirs,
+				 NULL, &(size_t){0}, &writers, &nwriters) < 0)
+			return 1;
+		for (size_t i = 0; i < nwriters; i++)
+			wait_child(writers[i]);
+		return 0;
+	}
+
+	struct tc_var_kv *kvs = NULL;
+	if (na > 0) {
+		int ar = expand_assigns_kv(sh, n->u.simple.assigns, na, &kvs);
+		if (ar != 0)
+			return ar;
+	}
+
 	pid_t *writers = NULL;
 	size_t nwriters = 0;
 	if (apply_redirs(sh, n->u.simple.redirs, n->u.simple.nredirs,
 			 NULL, &(size_t){0}, &writers, &nwriters) < 0)
 		return 1;
-	int status = 0;
-	if (n->u.simple.nwords > 0) {
-		tc_builtin_fn bi = tc_builtin_find(argv[0]);
-		if (bi)
-			status = bi(sh, (int)n->u.simple.nwords, argv, n->line);
-		else
-			status = run_external(sh, argv, n->line);
+
+	const struct tc_builtin *bi = tc_builtin_find(argv[0]);
+	int status;
+	if (bi) {
+		struct tc_var_save *vsaves = NULL;
+		size_t nvsaves = 0;
+		if (na > 0) {
+			if (bi->special) {
+				for (size_t i = 0; i < na; i++)
+					(void)tc_var_set(&sh->vars, kvs[i].name, kvs[i].value, 0);
+			} else {
+				vsaves = tc_arena_alloc(&sh->arena, na * sizeof(*vsaves));
+				if (!vsaves ||
+				    tc_var_push_overrides(&sh->vars, kvs, na, vsaves, &nvsaves) != TC_VAR_OK)
+					return 1;
+			}
+		}
+		status = bi->fn(sh, (int)argc, argv, n->line);
+		if (vsaves)
+			tc_var_pop_overrides(&sh->vars, vsaves, nvsaves);
+	} else {
+		status = run_external(sh, argv, kvs, na, n->line);
 	}
 	for (size_t i = 0; i < nwriters; i++)
 		wait_child(writers[i]);
@@ -395,17 +509,26 @@ static int exec_simple_child(struct tc_shell *sh, const struct tc_node *n)
 
 static int exec_simple(struct tc_shell *sh, const struct tc_node *n)
 {
+	size_t na = n->u.simple.nassigns;
 	size_t nw = n->u.simple.nwords;
 	size_t nr = n->u.simple.nredirs;
 	char **argv = NULL;
+	size_t argc = 0;
+
 	if (nw > 0) {
-		argv = expand_argv(sh, n);
-		if (!argv)
-			return TC_STATUS_USAGE;
+		int er = tc_expand_words(sh, n->u.simple.words, nw, &argv, &argc);
+		if (er != TC_EXP_OK)
+			return er == TC_EXP_ERR ? fatal_exp_error(sh) : TC_STATUS_USAGE;
 	}
 
-	tc_builtin_fn bi = nw > 0 ? tc_builtin_find(argv[0]) : NULL;
-	if (nw == 0 || bi) {
+	/* Assignment-only and/or redirection-only command (or command word
+	 * expanded to nothing): assignments persist in the shell. */
+	if (argc == 0) {
+		if (na > 0) {
+			int ar = apply_assigns_persist(sh, n->u.simple.assigns, na);
+			if (ar != 0)
+				return ar;
+		}
 		struct fd_save *saves = NULL;
 		size_t nsaves = 0;
 		pid_t *writers = NULL;
@@ -413,9 +536,60 @@ static int exec_simple(struct tc_shell *sh, const struct tc_node *n)
 		if (apply_redirs(sh, n->u.simple.redirs, nr,
 				 &saves, &nsaves, &writers, &nwriters) < 0)
 			return 1;
+		restore_fds(saves, nsaves);
+		for (size_t i = 0; i < nwriters; i++)
+			wait_child(writers[i]);
+		return 0;
+	}
+
+	struct tc_var_kv *kvs = NULL;
+	if (na > 0) {
+		int ar = expand_assigns_kv(sh, n->u.simple.assigns, na, &kvs);
+		if (ar != 0)
+			return ar;
+	}
+
+	const struct tc_builtin *bi = tc_builtin_find(argv[0]);
+	if (bi) {
+		struct fd_save *saves = NULL;
+		size_t nsaves = 0;
+		pid_t *writers = NULL;
+		size_t nwriters = 0;
+		if (apply_redirs(sh, n->u.simple.redirs, nr,
+				 &saves, &nsaves, &writers, &nwriters) < 0)
+			return 1;
+
+		struct tc_var_save *vsaves = NULL;
+		size_t nvsaves = 0;
 		int status = 0;
-		if (bi)
-			status = bi(sh, (int)nw, argv, n->line);
+		if (na > 0) {
+			if (bi->special) {
+				for (size_t i = 0; i < na; i++) {
+					int sr = tc_var_set(&sh->vars, kvs[i].name, kvs[i].value, 0);
+					if (sr != TC_VAR_OK) {
+						tc_error(sh, n->line, "out of memory");
+						restore_fds(saves, nsaves);
+						for (size_t j = 0; j < nwriters; j++)
+							wait_child(writers[j]);
+						return TC_STATUS_USAGE;
+					}
+				}
+			} else {
+				vsaves = tc_arena_alloc(&sh->arena, na * sizeof(*vsaves));
+				if (!vsaves ||
+				    tc_var_push_overrides(&sh->vars, kvs, na, vsaves, &nvsaves) != TC_VAR_OK) {
+					tc_error(sh, n->line, "out of memory");
+					restore_fds(saves, nsaves);
+					for (size_t j = 0; j < nwriters; j++)
+						wait_child(writers[j]);
+					return TC_STATUS_USAGE;
+				}
+			}
+		}
+
+		status = bi->fn(sh, (int)argc, argv, n->line);
+		if (vsaves)
+			tc_var_pop_overrides(&sh->vars, vsaves, nvsaves);
 		restore_fds(saves, nsaves);
 		for (size_t i = 0; i < nwriters; i++)
 			wait_child(writers[i]);
@@ -434,7 +608,7 @@ static int exec_simple(struct tc_shell *sh, const struct tc_node *n)
 		if (apply_redirs(sh, n->u.simple.redirs, nr,
 				 NULL, &(size_t){0}, &writers, &nwriters) < 0)
 			_exit(1);
-		_exit(run_external(sh, argv, n->line));
+		_exit(run_external(sh, argv, kvs, na, n->line));
 	}
 	return wait_child(pid);
 }

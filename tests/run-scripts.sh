@@ -109,5 +109,22 @@ else
 	fail=$((fail + 1))
 fi
 
+# Positional parameters across -c, script, and -s.
+expect '-c positional parameters' 0 'myname:2:alpha:beta' \
+	"$shell" -c 'echo "$0:$#:$1:$2"' myname alpha beta
+expect '-c "$@" preserves words' 0 '<a b><c>' \
+	"$shell" -c 'printf "<%s>" "$@"' myname 'a b' c
+expect '-c "$@" with 0 args produces 0 words' 0 '0' \
+	"$shell" -c 'sh -c "echo \$#" _ "$@"' myname
+expect '-c "$*" joins with IFS[0]' 0 'a:b:c' \
+	"$shell" -c 'IFS=:; echo "$*"' myname a b c
+expect '-c ${10} positional parameter' 0 'ten' \
+	"$shell" -c 'echo "${10}"' myname 1 2 3 4 5 6 7 8 9 ten
+printf 'echo "$#:$1:$2"\n' >"$tmp/pos.sh"
+expect 'script positional parameters' 0 '2:foo:bar' \
+	"$shell" "$tmp/pos.sh" foo bar
+expect '-s positional parameters' 0 '2:x:y' \
+	sh -c '"$1" -s x y <"$2"' - "$shell" "$tmp/pos.sh"
+
 echo "run-scripts: $pass passed, $fail failed (reference shell: $ref)"
 [ "$fail" -eq 0 ]

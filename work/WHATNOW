@@ -3,45 +3,47 @@ WHATNOW
 What tam-clam is doing now and what comes next. Read this first; revise
 it at the end of every session (work/README-work).
 
-Updated: 2026-11-21, with 0.0.2
+Updated: 2026-11-22, with W4 (0.0.3)
 
 
 STATE
 
-  Version 0.0.2, pipelines and redirections, on branch dev. It adds
-  pipelines (`|`, `!`), and-or lists (`&&`, `||`) with multi-line
-  continuation, all POSIX redirection operators (`<`, `>`, `>|`, `>>`,
-  `<>`, `<&`, `>&` with IO numbers and `-` to close), here-documents
-  (`<<`, `<<-` with quoted delimiter support and in-memory size cap),
-  and descriptor save/restore around builtins. readelf -d lists only
-  libc.so.6. make test and make sanitize pass: unit tests, script tests
-  against bash --posix, and refusal tests.
+  Version 0.0.3, variables and parameter expansion, on branch dev. It
+  adds the variable table (src/var.c: shell/export/readonly flags,
+  environ import, lazy envp rebuild), structured word parts (tc_wpart),
+  assignment-only and prefix assignments (with POSIX special vs regular
+  builtin persistence), POSIX parameter expansion (${x:-w}, ${x:=w},
+  ${x:?w}, ${x:+w} with and without ':', ${#x}, plain-string %/%%/#/#),
+  unquoted here-document parameter expansion, special and positional
+  parameters ($? $$ $! $# $@ $* $- $0 $1..${10}+), tilde expansion,
+  PS1/PS2 variables, and logical/physical cd (-L/-P, PWD, OLDPWD,
+  CDPATH). readelf -d lists only libc.so.6. make test and make sanitize
+  pass (255 unit checks, 65 script/startup checks against bash --posix).
 
   Fred's decisions so far are in ROADMAP.md and the plans: POSIX.1-2024
   is the target; lint mode is P2 0.1.5; tam-clam ships only its own key
   map (no built-in readline map), drafted in arch/keys.md and agreed with
-  Fred before 0.2.0.
+  Fred before 0.2.0; unquoted expansions containing IFS characters pass
+  through as a single word until field splitting lands in 0.1.0.
 
 
 NEXT
 
-  1. 0.0.3, variables and parameter expansion (plans/P1-foundation.md):
-     - variable table (src/var.c): shell variables, exported variables,
-       read-only flags, imported from environ at start-up;
-     - assignments before a command and assignment-only commands;
-     - words as a list of parts (literal, quoted literal, parameter) in
-       the parser instead of raw text;
-     - POSIX parameter expansion, special parameters ($? $$ $! $# $@ $*
-       $- $0), positional parameters, PS1/PS2, tilde expansion, and
-       logical cd.
-     Bump VERSION to 0.0.3 in the first code commit.
+  1. 0.0.4, compound commands and functions (plans/P1-foundation.md):
+     - if, while, until, for, case (plain-string patterns until 0.1.0),
+       { ...; }, ( ... ) subshells;
+     - functions with a recursion limit (default 1000, settable);
+     - break, continue, and return;
+     - explicit execution depth count and parser nesting limit.
+     Bump VERSION to 0.0.4 in the first code commit.
 
-  2. 0.0.4, compound commands and functions (plans/P1-foundation.md).
+  2. 0.1.0, command substitution, $'...', arithmetic expansion, IFS
+     field splitting, and pathname expansion (plans/P2-posix-language.md).
 
 
 WAITING FOR FRED
 
-  - Trying 0.0.2: build/tam-clam -c '...', or run it on a terminal. It
+  - Trying 0.0.3: build/tam-clam -c '...', or run it on a terminal. It
     is not installed and is nobody's login shell.
   - Whether to install dash, so the script tests compare against it as
     well as bash --posix.
