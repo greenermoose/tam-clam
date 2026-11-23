@@ -1,0 +1,10 @@
+ab:a
+ab:b
+cd:c
+cd:d
+literal-star
+empty-status:0
+default:other
+nomatch:0
+noclauses:0
+var-match

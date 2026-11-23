@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
-/* Running commands, assignments, pipelines, and-or lists, and redirections.
+/* Running commands, assignments, pipelines, and-or lists, redirections,
+ * compound commands, and shell functions.
  * The PATH search happens in the child, as in dash: each candidate is tried
  * with execve, so there is no window between checking a file and running it. */
 #include <errno.h>
@@ -14,11 +15,19 @@
 #include "tam-clam/builtins.h"
 #include "tam-clam/exec.h"
 #include "tam-clam/expand.h"
+#include "tam-clam/lex.h"
 #include "tam-clam/signals.h"
 
 /* Used when PATH is unset. */
 #define TC_DEFAULT_PATH "/usr/local/bin:/usr/bin:/bin"
 #define TC_PATH_MAX 4096
+
+static int exec_one(struct tc_shell *sh, const struct tc_node *n);
+
+static bool flow_stop(const struct tc_shell *sh)
+{
+	return sh->exit_requested || sh->flow != TC_FLOW_NONE;
+}
 
 static int fatal_exp_error(struct tc_shell *sh)
 {
@@ -27,6 +36,33 @@ static int fatal_exp_error(struct tc_shell *sh)
 		sh->exit_status = 1;
 	}
 	return 1;
+}
+
+static unsigned effective_func_limit(const struct tc_shell *sh)
+{
+	unsigned limit = sh->func_limit ? sh->func_limit : TC_FUNC_DEPTH_DEFAULT;
+	const char *s = tc_var_get(&sh->vars, "FUNCNEST");
+	if (s && *s) {
+		unsigned long v = 0;
+		bool ok = true;
+		for (const char *p = s; *p; p++) {
+			if (*p < '0' || *p > '9') {
+				ok = false;
+				break;
+			}
+			unsigned d = (unsigned)(*p - '0');
+			if (v > ((unsigned long)TC_FUNC_DEPTH_MAX - d) / 10) {
+				v = TC_FUNC_DEPTH_MAX;
+				break;
+			}
+			v = v * 10 + d;
+		}
+		if (ok && v > 0)
+			limit = (unsigned)v;
+	}
+	if (limit > TC_FUNC_DEPTH_MAX)
+		limit = TC_FUNC_DEPTH_MAX;
+	return limit;
 }
 
 /* execve, and for a file the kernel cannot run (ENOEXEC), run it as a
@@ -438,70 +474,129 @@ static int expand_assigns_kv(struct tc_shell *sh,
 	return 0;
 }
 
-static int exec_simple_child(struct tc_shell *sh, const struct tc_node *n)
+static int exec_func(struct tc_shell *sh, struct tc_func *fn,
+		     int argc, char **argv,
+		     const struct tc_var_kv *kvs, size_t na,
+		     const struct tc_redir *redirs, size_t nr,
+		     unsigned long line)
 {
-	size_t na = n->u.simple.nassigns;
-	size_t nw = n->u.simple.nwords;
-	char **argv = NULL;
-	size_t argc = 0;
-
-	if (nw > 0) {
-		int er = tc_expand_words(sh, n->u.simple.words, nw, &argv, &argc);
-		if (er != TC_EXP_OK)
-			return er == TC_EXP_ERR ? 1 : TC_STATUS_USAGE;
+	unsigned limit = effective_func_limit(sh);
+	if (sh->func_depth >= limit) {
+		tc_error(sh, line, "%s: maximum function nesting level exceeded (%u)",
+			 argv[0], limit);
+		return 1;
 	}
 
-	if (argc == 0) {
-		if (na > 0) {
-			int ar = apply_assigns_persist(sh, n->u.simple.assigns, na);
-			if (ar != 0)
-				return ar;
-		}
-		pid_t *writers = NULL;
-		size_t nwriters = 0;
-		if (apply_redirs(sh, n->u.simple.redirs, n->u.simple.nredirs,
-				 NULL, &(size_t){0}, &writers, &nwriters) < 0)
-			return 1;
-		for (size_t i = 0; i < nwriters; i++)
-			wait_child(writers[i]);
-		return 0;
-	}
-
-	struct tc_var_kv *kvs = NULL;
-	if (na > 0) {
-		int ar = expand_assigns_kv(sh, n->u.simple.assigns, na, &kvs);
-		if (ar != 0)
-			return ar;
-	}
-
+	struct fd_save *saves = NULL;
+	size_t nsaves = 0;
 	pid_t *writers = NULL;
 	size_t nwriters = 0;
-	if (apply_redirs(sh, n->u.simple.redirs, n->u.simple.nredirs,
-			 NULL, &(size_t){0}, &writers, &nwriters) < 0)
+	if (apply_redirs(sh, redirs, nr, &saves, &nsaves, &writers, &nwriters) < 0)
 		return 1;
 
-	const struct tc_builtin *bi = tc_builtin_find(argv[0]);
-	int status;
-	if (bi) {
-		struct tc_var_save *vsaves = NULL;
-		size_t nvsaves = 0;
-		if (na > 0) {
-			if (bi->special) {
-				for (size_t i = 0; i < na; i++)
-					(void)tc_var_set(&sh->vars, kvs[i].name, kvs[i].value, 0);
-			} else {
-				vsaves = tc_arena_alloc(&sh->arena, na * sizeof(*vsaves));
-				if (!vsaves ||
-				    tc_var_push_overrides(&sh->vars, kvs, na, vsaves, &nvsaves) != TC_VAR_OK)
-					return 1;
-			}
+	struct tc_var_save *vsaves = NULL;
+	size_t nvsaves = 0;
+	if (na > 0) {
+		vsaves = tc_arena_alloc(&sh->arena, na * sizeof(*vsaves));
+		if (!vsaves ||
+		    tc_var_push_overrides(&sh->vars, kvs, na, vsaves, &nvsaves) != TC_VAR_OK) {
+			tc_error(sh, line, "out of memory");
+			restore_fds(saves, nsaves);
+			for (size_t j = 0; j < nwriters; j++)
+				wait_child(writers[j]);
+			return TC_STATUS_USAGE;
 		}
-		status = bi->fn(sh, (int)argc, argv, n->line);
+	}
+
+	char **old_params = sh->params;
+	size_t old_nparams = sh->nparams;
+	sh->params = NULL;
+	sh->nparams = 0;
+	if (argc > 1 && tc_shell_set_params(sh, argc - 1, argv + 1) != TC_OK) {
+		sh->params = old_params;
+		sh->nparams = old_nparams;
+		tc_error(sh, line, "out of memory");
 		if (vsaves)
 			tc_var_pop_overrides(&sh->vars, vsaves, nvsaves);
-	} else {
-		status = run_external(sh, argv, kvs, na, n->line);
+		restore_fds(saves, nsaves);
+		for (size_t j = 0; j < nwriters; j++)
+			wait_child(writers[j]);
+		return TC_STATUS_USAGE;
 	}
+
+	unsigned old_loop_depth = sh->loop_depth;
+	sh->loop_depth = 0;
+	sh->func_depth++;
+	tc_func_ref(fn);
+
+	struct tc_arena_mark mark = tc_arena_mark(&sh->arena);
+	int status = exec_one(sh, fn->body);
+	if (sh->flow == TC_FLOW_RETURN) {
+		sh->flow = TC_FLOW_NONE;
+		status = sh->return_status;
+	}
+	tc_arena_rewind(&sh->arena, mark);
+
+	tc_func_unref(fn);
+	sh->func_depth--;
+	sh->loop_depth = old_loop_depth;
+
+	(void)tc_shell_set_params(sh, 0, NULL);
+	sh->params = old_params;
+	sh->nparams = old_nparams;
+
+	if (vsaves)
+		tc_var_pop_overrides(&sh->vars, vsaves, nvsaves);
+	restore_fds(saves, nsaves);
+	for (size_t i = 0; i < nwriters; i++)
+		wait_child(writers[i]);
+	return status;
+}
+
+static int exec_builtin(struct tc_shell *sh, const struct tc_builtin *bi,
+			int argc, char **argv,
+			const struct tc_var_kv *kvs, size_t na,
+			const struct tc_redir *redirs, size_t nr,
+			unsigned long line)
+{
+	struct fd_save *saves = NULL;
+	size_t nsaves = 0;
+	pid_t *writers = NULL;
+	size_t nwriters = 0;
+	if (apply_redirs(sh, redirs, nr, &saves, &nsaves, &writers, &nwriters) < 0)
+		return 1;
+
+	struct tc_var_save *vsaves = NULL;
+	size_t nvsaves = 0;
+	if (na > 0) {
+		if (bi->special) {
+			for (size_t i = 0; i < na; i++) {
+				int sr = tc_var_set(&sh->vars, kvs[i].name, kvs[i].value, 0);
+				if (sr != TC_VAR_OK) {
+					tc_error(sh, line, "out of memory");
+					restore_fds(saves, nsaves);
+					for (size_t j = 0; j < nwriters; j++)
+						wait_child(writers[j]);
+					return TC_STATUS_USAGE;
+				}
+			}
+		} else {
+			vsaves = tc_arena_alloc(&sh->arena, na * sizeof(*vsaves));
+			if (!vsaves ||
+			    tc_var_push_overrides(&sh->vars, kvs, na, vsaves, &nvsaves) != TC_VAR_OK) {
+				tc_error(sh, line, "out of memory");
+				restore_fds(saves, nsaves);
+				for (size_t j = 0; j < nwriters; j++)
+					wait_child(writers[j]);
+				return TC_STATUS_USAGE;
+			}
+		}
+	}
+
+	int status = bi->fn(sh, argc, argv, line);
+	if (vsaves)
+		tc_var_pop_overrides(&sh->vars, vsaves, nvsaves);
+	restore_fds(saves, nsaves);
 	for (size_t i = 0; i < nwriters; i++)
 		wait_child(writers[i]);
 	return status;
@@ -549,52 +644,24 @@ static int exec_simple(struct tc_shell *sh, const struct tc_node *n)
 			return ar;
 	}
 
+	/* POSIX command search order (XCU 2.9.1.1):
+	 * 1. Special builtins
+	 * 2. Shell functions
+	 * 3. Regular builtins
+	 * 4. External commands */
 	const struct tc_builtin *bi = tc_builtin_find(argv[0]);
-	if (bi) {
-		struct fd_save *saves = NULL;
-		size_t nsaves = 0;
-		pid_t *writers = NULL;
-		size_t nwriters = 0;
-		if (apply_redirs(sh, n->u.simple.redirs, nr,
-				 &saves, &nsaves, &writers, &nwriters) < 0)
-			return 1;
+	if (bi && bi->special)
+		return exec_builtin(sh, bi, (int)argc, argv, kvs, na,
+				    n->u.simple.redirs, nr, n->line);
 
-		struct tc_var_save *vsaves = NULL;
-		size_t nvsaves = 0;
-		int status = 0;
-		if (na > 0) {
-			if (bi->special) {
-				for (size_t i = 0; i < na; i++) {
-					int sr = tc_var_set(&sh->vars, kvs[i].name, kvs[i].value, 0);
-					if (sr != TC_VAR_OK) {
-						tc_error(sh, n->line, "out of memory");
-						restore_fds(saves, nsaves);
-						for (size_t j = 0; j < nwriters; j++)
-							wait_child(writers[j]);
-						return TC_STATUS_USAGE;
-					}
-				}
-			} else {
-				vsaves = tc_arena_alloc(&sh->arena, na * sizeof(*vsaves));
-				if (!vsaves ||
-				    tc_var_push_overrides(&sh->vars, kvs, na, vsaves, &nvsaves) != TC_VAR_OK) {
-					tc_error(sh, n->line, "out of memory");
-					restore_fds(saves, nsaves);
-					for (size_t j = 0; j < nwriters; j++)
-						wait_child(writers[j]);
-					return TC_STATUS_USAGE;
-				}
-			}
-		}
+	struct tc_func *fn = tc_func_find(&sh->funcs, argv[0]);
+	if (fn)
+		return exec_func(sh, fn, (int)argc, argv, kvs, na,
+				 n->u.simple.redirs, nr, n->line);
 
-		status = bi->fn(sh, (int)argc, argv, n->line);
-		if (vsaves)
-			tc_var_pop_overrides(&sh->vars, vsaves, nvsaves);
-		restore_fds(saves, nsaves);
-		for (size_t i = 0; i < nwriters; i++)
-			wait_child(writers[i]);
-		return status;
-	}
+	if (bi)
+		return exec_builtin(sh, bi, (int)argc, argv, kvs, na,
+				    n->u.simple.redirs, nr, n->line);
 
 	pid_t pid = fork();
 	if (pid < 0) {
@@ -617,7 +684,7 @@ static int exec_pipeline(struct tc_shell *sh, const struct tc_node *n)
 {
 	size_t ncmds = n->u.pipeline.ncmds;
 	if (ncmds == 1) {
-		int status = exec_simple(sh, n->u.pipeline.cmds[0]);
+		int status = exec_one(sh, n->u.pipeline.cmds[0]);
 		return n->u.pipeline.bang ? (status == 0 ? 1 : 0) : status;
 	}
 
@@ -654,6 +721,10 @@ static int exec_pipeline(struct tc_shell *sh, const struct tc_node *n)
 		}
 		if (pid == 0) {
 			tc_signals_child();
+			sh->interactive = false;
+			sh->loop_depth = 0;
+			sh->func_depth = 0;
+			sh->flow = TC_FLOW_NONE;
 			if (in_fd >= 0) {
 				if (in_fd != STDIN_FILENO) {
 					if (dup2(in_fd, STDIN_FILENO) < 0)
@@ -669,7 +740,8 @@ static int exec_pipeline(struct tc_shell *sh, const struct tc_node *n)
 					close(pfd[1]);
 				}
 			}
-			_exit(exec_simple_child(sh, n->u.pipeline.cmds[i]));
+			int st = exec_one(sh, n->u.pipeline.cmds[i]);
+			_exit(sh->exit_requested ? sh->exit_status : st);
 		}
 		if (in_fd >= 0)
 			close(in_fd);
@@ -688,13 +760,247 @@ static int exec_pipeline(struct tc_shell *sh, const struct tc_node *n)
 	return n->u.pipeline.bang ? (status == 0 ? 1 : 0) : status;
 }
 
+static int exec_redir(struct tc_shell *sh, const struct tc_node *n)
+{
+	struct fd_save *saves = NULL;
+	size_t nsaves = 0;
+	pid_t *writers = NULL;
+	size_t nwriters = 0;
+	if (apply_redirs(sh, n->u.redir.redirs, n->u.redir.nredirs,
+			 &saves, &nsaves, &writers, &nwriters) < 0)
+		return 1;
+	int status = exec_one(sh, n->u.redir.child);
+	restore_fds(saves, nsaves);
+	for (size_t i = 0; i < nwriters; i++)
+		wait_child(writers[i]);
+	return status;
+}
+
+static int exec_subshell(struct tc_shell *sh, const struct tc_node *n)
+{
+	pid_t pid = fork();
+	if (pid < 0) {
+		tc_error(sh, n->line, "cannot fork subshell: %s", strerror(errno));
+		return TC_STATUS_USAGE;
+	}
+	if (pid == 0) {
+		tc_signals_child();
+		sh->interactive = false;
+		sh->loop_depth = 0;
+		sh->func_depth = 0;
+		sh->flow = TC_FLOW_NONE;
+		int st = tc_exec(sh, n->u.group.body);
+		if (sh->exit_requested)
+			_exit(sh->exit_status);
+		if (sh->flow == TC_FLOW_RETURN)
+			_exit(sh->return_status);
+		_exit(st);
+	}
+	return wait_child(pid);
+}
+
+static int exec_if(struct tc_shell *sh, const struct tc_node *n)
+{
+	for (size_t i = 0; i < n->u.if_cmd.nbranches; i++) {
+		int cstat = tc_exec(sh, n->u.if_cmd.branches[i].cond);
+		if (flow_stop(sh))
+			return cstat;
+		if (cstat == 0)
+			return tc_exec(sh, n->u.if_cmd.branches[i].body);
+	}
+	if (n->u.if_cmd.else_body)
+		return tc_exec(sh, n->u.if_cmd.else_body);
+	return 0;
+}
+
+/* Returns: 0 = normal, 1 = break out of this loop, 2 = continue this loop. */
+static int handle_loop_flow(struct tc_shell *sh, int *last_status, int cur_status)
+{
+	if (sh->exit_requested || sh->flow == TC_FLOW_RETURN) {
+		*last_status = cur_status;
+		return 1;
+	}
+	if (sh->flow == TC_FLOW_BREAK) {
+		if (--sh->flow_count == 0)
+			sh->flow = TC_FLOW_NONE;
+		*last_status = 0;
+		return 1;
+	}
+	if (sh->flow == TC_FLOW_CONTINUE) {
+		if (--sh->flow_count == 0) {
+			sh->flow = TC_FLOW_NONE;
+			*last_status = 0;
+			return 2;
+		}
+		*last_status = 0;
+		return 1;
+	}
+	return 0;
+}
+
+static int exec_loop(struct tc_shell *sh, const struct tc_node *n)
+{
+	sh->loop_depth++;
+	struct tc_arena_mark mark = tc_arena_mark(&sh->arena);
+	int last_status = 0;
+
+	for (;;) {
+		tc_arena_rewind(&sh->arena, mark);
+		int cstat = tc_exec(sh, n->u.loop.cond);
+		int fl = handle_loop_flow(sh, &last_status, cstat);
+		if (fl == 1)
+			break;
+		if (fl == 2)
+			continue;
+
+		bool keep = n->u.loop.until ? (cstat != 0) : (cstat == 0);
+		if (!keep)
+			break;
+
+		int bstat = tc_exec(sh, n->u.loop.body);
+		fl = handle_loop_flow(sh, &last_status, bstat);
+		if (fl == 1)
+			break;
+		if (fl == 2)
+			continue;
+		last_status = bstat;
+	}
+
+	tc_arena_rewind(&sh->arena, mark);
+	sh->loop_depth--;
+	return last_status;
+}
+
+static int exec_for(struct tc_shell *sh, const struct tc_node *n)
+{
+	char **items = NULL;
+	size_t nitems = 0;
+
+	if (!n->u.for_cmd.has_in) {
+		nitems = sh->nparams;
+		if (nitems > 0) {
+			items = tc_arena_alloc(&sh->arena, nitems * sizeof(*items));
+			if (!items) {
+				tc_error(sh, n->line, "out of memory");
+				return TC_STATUS_USAGE;
+			}
+			for (size_t i = 0; i < nitems; i++) {
+				items[i] = tc_arena_strndup(
+					&sh->arena, sh->params[i],
+					strlen(sh->params[i]));
+				if (!items[i]) {
+					tc_error(sh, n->line, "out of memory");
+					return TC_STATUS_USAGE;
+				}
+			}
+		}
+	} else if (n->u.for_cmd.nwords > 0) {
+		int er = tc_expand_words(sh, n->u.for_cmd.words,
+					 n->u.for_cmd.nwords, &items, &nitems);
+		if (er != TC_EXP_OK)
+			return er == TC_EXP_ERR ? fatal_exp_error(sh) : TC_STATUS_USAGE;
+	}
+
+	if (nitems == 0)
+		return 0;
+
+	sh->loop_depth++;
+	struct tc_arena_mark mark = tc_arena_mark(&sh->arena);
+	int last_status = 0;
+
+	for (size_t i = 0; i < nitems; i++) {
+		tc_arena_rewind(&sh->arena, mark);
+		int sr = tc_var_set(&sh->vars, n->u.for_cmd.name, items[i], 0);
+		if (sr == TC_VAR_ERR_READONLY) {
+			tc_error(sh, n->line, "%s: readonly variable",
+				 n->u.for_cmd.name);
+			last_status = fatal_exp_error(sh);
+			break;
+		}
+		if (sr != TC_VAR_OK) {
+			tc_error(sh, n->line, "out of memory");
+			last_status = TC_STATUS_USAGE;
+			break;
+		}
+		int bstat = tc_exec(sh, n->u.for_cmd.body);
+		int fl = handle_loop_flow(sh, &last_status, bstat);
+		if (fl == 1)
+			break;
+		if (fl == 2)
+			continue;
+		last_status = bstat;
+	}
+
+	tc_arena_rewind(&sh->arena, mark);
+	sh->loop_depth--;
+	return last_status;
+}
+
+static bool is_bare_star_word(const struct tc_word *w)
+{
+	return !(w->flags & TC_WORD_QUOTED) &&
+	       w->parts && w->parts->kind == TC_WPART_LITERAL &&
+	       w->parts->len == 1 && w->parts->text[0] == '*' &&
+	       !w->parts->next;
+}
+
+static int exec_case(struct tc_shell *sh, const struct tc_node *n)
+{
+	char *subject = NULL;
+	int er = tc_expand_single(sh, &n->u.case_cmd.word, false, &subject);
+	if (er != TC_EXP_OK)
+		return er == TC_EXP_ERR ? fatal_exp_error(sh) : TC_STATUS_USAGE;
+
+	for (size_t i = 0; i < n->u.case_cmd.nitems; i++) {
+		const struct tc_case_item *it = &n->u.case_cmd.items[i];
+		bool matched = false;
+		for (size_t j = 0; j < it->npatterns; j++) {
+			if (is_bare_star_word(&it->patterns[j])) {
+				matched = true;
+				break;
+			}
+			char *pat = NULL;
+			er = tc_expand_single(sh, &it->patterns[j], false, &pat);
+			if (er != TC_EXP_OK)
+				return er == TC_EXP_ERR ? fatal_exp_error(sh)
+							: TC_STATUS_USAGE;
+			if (strcmp(subject, pat) == 0) {
+				matched = true;
+				break;
+			}
+		}
+		if (matched)
+			return it->body ? tc_exec(sh, it->body) : 0;
+	}
+	return 0;
+}
+
+static int exec_funcdef(struct tc_shell *sh, const struct tc_node *n)
+{
+	if (tc_func_define(&sh->funcs, n->u.funcdef.name, n->u.funcdef.body) < 0) {
+		tc_error(sh, n->line, "out of memory");
+		return TC_STATUS_USAGE;
+	}
+	return 0;
+}
+
 static int exec_one(struct tc_shell *sh, const struct tc_node *n)
 {
+	if (sh->exec_depth >= TC_EXEC_DEPTH_MAX) {
+		tc_error(sh, n->line, "execution nesting depth exceeds limit (%d)",
+			 TC_EXEC_DEPTH_MAX);
+		return 1;
+	}
+	sh->exec_depth++;
+	int status;
+
 	switch (n->kind) {
 	case TC_NODE_SIMPLE:
-		return exec_simple(sh, n);
+		status = exec_simple(sh, n);
+		break;
 	case TC_NODE_PIPELINE:
-		return exec_pipeline(sh, n);
+		status = exec_pipeline(sh, n);
+		break;
 	case TC_NODE_AND_OR:
 		for (size_t i = 0; i < n->u.and_or.nitems; i++) {
 			const struct tc_andor_item *it = &n->u.and_or.items[i];
@@ -703,13 +1009,42 @@ static int exec_one(struct tc_shell *sh, const struct tc_node *n)
 			if (it->op == TC_ANDOR_OR && sh->status == 0)
 				continue;
 			sh->status = exec_one(sh, it->cmd);
-			if (sh->exit_requested)
+			if (flow_stop(sh))
 				break;
 		}
-		return sh->status;
+		status = sh->status;
+		break;
+	case TC_NODE_REDIR:
+		status = exec_redir(sh, n);
+		break;
+	case TC_NODE_GROUP:
+		status = tc_exec(sh, n->u.group.body);
+		break;
+	case TC_NODE_SUBSHELL:
+		status = exec_subshell(sh, n);
+		break;
+	case TC_NODE_IF:
+		status = exec_if(sh, n);
+		break;
+	case TC_NODE_LOOP:
+		status = exec_loop(sh, n);
+		break;
+	case TC_NODE_FOR:
+		status = exec_for(sh, n);
+		break;
+	case TC_NODE_CASE:
+		status = exec_case(sh, n);
+		break;
+	case TC_NODE_FUNCDEF:
+		status = exec_funcdef(sh, n);
+		break;
 	default:
-		return TC_STATUS_USAGE;
+		status = TC_STATUS_USAGE;
+		break;
 	}
+
+	sh->exec_depth--;
+	return status;
 }
 
 int tc_exec(struct tc_shell *sh, const struct tc_node *n)
@@ -723,7 +1058,7 @@ int tc_exec(struct tc_shell *sh, const struct tc_node *n)
 			cur = cur->u.seq.first;
 		}
 		sh->status = exec_one(sh, cur);
-		if (sh->exit_requested)
+		if (flow_stop(sh))
 			break;
 	}
 	return sh->status;

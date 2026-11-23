@@ -10,6 +10,7 @@
 #include <sys/types.h>
 
 #include "tam-clam/arena.h"
+#include "tam-clam/func.h"
 #include "tam-clam/var.h"
 
 struct tc_input;
@@ -33,6 +34,19 @@ enum {
 
 #define TC_SELF_PATH_MAX 4096
 
+/* Function recursion and AST execution depth limits. */
+#define TC_FUNC_DEPTH_DEFAULT 1000
+#define TC_FUNC_DEPTH_MAX     2000
+#define TC_EXEC_DEPTH_MAX     8192
+
+/* Explicit flow control (no setjmp/longjmp). */
+enum tc_flow {
+	TC_FLOW_NONE = 0,
+	TC_FLOW_BREAK,
+	TC_FLOW_CONTINUE,
+	TC_FLOW_RETURN,
+};
+
 struct tc_shell {
 	const char *name;          /* $0, used in messages */
 	char self_path[TC_SELF_PATH_MAX]; /* this executable, for ENOEXEC */
@@ -40,9 +54,17 @@ struct tc_shell {
 	int status;                /* status of the last command ($?) */
 	bool exit_requested;       /* the exit builtin or fatal error ran */
 	int exit_status;
+	enum tc_flow flow;         /* active break / continue / return */
+	unsigned flow_count;       /* remaining loop levels for break/continue */
+	int return_status;         /* status for return */
+	unsigned loop_depth;       /* enclosing while/until/for depth */
+	unsigned func_depth;       /* active function call depth */
+	unsigned func_limit;       /* default recursion limit (1000) */
+	unsigned exec_depth;       /* active AST execution nesting depth */
 	pid_t root_pid;            /* $$: main shell PID */
 	pid_t last_bg_pid;         /* $!: 0 until background jobs in 0.1.1 */
 	struct tc_vars vars;       /* shell variables and environment */
+	struct tc_funcs funcs;     /* shell functions */
 	char **params;             /* positional parameters $1..$N */
 	size_t nparams;
 	struct tc_arena arena;     /* memory for the command being run */

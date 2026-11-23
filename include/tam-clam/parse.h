@@ -10,14 +10,19 @@
 
 /* The most simple commands one complete command may hold. */
 #define TC_WORDS_MAX 65536
+/* Maximum nesting depth of compound commands and function definitions. */
+#define TC_PARSE_DEPTH_MAX 128
 
 struct tc_heredoc_pending;
 
 struct tc_parser {
 	struct tc_shell *sh;
 	struct tc_lexer lx;
-	struct tc_token tok;   /* the current token */
+	struct tc_token tok;      /* the current token */
 	int have_tok;
+	struct tc_token peek_tok; /* 1-token lookahead for WORD '(' */
+	int have_peek;
+	unsigned depth;           /* current compound nesting depth */
 	struct tc_heredoc_pending *hd_head;
 	struct tc_heredoc_pending *hd_tail;
 };

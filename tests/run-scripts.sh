@@ -126,5 +126,15 @@ expect 'script positional parameters' 0 '2:foo:bar' \
 expect '-s positional parameters' 0 '2:x:y' \
 	sh -c '"$1" -s x y <"$2"' - "$shell" "$tmp/pos.sh"
 
+# 0.0.4: function recursion limit (FUNCNEST and default 1000), parser nesting limit, case glob refusal.
+expect 'FUNCNEST=10 stops runaway recursion' 1 '' \
+	"$shell" -c 'FUNCNEST=10; f() { f; }; f'
+expect 'default recursion limit stops runaway recursion' 1 '' \
+	"$shell" -c 'f() { f; }; f'
+expect 'case glob pattern refused' 2 '' \
+	"$shell" -c 'case a in *.c) echo no;; esac'
+expect 'parser nesting limit stops deep nesting' 2 '' \
+	"$shell" -c "$(awk 'BEGIN { for (i=0;i<150;i++) printf "{ "; printf ":; "; for (i=0;i<150;i++) printf "}; "; }')"
+
 echo "run-scripts: $pass passed, $fail failed (reference shell: $ref)"
 [ "$fail" -eq 0 ]

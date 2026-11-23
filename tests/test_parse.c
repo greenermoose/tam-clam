@@ -130,11 +130,72 @@ int main(void)
 	CHECK(tc_parse_next(&f.p, &n) == TC_OK && is_simple(n, 5, "echo"));
 	stop(&f);
 
-	/* Valid shell that 0.0.3 still refuses rather than runs wrongly. */
+	/* 0.0.4: compound commands and function definitions now parse. */
+	start(&f, "if true; then echo yes; elif false; then echo no; else echo e; fi\n");
+	CHECK(tc_parse_next(&f.p, &n) == TC_OK && n && n->kind == TC_NODE_IF &&
+	      n->u.if_cmd.nbranches == 2 && n->u.if_cmd.else_body != NULL);
+	stop(&f);
+
+	start(&f, "while true; do echo a; done\nuntil false; do echo b; done\n");
+	CHECK(tc_parse_next(&f.p, &n) == TC_OK && n && n->kind == TC_NODE_LOOP &&
+	      !n->u.loop.until);
+	CHECK(tc_parse_next(&f.p, &n) == TC_OK && n && n->kind == TC_NODE_LOOP &&
+	      n->u.loop.until);
+	stop(&f);
+
+	start(&f, "for x in a b; do echo $x; done\nfor y; do echo $y; done\n");
+	CHECK(tc_parse_next(&f.p, &n) == TC_OK && n && n->kind == TC_NODE_FOR &&
+	      n->u.for_cmd.has_in && n->u.for_cmd.nwords == 2);
+	CHECK(tc_parse_next(&f.p, &n) == TC_OK && n && n->kind == TC_NODE_FOR &&
+	      !n->u.for_cmd.has_in && n->u.for_cmd.nwords == 0);
+	stop(&f);
+
+	start(&f, "case $x in (a|b) echo 1;; *) echo 2;; esac\n");
+	CHECK(tc_parse_next(&f.p, &n) == TC_OK && n && n->kind == TC_NODE_CASE &&
+	      n->u.case_cmd.nitems == 2 &&
+	      n->u.case_cmd.items[0].npatterns == 2 &&
+	      n->u.case_cmd.items[1].npatterns == 1);
+	stop(&f);
+
+	start(&f, "{ echo a; } > out\n(echo b)\nf() { echo hi; } 2>&1\n");
+	CHECK(tc_parse_next(&f.p, &n) == TC_OK && n && n->kind == TC_NODE_REDIR &&
+	      n->u.redir.child->kind == TC_NODE_GROUP && n->u.redir.nredirs == 1);
+	CHECK(tc_parse_next(&f.p, &n) == TC_OK && n && n->kind == TC_NODE_SUBSHELL);
+	CHECK(tc_parse_next(&f.p, &n) == TC_OK && n && n->kind == TC_NODE_FUNCDEF &&
+	      strcmp(n->u.funcdef.name, "f") == 0 &&
+	      n->u.funcdef.body->kind == TC_NODE_REDIR);
+	stop(&f);
+
+	/* Compound syntax errors. */
+	CHECK(fails("if true; then fi"));
+	CHECK(fails("{ }"));
+	CHECK(fails("()"));
+	CHECK(fails("for 1bad in a; do :; done"));
+	CHECK(fails("case x in *.c) :;; esac"));
+	CHECK(fails("fi"));
+	CHECK(fails("done"));
+	CHECK(fails("}"));
+
+	/* Parser nesting depth limit (TC_PARSE_DEPTH_MAX = 128). */
+	{
+		char deep[4096];
+		size_t pos = 0;
+		for (int i = 0; i < 140; i++) {
+			memcpy(deep + pos, "{ ", 2);
+			pos += 2;
+		}
+		memcpy(deep + pos, ":;", 2);
+		pos += 2;
+		for (int i = 0; i < 140; i++) {
+			memcpy(deep + pos, " };", 3);
+			pos += 3;
+		}
+		deep[pos] = '\0';
+		CHECK(fails(deep));
+	}
+
+	/* Valid shell that 0.0.4 still refuses rather than runs wrongly. */
 	CHECK(fails("a &"));
-	CHECK(fails("(a)"));
-	CHECK(fails("if true; then :; fi"));
-	CHECK(fails("{ a; }"));
 	CHECK(fails("echo `date`"));
 	CHECK(fails("echo $(date)"));
 	CHECK(fails("echo $((1+2))"));

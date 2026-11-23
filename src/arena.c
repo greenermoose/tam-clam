@@ -61,6 +61,26 @@ char *tc_arena_strndup(struct tc_arena *a, const char *s, size_t len)
 	return p;
 }
 
+struct tc_arena_mark tc_arena_mark(const struct tc_arena *a)
+{
+	struct tc_arena_mark m;
+	m.block = a->head;
+	m.used = a->head ? a->head->used : 0;
+	return m;
+}
+
+void tc_arena_rewind(struct tc_arena *a, struct tc_arena_mark m)
+{
+	while (a->head && a->head != m.block) {
+		struct tc_arena_block *b = a->head;
+		a->head = b->next;
+		a->total -= b->cap;
+		free(b);
+	}
+	if (a->head)
+		a->head->used = m.used;
+}
+
 void tc_arena_reset(struct tc_arena *a)
 {
 	struct tc_arena_block *b = a->head;

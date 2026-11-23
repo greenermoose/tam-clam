@@ -1,0 +1,20 @@
+n=2 1=alpha 2=beta
+before:2:A:B
+n=1 1=inner1 2=
+after:2:A:B
+zero-ok
+in-func:temp
+after-temp:outer
+ret42:42
+ret-last:9
+custom-true
+v1-start
+v1-end
+v2
+step:xxx
+step:xx
+step:x
+done
+from-func-heredoc
+HELLO
+WORLD

@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
-/* Shell builtins: exit, cd (-L/-P, PWD, OLDPWD, CDPATH), :, true, false. */
+/* Shell builtins: exit, cd (-L/-P, PWD, OLDPWD, CDPATH), break, continue,
+ * return, :, true, false. */
 #include <errno.h>
 #include <limits.h>
 #include <stdlib.h>
@@ -356,11 +357,96 @@ static int bi_cd(struct tc_shell *sh, int argc, char **argv, unsigned long line)
 	return status;
 }
 
+static int parse_positive_count(const char *s, unsigned *out)
+{
+	if (!s || *s == '\0')
+		return -1;
+	unsigned long v = 0;
+	for (const char *p = s; *p; p++) {
+		if (*p < '0' || *p > '9')
+			return -1;
+		unsigned d = (unsigned)(*p - '0');
+		if (v > ((unsigned long)UINT_MAX - d) / 10)
+			return -1;
+		v = v * 10 + d;
+	}
+	if (v == 0)
+		return -1;
+	*out = (unsigned)v;
+	return 0;
+}
+
+static int bi_loop_flow(struct tc_shell *sh, int argc, char **argv,
+			unsigned long line, enum tc_flow flow)
+{
+	const char *cmd = argv[0];
+	unsigned n = 1;
+	if (argc > 2) {
+		tc_error(sh, line, "%s: too many arguments", cmd);
+		return 1;
+	}
+	if (argc == 2 && parse_positive_count(argv[1], &n) < 0) {
+		tc_error(sh, line, "%s: %s: a positive integer is needed",
+			 cmd, argv[1]);
+		if (!sh->interactive) {
+			sh->exit_requested = true;
+			sh->exit_status = 1;
+		}
+		return 1;
+	}
+	if (sh->loop_depth == 0) {
+		tc_error(sh, line, "%s: only meaningful in a loop", cmd);
+		return 0;
+	}
+	if (n > sh->loop_depth)
+		n = sh->loop_depth;
+	sh->flow = flow;
+	sh->flow_count = n;
+	return 0;
+}
+
+static int bi_break(struct tc_shell *sh, int argc, char **argv, unsigned long line)
+{
+	return bi_loop_flow(sh, argc, argv, line, TC_FLOW_BREAK);
+}
+
+static int bi_continue(struct tc_shell *sh, int argc, char **argv, unsigned long line)
+{
+	return bi_loop_flow(sh, argc, argv, line, TC_FLOW_CONTINUE);
+}
+
+static int bi_return(struct tc_shell *sh, int argc, char **argv, unsigned long line)
+{
+	int status = sh->status;
+	if (argc > 2) {
+		tc_error(sh, line, "return: too many arguments");
+		return 1;
+	}
+	if (argc == 2) {
+		status = parse_exit_status(argv[1]);
+		if (status < 0) {
+			tc_error(sh, line, "return: %s: a number from 0 to 255 is needed",
+				 argv[1]);
+			status = TC_STATUS_USAGE;
+		}
+	}
+	if (sh->func_depth == 0) {
+		tc_error(sh, line, "return: can only return from a function");
+		return 1;
+	}
+	sh->flow = TC_FLOW_RETURN;
+	sh->return_status = status;
+	return status;
+}
+
 static const struct tc_builtin builtins[] = {
 	{":", bi_true, true},
+	{"break", bi_break, true},
 	{"cd", bi_cd, false},
+	{"continue", bi_continue, true},
 	{"exit", bi_exit, true},
 	{"false", bi_false, false},
+	{"return", bi_return, true},
 	{"true", bi_true, false},
 };
 

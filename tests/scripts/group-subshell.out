@@ -1,0 +1,14 @@
+in-group:group
+after-group:group
+in-sub:subshell
+after-sub:group
+sub-pwd:/
+pwd-preserved
+pid-same
+sub-exit:7
+ONE
+TWO
+SUB1
+SUB2
+redir-status:0
+bang-group:0

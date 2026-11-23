@@ -3,47 +3,56 @@ WHATNOW
 What tam-clam is doing now and what comes next. Read this first; revise
 it at the end of every session (work/README-work).
 
-Updated: 2026-11-22, with W4 (0.0.3)
+Updated: 2026-11-23, with W5 (0.0.4)
 
 
 STATE
 
-  Version 0.0.3, variables and parameter expansion, on branch dev. It
-  adds the variable table (src/var.c: shell/export/readonly flags,
-  environ import, lazy envp rebuild), structured word parts (tc_wpart),
-  assignment-only and prefix assignments (with POSIX special vs regular
-  builtin persistence), POSIX parameter expansion (${x:-w}, ${x:=w},
-  ${x:?w}, ${x:+w} with and without ':', ${#x}, plain-string %/%%/#/#),
-  unquoted here-document parameter expansion, special and positional
-  parameters ($? $$ $! $# $@ $* $- $0 $1..${10}+), tilde expansion,
-  PS1/PS2 variables, and logical/physical cd (-L/-P, PWD, OLDPWD,
-  CDPATH). readelf -d lists only libc.so.6. make test and make sanitize
-  pass (255 unit checks, 65 script/startup checks against bash --posix).
+  Version 0.0.4, compound commands and functions, on branch dev. It
+  completes Phase P1 (foundation) by adding:
+  - compound commands: if/elif/else/fi, while, until, for (with and
+    without 'in'), case (plain-string patterns plus exact bare '*'
+    match-all; other unquoted globs refused until 0.1.0), { ...; } brace
+    groups, ( ... ) subshells, and trailing redirections on any compound
+    command (including inside pipelines);
+  - shell functions (src/func.c: refcounted ASTs in private arenas,
+    POSIX command lookup precedence, scoped positional parameters and
+    prefix assignments, settable recursion limit via FUNCNEST defaulting
+    to 1000 with hard ceiling 2000);
+  - break, continue, and return special builtins with explicit flow
+    state (no setjmp/longjmp);
+  - explicit parser nesting limit (128), execution depth limit (8192),
+    and arena mark/rewind for loop iterations.
+  readelf -d lists only libc.so.6. make test and make sanitize pass
+  (289 unit checks, 80 script/refusal/startup checks against bash --posix).
 
   Fred's decisions so far are in ROADMAP.md and the plans: POSIX.1-2024
   is the target; lint mode is P2 0.1.5; tam-clam ships only its own key
   map (no built-in readline map), drafted in arch/keys.md and agreed with
   Fred before 0.2.0; unquoted expansions containing IFS characters pass
-  through as a single word until field splitting lands in 0.1.0.
+  through as a single word until field splitting lands in 0.1.0; case
+  allows bare unquoted '*' as an exact match-all while refusing other
+  unquoted globs until 0.1.0; FUNCNEST sets the function recursion limit.
 
 
 NEXT
 
-  1. 0.0.4, compound commands and functions (plans/P1-foundation.md):
-     - if, while, until, for, case (plain-string patterns until 0.1.0),
-       { ...; }, ( ... ) subshells;
-     - functions with a recursion limit (default 1000, settable);
-     - break, continue, and return;
-     - explicit execution depth count and parser nesting limit.
-     Bump VERSION to 0.0.4 in the first code commit.
+  1. 0.1.0, Phase P2 start (plans/P2-posix-language.md):
+     - command substitution ($(...) and `...`);
+     - $'...' ANSI-C quoting;
+     - arithmetic expansion ($((...)));
+     - IFS field splitting;
+     - pathname expansion (globbing) with our own pattern matcher (also
+       enabling full patterns in case and ${x%pat}/${x#pat}).
+     Bump VERSION to 0.1.0 in the first code commit.
 
-  2. 0.1.0, command substitution, $'...', arithmetic expansion, IFS
-     field splitting, and pathname expansion (plans/P2-posix-language.md).
+  2. 0.1.1, background commands, wait, trap, and the remaining special
+     builtins (set, shift, eval, ., export, readonly, unset, exec, times).
 
 
 WAITING FOR FRED
 
-  - Trying 0.0.3: build/tam-clam -c '...', or run it on a terminal. It
+  - Trying 0.0.4: build/tam-clam -c '...', or run it on a terminal. It
     is not installed and is nobody's login shell.
   - Whether to install dash, so the script tests compare against it as
     well as bash --posix.

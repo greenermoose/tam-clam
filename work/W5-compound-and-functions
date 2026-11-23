@@ -1,0 +1,57 @@
+W5 COMPOUND COMMANDS AND FUNCTIONS
+
+Date: 2026-11-23
+AI harness: agy
+AI model: Gemini 4 Neon (Medium)
+
+GUIDANCE
+
+  Fred: "/plan Do the next work slice for tam-clam"
+  Fred: "1 allow bare unquoted * as an exact POSIX match-all default
+  while refusing all other unquoted globs until 0.1.0
+  2 Use the standard FUNCNEST shell varialable for settable recursion
+  limit
+  Plan approved. Proceed."
+
+DONE
+
+  - Added tc_arena_mark / tc_arena_rewind (include/tam-clam/arena.h,
+    src/arena.c) so loops and function calls reclaim per-iteration
+    scratch allocations without disturbing active ASTs.
+  - Added compound and function AST nodes (TC_NODE_REDIR, TC_NODE_GROUP,
+    TC_NODE_SUBSHELL, TC_NODE_IF, TC_NODE_LOOP, TC_NODE_FOR,
+    TC_NODE_CASE, TC_NODE_FUNCDEF) in include/tam-clam/ast.h.
+  - Added function table and arena-backed AST deep-cloning module
+    (include/tam-clam/func.h, src/func.c) with reference counting so
+    running functions can safely redefine or unset themselves.
+  - Extended src/parse.c with 1-token lookahead for WORD '(', explicit
+    nesting limit (TC_PARSE_DEPTH_MAX = 128), iterative compound_list
+    parsing, if/elif/else/fi, while, until, for, case (plain-string
+    patterns plus exact bare '*' match-all), { ...; }, ( ... ), trailing
+    compound redirections, and function definitions.
+  - Added break, continue, and return POSIX special builtins in
+    src/builtins.c using explicit tc_flow state in struct tc_shell (no
+    setjmp/longjmp).
+  - Extended src/exec.c to execute all compound commands (including in
+    pipelines), enforce TC_EXEC_DEPTH_MAX (8192) and FUNCNEST recursion
+    limit (default 1000, hard cap 2000), implement POSIX command search
+    order (special builtins > functions > regular builtins > external),
+    and scope positional parameters and prefix assignments on calls.
+  - Bumped VERSION to 0.0.4, updated ROADMAP.md, plans/P1-foundation.md,
+    and work/WHATNOW; added tests/test_func.c, extended test_parse.c,
+    moved tests/refuse/if.* to tests/scripts/if.*, added loops/for/case/
+    group-subshell/functions script tests and recursion/nesting startup
+    checks in tests/run-scripts.sh.
+  - Verified with make clean && make (0 warnings), make test (289 unit
+    checks, 80 script checks against bash --posix), make sanitize
+    (ASan+UBSan clean), and readelf -d (only libc.so.6).
+
+FAILED
+
+  - Nothing.
+
+HANDOFF
+
+  - Phase P1 (0.0.x) is complete. Next is Phase P2, 0.1.0: command
+    substitution, $'...', arithmetic expansion, IFS field splitting,
+    and pathname expansion (plans/P2-posix-language.md).

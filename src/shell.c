@@ -59,8 +59,10 @@ void tc_shell_init(struct tc_shell *sh, const char *name)
 	memset(sh, 0, sizeof(*sh));
 	sh->name = name;
 	sh->root_pid = getpid();
+	sh->func_limit = TC_FUNC_DEPTH_DEFAULT;
 	tc_arena_init(&sh->arena, TC_ARENA_MAX);
 	tc_var_init(&sh->vars);
+	tc_funcs_init(&sh->funcs);
 	(void)tc_var_import_environ(&sh->vars, environ);
 
 	if (!tc_var_get(&sh->vars, "IFS"))
@@ -123,6 +125,7 @@ int tc_shell_set_params(struct tc_shell *sh, int n, char *const *argv)
 void tc_shell_finish(struct tc_shell *sh)
 {
 	free_params(sh);
+	tc_funcs_finish(&sh->funcs);
 	tc_var_finish(&sh->vars);
 	tc_arena_finish(&sh->arena);
 }

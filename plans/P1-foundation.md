@@ -1,8 +1,8 @@
 # P1: Foundation (0.0.x)
 
-**Status:** in progress. 0.0.3, variables and parameter expansion, built on
-2026-11-22 and waiting for Fred to try it. Next: 0.0.4, compound commands
-and functions.
+**Status:** complete (waiting for Fred to try 0.0.4). 0.0.4, compound
+commands and functions, built on 2026-11-23. Next: Phase P2, 0.1.0
+(`plans/P2-posix-language.md`).
 
 ## Goal
 
