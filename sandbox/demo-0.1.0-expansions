@@ -1,0 +1,66 @@
+#!/bin/sh
+# Demo 0.1.0: $'...' ANSI-C strings, $((...)) arithmetic, $(...), IFS split, globbing.
+set -eu
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+SH="$ROOT/build/tam-clam"
+[ -x "$SH" ] || make -C "$ROOT"
+
+echo "--- 0.1.0: expansions (ANSI-C, arithmetic, cmdsub, IFS, globbing) ---"
+"$SH" -c '
+ROOT=$1
+
+echo "=== 1. ANSI-C \$'\''...'\'' strings (Unicode + colors) ==="
+CYAN=$'\''\e[36m'\''
+GOLD=$'\''\e[33m'\''
+RESET=$'\''\e[0m'\''
+CLAM=$'\''\U0001F41A'\''
+STAR=$'\''\u2605'\''
+echo "${CYAN}${CLAM}  tam-clam 0.1.0 ${GOLD}${STAR} ANSI-C + UTF-8 ${STAR}${RESET}"
+
+echo ""
+echo "=== 2. 64-bit checked arithmetic \$((...)) ==="
+a=0; b=1; i=0; fib=""
+while [ "$i" -lt 10 ]; do
+	fib="$fib $a"
+	next=$((a + b))
+	a=$b
+	b=$next
+	i=$((i + 1))
+done
+echo "  First 10 Fibonacci numbers:$fib"
+echo "  Bitwise & ternary: $(( (1 << 8) + (3 > 2 ? 44 : 0) ))"
+
+echo ""
+echo "=== 3. Checked 64-bit overflow & div-by-zero (no silent wrap!) ==="
+printf "  9223372036854775807 + 1 -> "
+("$0" -c '\''echo $((9223372036854775807 + 1))'\'' 2>&1 || true)
+printf "  1 / 0                   -> "
+("$0" -c '\''echo $((1 / 0))'\'' 2>&1 || true)
+
+echo ""
+echo "=== 4. Command substitution \$(...) & POSIX \$((cmd); (cmd)) ==="
+echo "  nested: $(echo "inner says: $(echo hello from inside)")"
+echo "  disambiguated subshells: $((echo left); (echo right))"
+
+echo ""
+echo "=== 5. IFS CSV splitting ==="
+row="alpha:beta:gamma:delta"
+OLDIFS=$IFS
+IFS=:
+for cell in $row; do
+	printf "  [%s]" "$cell"
+done
+printf "\n"
+IFS=$OLDIFS
+
+echo ""
+echo "=== 6. Linear-time globbing & pattern trimming ==="
+cd "$ROOT/src"
+count=0
+for f in [a-f]*.c; do
+	base=${f%.c}
+	printf "  %s (stem: %s)\n" "$f" "$base"
+	count=$((count + 1))
+done
+echo "  Matched $count files in src/ matching [a-f]*.c"
+' "$SH" "$ROOT"

@@ -15,9 +15,12 @@ while :; do
 	printf '  2) 0.0.2 pipes       (pipelines, !, &&/||, redirs, heredocs)\n'
 	printf '  3) 0.0.3 vars        (variables, parameter expansion, $@/$*, tilde)\n'
 	printf '  4) 0.0.3 cd          (logical -L, physical -P, cd -, CDPATH)\n'
-	printf '  5) interactive shell (try tam-clam live at a prompt)\n'
+	printf '  5) 0.0.4 control     (if, loops, case, {}, (), functions, FUNCNEST)\n'
+	printf '  6) 0.1.0 expansions  ($'\''...'\'', $((...)), $(...), IFS, globbing)\n'
+	printf '  7) 0.1.1 jobs/traps  (&, wait, $!, trap, set/shift/eval/./exec/times)\n'
+	printf '  8) interactive shell (try tam-clam live at a prompt)\n'
 	printf '  q) quit\n'
-	printf 'Choose [1-5, q]: '
+	printf 'Choose [1-8, q]: '
 	IFS= read -r choice || break
 	printf '\n'
 	case "$choice" in
@@ -25,7 +28,10 @@ while :; do
 	2) "$ROOT/sandbox/demo-0.0.2-pipes" ;;
 	3) "$ROOT/sandbox/demo-0.0.3-vars" ;;
 	4) "$ROOT/sandbox/demo-0.0.3-cd" ;;
-	5) "$ROOT/sandbox/demo-interactive" ;;
+	5) "$ROOT/sandbox/demo-0.0.4-control" ;;
+	6) "$ROOT/sandbox/demo-0.1.0-expansions" ;;
+	7) "$ROOT/sandbox/demo-0.1.1-jobs-traps" ;;
+	8) "$ROOT/sandbox/demo-interactive" ;;
 	q|Q) break ;;
 	*) echo "Unknown choice: $choice" ;;
 	esac

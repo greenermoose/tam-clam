@@ -19,15 +19,21 @@ IN THIS REPOSITORY
   directly from the repository root (it uses build/tam-clam, building
   it first if needed), or start with the menu:
 
-    ./sandbox/play                  interactive menu of all demos
-    ./sandbox/demo-0.0.1-basics     0.0.1: quoting, lists, builtins,
-                                    and clear refusal of future syntax
-    ./sandbox/demo-0.0.2-pipes      0.0.2: pipelines, !, &&/||,
-                                    redirections, and here-documents
-    ./sandbox/demo-0.0.3-vars       0.0.3: variables, prefix vs special
-                                    assignments, parameter expansion,
-                                    positional params, and tilde
-    ./sandbox/demo-0.0.3-cd         0.0.3: logical cd (-L), physical
-                                    cd (-P), cd -, and CDPATH
-    ./sandbox/demo-interactive      start an interactive tam-clam
-                                    prompt with ideas to try live
+    ./sandbox/play                   interactive menu of all demos
+    ./sandbox/demo-0.0.1-basics      0.0.1: quoting, lists, builtins,
+                                     and clear refusal of future syntax
+    ./sandbox/demo-0.0.2-pipes       0.0.2: pipelines, !, &&/||,
+                                     redirections, and here-documents
+    ./sandbox/demo-0.0.3-vars        0.0.3: variables, prefix vs special
+                                     assignments, parameter expansion,
+                                     positional params, and tilde
+    ./sandbox/demo-0.0.3-cd          0.0.3: logical cd (-L), physical
+                                     cd (-P), cd -, and CDPATH
+    ./sandbox/demo-0.0.4-control     0.0.4: if, loops, case, {}, (),
+                                     functions, and FUNCNEST
+    ./sandbox/demo-0.1.0-expansions  0.1.0: $'...' ANSI-C, $((...)),
+                                     $(...), IFS splitting, and globbing
+    ./sandbox/demo-0.1.1-jobs-traps  0.1.1: parallel &/wait/$!, traps,
+                                     set/shift/eval/./exec/times
+    ./sandbox/demo-interactive       start an interactive tam-clam
+                                     prompt with ideas to try live

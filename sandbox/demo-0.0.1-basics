@@ -18,7 +18,7 @@ SCRIPT
 
 echo ""
 echo "--- 0.0.1+: unfinished features are refused, never approximated ---"
-for snippet in 'echo *.c' 'if true; then echo hi; fi' 'echo $(date)' 'echo $((1+2))'; do
+for snippet in 'set -e' 'set -o pipefail' 'wait %1'; do
 	printf '  $ %s\n    -> ' "$snippet"
 	"$SH" -c "$snippet" 2>&1 || true
 done

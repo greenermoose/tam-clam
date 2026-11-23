@@ -1,0 +1,77 @@
+#!/bin/sh
+# Demo 0.1.1: background commands (&), wait, $!, trap, and POSIX special builtins.
+set -eu
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+SH="$ROOT/build/tam-clam"
+[ -x "$SH" ] || make -C "$ROOT"
+
+echo "--- 0.1.1: background jobs, wait, traps, and special builtins ---"
+"$SH" <<'SCRIPT'
+echo "=== 1. Parallel clam race (&, \$!, wait) ==="
+racer() {
+	name=$1 delay=$2 code=$3
+	sleep "$delay"
+	echo "  [finish] $name crossed the line! (exiting $code)"
+	exit "$code"
+}
+
+(racer "TurboClam"   0.05 11) & p1=$!
+(racer "SteadyClam"  0.15 22) & p2=$!
+(racer "SleepyClam"  0.25 33) & p3=$!
+echo "  Started 3 racers: pids $p1, $p2, $p3"
+
+wait "$p1"; s1=$?
+wait "$p2"; s2=$?
+wait "$p3"; s3=$?
+echo "  Collected statuses via wait: $s1, $s2, $s3"
+wait "$p1"
+echo "  Re-waiting on $p1 returns POSIX 127: $?"
+
+echo ""
+echo "=== 2. Safe-point signal trap (USR1) & EXIT trap ==="
+bells=0
+trap 'bells=$((bells + 1)); echo "  [trap] Ding #$bells! (caught USR1, \$? preserved as $?)"' USR1
+kill -USR1 $$
+kill -USR1 $$
+echo "  After 2 doorbells: bells=$bells"
+trap - USR1
+
+echo ""
+echo "=== 3. Special builtins: set --, shift, eval, ., export, readonly, unset ==="
+set -- mercury venus earth mars
+echo "  Positional params (\$#=$#): $*"
+shift 2
+echo "  After shift 2 (\$#=$#):    $*"
+
+op="6 * 7"
+eval "answer=\$(($op))"
+echo "  eval '$op' -> $answer"
+
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"; echo "  [EXIT trap] Cleaned up temp dir and saying goodbye!"' EXIT
+
+cat >"$tmp/plugin.sh" <<'EOF'
+PLUGIN_MSG="loaded via dot builtin"
+return 4
+echo "never reached"
+EOF
+. "$tmp/plugin.sh"
+echo "  dot script: msg='$PLUGIN_MSG', return=$?"
+
+export CLAM_EXPORT="visible-in-child"
+sh -c 'echo "  child sees CLAM_EXPORT=$CLAM_EXPORT"'
+
+readonly PI=3.14159
+echo "  readonly PI=$PI (attempting unset fails safely):"
+unset PI 2>&1 || true
+
+echo ""
+echo "=== 4. exec persistent fd + times CPU report ==="
+(
+	exec 3>&1
+	echo "  written through persistent fd 3!" >&3
+	exec 3>&-
+)
+echo "  CPU times (shell / children):"
+times | sed 's/^/    /'
+SCRIPT

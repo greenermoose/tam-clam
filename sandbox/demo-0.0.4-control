@@ -1,0 +1,59 @@
+#!/bin/sh
+# Demo 0.0.4: compound commands (if, while, until, for, case, {}, ()) and functions.
+set -eu
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+SH="$ROOT/build/tam-clam"
+[ -x "$SH" ] || make -C "$ROOT"
+
+echo "--- 0.0.4: compound commands and functions ---"
+"$SH" <<'SCRIPT'
+echo "=== 1. case + for: shell creature roll call ==="
+for item in clam.c readme.md notes.txt mystery.bin; do
+	case "$item" in
+	*.c)         kind="C source" ;;
+	*.md|*.txt)  kind="docs" ;;
+	*)           kind="mystery file" ;;
+	esac
+	printf '  %-14s -> %s\n' "$item" "$kind"
+done
+
+echo ""
+echo "=== 2. while / until + break / continue ==="
+stars=""
+while true; do
+	stars="${stars}*"
+	if [ "$stars" = "***" ]; then
+		echo "  (skipping 3 stars with continue)"
+		continue
+	fi
+	echo "  $stars"
+	if [ "$stars" = "*****" ]; then
+		break
+	fi
+done
+
+echo ""
+echo "=== 3. { group; } vs ( subshell ) ==="
+MOOD=calm
+{ MOOD=cheerful; echo "  inside { }:      MOOD=$MOOD"; }
+echo "  after  { }:      MOOD=$MOOD"
+( MOOD=rebellious; echo "  inside ( ):      MOOD=$MOOD" )
+echo "  after  ( ):      MOOD=$MOOD (unchanged!)"
+
+echo ""
+echo "=== 4. Functions + FUNCNEST safety net ==="
+greet() {
+	echo "  Ahoy, $1! (passed $# arg(s))"
+	return 0
+}
+greet "Fred"
+
+echo "  Testing runaway recursion with FUNCNEST=5:"
+FUNCNEST=5
+dive() {
+	echo "    depth step: $1"
+	dive "${1}."
+}
+dive "." 2>&1 || true
+echo "  shell survived! status=$?"
+SCRIPT
