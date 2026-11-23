@@ -1,5 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 #include <errno.h>
+#include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -10,6 +12,8 @@
 static void input_common(struct tc_input *in)
 {
 	in->len = in->pos = 0;
+	in->push = NULL;
+	in->push_len = in->push_pos = 0;
 	in->eof = false;
 	in->err = 0;
 	in->line = 1;
@@ -17,6 +21,37 @@ static void input_common(struct tc_input *in)
 	in->at_line_start = true;
 	in->want_ps1 = true;
 	in->sh = NULL;
+}
+
+void tc_input_finish(struct tc_input *in)
+{
+	free(in->push);
+	in->push = NULL;
+	in->push_len = in->push_pos = 0;
+}
+
+int tc_input_pushback(struct tc_input *in, const char *s, size_t len)
+{
+	if (len == 0)
+		return 0;
+	size_t rem = in->push_len - in->push_pos;
+	if (len > SIZE_MAX - rem)
+		return -1;
+	unsigned char *nb = malloc(len + rem);
+	if (!nb)
+		return -1;
+	memcpy(nb, s, len);
+	if (rem > 0)
+		memcpy(nb + len, in->push + in->push_pos, rem);
+	free(in->push);
+	in->push = nb;
+	in->push_len = len + rem;
+	in->push_pos = 0;
+	for (size_t i = 0; i < len; i++) {
+		if (s[i] == '\n' && in->line > 1)
+			in->line--;
+	}
+	return 0;
 }
 
 void tc_input_from_string(struct tc_input *in, const char *s, size_t len)
@@ -86,7 +121,14 @@ static int fill(struct tc_input *in)
 int tc_input_getc(struct tc_input *in)
 {
 	int c;
-	if (in->fd < 0) {
+	if (in->push && in->push_pos < in->push_len) {
+		c = in->push[in->push_pos++];
+		if (in->push_pos == in->push_len) {
+			free(in->push);
+			in->push = NULL;
+			in->push_len = in->push_pos = 0;
+		}
+	} else if (in->fd < 0) {
 		if (in->str_pos >= in->str_len)
 			return TC_IN_EOF;
 		c = (unsigned char)in->str[in->str_pos++];

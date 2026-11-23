@@ -16,6 +16,7 @@
 #include "tam-clam/exec.h"
 #include "tam-clam/expand.h"
 #include "tam-clam/lex.h"
+#include "tam-clam/pattern.h"
 #include "tam-clam/signals.h"
 
 /* Used when PATH is unset. */
@@ -610,6 +611,9 @@ static int exec_simple(struct tc_shell *sh, const struct tc_node *n)
 	char **argv = NULL;
 	size_t argc = 0;
 
+	sh->cmdsub_ran = false;
+	sh->cmdsub_status = 0;
+
 	if (nw > 0) {
 		int er = tc_expand_words(sh, n->u.simple.words, nw, &argv, &argc);
 		if (er != TC_EXP_OK)
@@ -634,7 +638,7 @@ static int exec_simple(struct tc_shell *sh, const struct tc_node *n)
 		restore_fds(saves, nsaves);
 		for (size_t i = 0; i < nwriters; i++)
 			wait_child(writers[i]);
-		return 0;
+		return sh->cmdsub_ran ? sh->cmdsub_status : 0;
 	}
 
 	struct tc_var_kv *kvs = NULL;
@@ -936,35 +940,24 @@ static int exec_for(struct tc_shell *sh, const struct tc_node *n)
 	return last_status;
 }
 
-static bool is_bare_star_word(const struct tc_word *w)
-{
-	return !(w->flags & TC_WORD_QUOTED) &&
-	       w->parts && w->parts->kind == TC_WPART_LITERAL &&
-	       w->parts->len == 1 && w->parts->text[0] == '*' &&
-	       !w->parts->next;
-}
-
 static int exec_case(struct tc_shell *sh, const struct tc_node *n)
 {
 	char *subject = NULL;
 	int er = tc_expand_single(sh, &n->u.case_cmd.word, false, &subject);
 	if (er != TC_EXP_OK)
 		return er == TC_EXP_ERR ? fatal_exp_error(sh) : TC_STATUS_USAGE;
+	size_t slen = strlen(subject);
 
 	for (size_t i = 0; i < n->u.case_cmd.nitems; i++) {
 		const struct tc_case_item *it = &n->u.case_cmd.items[i];
 		bool matched = false;
 		for (size_t j = 0; j < it->npatterns; j++) {
-			if (is_bare_star_word(&it->patterns[j])) {
-				matched = true;
-				break;
-			}
-			char *pat = NULL;
-			er = tc_expand_single(sh, &it->patterns[j], false, &pat);
+			struct tc_pat pat;
+			er = tc_expand_pat(sh, &it->patterns[j], &pat);
 			if (er != TC_EXP_OK)
 				return er == TC_EXP_ERR ? fatal_exp_error(sh)
 							: TC_STATUS_USAGE;
-			if (strcmp(subject, pat) == 0) {
+			if (tc_pat_match(&pat, subject, slen)) {
 				matched = true;
 				break;
 			}
@@ -1062,4 +1055,130 @@ int tc_exec(struct tc_shell *sh, const struct tc_node *n)
 			break;
 	}
 	return sh->status;
+}
+
+int tc_exec_cmdsub(struct tc_shell *sh, const struct tc_node *cmd,
+		   unsigned long line, char **out, size_t *out_len)
+{
+	*out = "";
+	*out_len = 0;
+	if (!cmd) {
+		sh->cmdsub_ran = true;
+		sh->cmdsub_status = 0;
+		char *empty = tc_arena_strndup(&sh->arena, "", 0);
+		if (!empty) {
+			tc_error(sh, line, "out of memory");
+			return TC_ERR_NOMEM;
+		}
+		*out = empty;
+		return TC_OK;
+	}
+
+	int pfd[2];
+	if (pipe(pfd) < 0) {
+		tc_error(sh, line, "cannot create pipe: %s", strerror(errno));
+		return TC_ERR_IO;
+	}
+	pid_t pid = fork();
+	if (pid < 0) {
+		tc_error(sh, line, "cannot fork: %s", strerror(errno));
+		close(pfd[0]);
+		close(pfd[1]);
+		return TC_ERR_IO;
+	}
+	if (pid == 0) {
+		tc_signals_child();
+		sh->interactive = false;
+		sh->loop_depth = 0;
+		sh->func_depth = 0;
+		sh->flow = TC_FLOW_NONE;
+		close(pfd[0]);
+		if (pfd[1] != STDOUT_FILENO) {
+			if (dup2(pfd[1], STDOUT_FILENO) < 0)
+				_exit(1);
+			close(pfd[1]);
+		}
+		int st = tc_exec(sh, cmd);
+		if (sh->exit_requested)
+			_exit(sh->exit_status);
+		if (sh->flow == TC_FLOW_RETURN)
+			_exit(sh->return_status);
+		_exit(st);
+	}
+
+	close(pfd[1]);
+	size_t cap = 256, len = 0;
+	char *buf = malloc(cap);
+	if (!buf) {
+		close(pfd[0]);
+		wait_child(pid);
+		tc_error(sh, line, "out of memory");
+		return TC_ERR_NOMEM;
+	}
+
+	int err = TC_OK;
+	char chunk[4096];
+	for (;;) {
+		ssize_t n = read(pfd[0], chunk, sizeof(chunk));
+		if (n == 0)
+			break;
+		if (n < 0) {
+			if (errno == EINTR)
+				continue;
+			tc_error(sh, line, "read error: %s", strerror(errno));
+			err = TC_ERR_IO;
+			break;
+		}
+		/* Strip NUL bytes (not representable in shell C strings). */
+		for (ssize_t i = 0; i < n; i++) {
+			if (chunk[i] == '\0')
+				continue;
+			if (len >= TC_CMDSUB_MAX) {
+				tc_error(sh, line,
+					 "command substitution exceeds %zu bytes",
+					 TC_CMDSUB_MAX);
+				err = TC_ERR_NOMEM;
+				break;
+			}
+			if (len == cap) {
+				size_t ncap = cap * 2;
+				if (ncap > TC_CMDSUB_MAX)
+					ncap = TC_CMDSUB_MAX;
+				char *nb = realloc(buf, ncap);
+				if (!nb) {
+					tc_error(sh, line, "out of memory");
+					err = TC_ERR_NOMEM;
+					break;
+				}
+				buf = nb;
+				cap = ncap;
+			}
+			buf[len++] = chunk[i];
+		}
+		if (err != TC_OK)
+			break;
+	}
+	close(pfd[0]);
+	int st = wait_child(pid);
+	sh->cmdsub_ran = true;
+	sh->cmdsub_status = st;
+
+	if (err != TC_OK) {
+		free(buf);
+		return err;
+	}
+
+	/* POSIX XCU 2.6.3: remove all trailing <newline> characters. */
+	while (len > 0 && buf[len - 1] == '\n')
+		len--;
+
+	char *copy = tc_arena_strndup(&sh->arena, buf, len);
+	free(buf);
+	if (!copy) {
+		tc_error(sh, line, "out of memory");
+		return TC_ERR_NOMEM;
+	}
+	*out = copy;
+	*out_len = len;
+	return TC_OK;
 }

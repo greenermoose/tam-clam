@@ -19,6 +19,9 @@ static uint64_t hash_str(const char *s)
 	return h;
 }
 
+static struct tc_node *clone_node(struct tc_arena *a,
+				  const struct tc_node *src, unsigned depth);
+
 static struct tc_wpart *clone_wparts(struct tc_arena *a,
 				     const struct tc_wpart *src,
 				     unsigned depth)
@@ -40,6 +43,11 @@ static struct tc_wpart *clone_wparts(struct tc_arena *a,
 		if (wp->arg) {
 			c->arg = clone_wparts(a, wp->arg, depth + 1);
 			if (!c->arg)
+				return NULL;
+		}
+		if (wp->cmd) {
+			c->cmd = clone_node(a, wp->cmd, depth + 1);
+			if (!c->cmd)
 				return NULL;
 		}
 		*tail = c;

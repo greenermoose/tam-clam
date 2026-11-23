@@ -1,6 +1,6 @@
 # P2: The POSIX language (0.1.x)
 
-**Status:** not started.
+**Status:** in progress (0.1.0 done).
 
 ## Goal
 

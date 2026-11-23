@@ -126,15 +126,20 @@ expect 'script positional parameters' 0 '2:foo:bar' \
 expect '-s positional parameters' 0 '2:x:y' \
 	sh -c '"$1" -s x y <"$2"' - "$shell" "$tmp/pos.sh"
 
-# 0.0.4: function recursion limit (FUNCNEST and default 1000), parser nesting limit, case glob refusal.
+# 0.0.4 / 0.1.0: function recursion limit (FUNCNEST and default 1000), parser nesting limit,
+# checked 64-bit arithmetic overflow, division by zero, and $(...) nesting limit.
 expect 'FUNCNEST=10 stops runaway recursion' 1 '' \
 	"$shell" -c 'FUNCNEST=10; f() { f; }; f'
 expect 'default recursion limit stops runaway recursion' 1 '' \
 	"$shell" -c 'f() { f; }; f'
-expect 'case glob pattern refused' 2 '' \
-	"$shell" -c 'case a in *.c) echo no;; esac'
 expect 'parser nesting limit stops deep nesting' 2 '' \
 	"$shell" -c "$(awk 'BEGIN { for (i=0;i<150;i++) printf "{ "; printf ":; "; for (i=0;i<150;i++) printf "}; "; }')"
+expect 'cmdsub nesting limit stops deep $(...)' 2 '' \
+	"$shell" -c "$(awk 'BEGIN { for (i=0;i<150;i++) printf "$( "; printf "echo x"; for (i=0;i<150;i++) printf " )"; }')"
+expect 'arithmetic 64-bit overflow is an error' 1 '' \
+	"$shell" -c 'echo $((9223372036854775807 + 1))'
+expect 'arithmetic division by zero is an error' 1 '' \
+	"$shell" -c 'echo $((1 / 0))'
 
 echo "run-scripts: $pass passed, $fail failed (reference shell: $ref)"
 [ "$fail" -eq 0 ]

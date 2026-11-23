@@ -1,0 +1,18 @@
+alpha.c beta.c
+alpha.c beta.c
+beta.c
+alpha.c beta.c gamma.txt sub
+.dotfile
+sub/
+sub/one.txt sub/two.txt
+*.nomatch
+*.c
+c:foo.c
+other:bar.h
+num:123
+star:*literal
+usr/local/bin/sh
+sh
+archive.tar
+archive
+b*c

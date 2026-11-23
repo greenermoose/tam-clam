@@ -69,6 +69,7 @@ struct tc_lexer {
 	struct tc_input *in;
 	int peek;          /* one byte of lookahead, or -10 for none */
 	char *word;        /* tam_str buffer, reused for each word */
+	unsigned parse_depth; /* nesting depth synced with tc_parser */
 };
 
 int tc_lexer_init(struct tc_lexer *lx, struct tc_shell *sh, struct tc_input *in);

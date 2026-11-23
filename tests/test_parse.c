@@ -171,10 +171,39 @@ int main(void)
 	CHECK(fails("{ }"));
 	CHECK(fails("()"));
 	CHECK(fails("for 1bad in a; do :; done"));
-	CHECK(fails("case x in *.c) :;; esac"));
 	CHECK(fails("fi"));
 	CHECK(fails("done"));
 	CHECK(fails("}"));
+
+	/* 0.1.0: case globs, command substitutions (parsed as AST subtrees),
+	 * arithmetic expansions, ANSI-C quoting, and pattern trim parse cleanly. */
+	start(&f, "case x in *.c) :;; esac\necho $(echo hi)\necho `echo hi`\n"
+		  "echo $((1+2))\necho $'a\\nb'\necho *.c\necho ${x%*}\n"
+		  "echo $((echo a); (echo b))\n");
+	CHECK(tc_parse_next(&f.p, &n) == TC_OK && n && n->kind == TC_NODE_CASE);
+	CHECK(tc_parse_next(&f.p, &n) == TC_OK && n && n->kind == TC_NODE_SIMPLE &&
+	      n->u.simple.nwords == 2 &&
+	      n->u.simple.words[1].parts->kind == TC_WPART_CMDSUB &&
+	      n->u.simple.words[1].parts->cmd != NULL);
+	CHECK(tc_parse_next(&f.p, &n) == TC_OK && n && n->kind == TC_NODE_SIMPLE &&
+	      n->u.simple.nwords == 2 &&
+	      n->u.simple.words[1].parts->kind == TC_WPART_CMDSUB &&
+	      n->u.simple.words[1].parts->cmd != NULL);
+	CHECK(tc_parse_next(&f.p, &n) == TC_OK && n && n->kind == TC_NODE_SIMPLE &&
+	      n->u.simple.nwords == 2 &&
+	      n->u.simple.words[1].parts->kind == TC_WPART_ARITH &&
+	      n->u.simple.words[1].parts->arg != NULL);
+	CHECK(tc_parse_next(&f.p, &n) == TC_OK && n && n->kind == TC_NODE_SIMPLE &&
+	      n->u.simple.nwords == 2 &&
+	      n->u.simple.words[1].parts->kind == TC_WPART_QUOTED &&
+	      strcmp(n->u.simple.words[1].parts->text, "a\nb") == 0);
+	CHECK(tc_parse_next(&f.p, &n) == TC_OK && n && n->kind == TC_NODE_SIMPLE);
+	CHECK(tc_parse_next(&f.p, &n) == TC_OK && n && n->kind == TC_NODE_SIMPLE);
+	CHECK(tc_parse_next(&f.p, &n) == TC_OK && n && n->kind == TC_NODE_SIMPLE &&
+	      n->u.simple.nwords == 2 &&
+	      n->u.simple.words[1].parts->kind == TC_WPART_CMDSUB &&
+	      n->u.simple.words[1].parts->cmd != NULL);
+	stop(&f);
 
 	/* Parser nesting depth limit (TC_PARSE_DEPTH_MAX = 128). */
 	{
@@ -194,14 +223,8 @@ int main(void)
 		CHECK(fails(deep));
 	}
 
-	/* Valid shell that 0.0.4 still refuses rather than runs wrongly. */
+	/* Valid shell that 0.1.0 still refuses rather than runs wrongly. */
 	CHECK(fails("a &"));
-	CHECK(fails("echo `date`"));
-	CHECK(fails("echo $(date)"));
-	CHECK(fails("echo $((1+2))"));
-	CHECK(fails("echo $'abc'"));
-	CHECK(fails("echo *.c"));
-	CHECK(fails("echo ${x%*}"));
 
 	/* An error leaves the next line parseable after recovery. */
 	start(&f, "a & b c\nok\n");

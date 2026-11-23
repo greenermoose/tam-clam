@@ -37,4 +37,15 @@ void tc_parser_reset(struct tc_parser *p);
 /* After an error: drop the rest of the line (interactive use). */
 void tc_parser_recover(struct tc_parser *p);
 
+/* Parse a $(...) command substitution body directly from lx up to the
+ * matching ')'. Used by the lexer so command substitutions are parsed once
+ * at parse time. */
+int tc_parse_cmdsub(struct tc_lexer *lx, unsigned long start_line,
+		    struct tc_node **out);
+
+/* Parse a `...` command substitution body from an unescaped string. */
+int tc_parse_cmdsub_string(struct tc_shell *sh, const char *src, size_t len,
+			   unsigned long start_line, unsigned depth,
+			   struct tc_node **out);
+
 #endif

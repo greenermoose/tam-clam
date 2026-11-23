@@ -63,6 +63,8 @@ struct tc_shell {
 	unsigned exec_depth;       /* active AST execution nesting depth */
 	pid_t root_pid;            /* $$: main shell PID */
 	pid_t last_bg_pid;         /* $!: 0 until background jobs in 0.1.1 */
+	bool cmdsub_ran;           /* true if a command sub ran in current simple cmd */
+	int cmdsub_status;         /* exit status of last command substitution */
 	struct tc_vars vars;       /* shell variables and environment */
 	struct tc_funcs funcs;     /* shell functions */
 	char **params;             /* positional parameters $1..$N */

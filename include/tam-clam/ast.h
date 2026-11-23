@@ -9,8 +9,10 @@
 
 enum tc_wpart_kind {
 	TC_WPART_LITERAL, /* unquoted literal text */
-	TC_WPART_QUOTED,  /* quoted literal text ('...', \x, or "..." text) */
+	TC_WPART_QUOTED,  /* quoted literal text ('...', $'...', \x, or "..." text) */
 	TC_WPART_PARAM,   /* $x or ${...} */
+	TC_WPART_CMDSUB,  /* $(...) or `...` */
+	TC_WPART_ARITH,   /* $((...)) */
 };
 
 enum tc_param_op {
@@ -26,15 +28,18 @@ enum tc_param_op {
 	TC_PARAM_TRIM_PREFIX_L,   /* ${x##pat} */
 };
 
+struct tc_node;
+
 struct tc_wpart {
 	enum tc_wpart_kind kind;
-	bool quoted;              /* inside "..." (for TC_WPART_PARAM) */
+	bool quoted;              /* inside "..." (for PARAM/CMDSUB/ARITH) */
 	const char *text;         /* LITERAL/QUOTED text, or PARAM name */
 	size_t len;
 	enum tc_param_op op;      /* TC_WPART_PARAM only */
 	bool colon;               /* TC_WPART_PARAM only: :- := :? :+ */
-	struct tc_wpart *arg;     /* TC_WPART_PARAM only: word parts for arg */
+	struct tc_wpart *arg;     /* PARAM arg or ARITH inner word parts */
 	unsigned arg_flags;       /* TC_WPART_PARAM only: TC_WORD_* flags of arg */
+	struct tc_node *cmd;      /* TC_WPART_CMDSUB only: parsed AST subtree */
 	struct tc_wpart *next;
 };
 

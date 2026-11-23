@@ -70,6 +70,7 @@ static int run(struct tc_shell *sh, struct tc_input *in)
 		tc_parser_recover(&p);
 	}
 	tc_parser_finish(&p);
+	tc_input_finish(in);
 	return sh->exit_requested ? sh->exit_status : sh->status;
 }
 

@@ -1,0 +1,55 @@
+W6 EXPANSIONS (0.1.0)
+
+Date: 2026-11-23
+AI harness: agy
+AI model: Gemini 4 Neon (Medium)
+
+GUIDANCE
+
+  Fred: "/plan Do the next work slice for tam-clam"
+  Fred: "Approved. Proceed."
+
+DONE
+
+  - Added LIFO input pushback (tc_input_pushback / tc_input_finish in
+    include/tam-clam/input.h, src/input.c, src/main.c) for POSIX $((
+    disambiguation without losing bytes on bytewise stdin.
+  - Extended AST word parts (include/tam-clam/ast.h) with TC_WPART_CMDSUB
+    and TC_WPART_ARITH, added command-sub exit status tracking in
+    struct tc_shell (include/tam-clam/shell.h), and updated src/func.c
+    clone_wparts() to deep-clone command substitution subtrees.
+  - Added linear-time POSIX pattern matcher (include/tam-clam/pattern.h,
+    src/pattern.c) using per-byte quoting metadata and greedy-star
+    matching (no exponential backtracking), supporting *, ?, [...],
+    [!...]/[^...], ranges, and POSIX character classes.
+  - Added 64-bit signed checked arithmetic evaluator (include/tam-clam/arith.h,
+    src/arith.c) with full POSIX operator precedence, short-circuiting,
+    overflow checks, division-by-zero checks, and depth limit (128).
+  - Added pathname expansion (include/tam-clam/glob.h, src/glob.c) with
+    POSIX leading-dot rules, trailing-slash directory matching, sorting,
+    and depth/word caps.
+  - Extended src/lex.c and src/parse.c to parse $'...' ANSI-C strings,
+    $(...) and `...` command substitutions as AST subtrees at parse time
+    (including inside unquoted here-documents), and $((...)) arithmetic
+    expansions; removed 0.1.0 parser refusals.
+  - Extended src/exec.c with tc_exec_cmdsub(), command-sub exit status
+    on assignment-only commands, and full pattern matching in exec_case().
+  - Extended src/expand.c with IFS field splitting (POSIX XCU 2.6.5),
+    pathname expansion, command substitution / arithmetic evaluation,
+    and pattern-based ${x#pat}/${x##pat}/${x%pat}/${x%%pat}.
+  - Added unit tests (tests/test_pattern.c, tests/test_arith.c,
+    tests/test_glob.c), updated tests/test_parse.c, added reference-compared
+    script tests (cmdsub, ansi-quote, arith, split, glob), updated
+    tests/refuse/later-line.sh and tests/run-scripts.sh.
+  - Bumped VERSION to 0.1.0 and updated ROADMAP.md,
+    plans/P2-posix-language.md, and work/WHATNOW.
+
+FAILED
+
+  - Nothing.
+
+HANDOFF
+
+  - 0.1.0 is complete. Next is 0.1.1 (plans/P2-posix-language.md):
+    background commands (&), wait, $!, trap, and the remaining special
+    builtins (set, shift, eval, ., export, readonly, unset, exec, times).

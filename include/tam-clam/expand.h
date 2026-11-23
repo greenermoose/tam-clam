@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
-/* Word expansion (XCU 2.6): tilde expansion, parameter expansion, special
- * and positional parameters, and quote removal. Field splitting and
- * pathname expansion are added in 0.1.0. */
+/* Word expansion (XCU 2.6): tilde expansion, parameter expansion, command
+ * substitution, arithmetic expansion, IFS field splitting, pathname
+ * expansion, and quote removal. */
 #ifndef TAM_CLAM_EXPAND_H
 #define TAM_CLAM_EXPAND_H
 
@@ -10,17 +10,18 @@
 
 #include "tam-clam/arena.h"
 #include "tam-clam/ast.h"
+#include "tam-clam/pattern.h"
 #include "tam-clam/shell.h"
 
 enum tc_exp_result {
 	TC_EXP_OK = 0,
-	TC_EXP_ERR,    /* expansion error (${x:?msg}, readonly assign), reported */
+	TC_EXP_ERR,    /* expansion error (${x:?msg}, readonly assign, arith), reported */
 	TC_EXP_NOMEM,  /* out of memory, reported */
 };
 
 /* Expand a command's words into a NULL-terminated argv array in sh->arena.
- * Handles "$@" / unquoted $@/$* multi-word expansion and elision of empty
- * unquoted expansions. */
+ * Handles "$@" / unquoted $@/$* multi-word expansion, IFS field splitting,
+ * pathname expansion (globbing), and quote removal. */
 int tc_expand_words(struct tc_shell *sh, const struct tc_word *words,
 		    size_t nwords, char ***out_argv, size_t *out_argc);
 
@@ -29,6 +30,11 @@ int tc_expand_words(struct tc_shell *sh, const struct tc_word *words,
  * after unquoted ':'. */
 int tc_expand_single(struct tc_shell *sh, const struct tc_word *w,
 		     bool is_assign, char **out);
+
+/* Expand a single word into a tc_pat in sh->arena preserving per-byte quoting
+ * (for case patterns). */
+int tc_expand_pat(struct tc_shell *sh, const struct tc_word *w,
+		  struct tc_pat *out);
 
 /* Expand an unquoted here-document's parts into sh->arena. */
 int tc_expand_heredoc(struct tc_shell *sh, const struct tc_wpart *parts,

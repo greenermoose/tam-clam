@@ -1,3 +1,3 @@
 echo first
-echo `date`
+sleep 1 &
 echo never

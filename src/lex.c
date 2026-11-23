@@ -2,12 +2,15 @@
 /* Token recognition, XCU 2.3. Words are parsed directly into lists of
  * tc_wpart so quoting is decided once, by the lexer. Backslash-newline is
  * removed everywhere except inside single quotes and comments. */
+#include <ctype.h>
+#include <stdint.h>
 #include <string.h>
 
 #include <tam.h>
 
 #include "tam-clam/input.h"
 #include "tam-clam/lex.h"
+#include "tam-clam/parse.h"
 
 #define NO_PEEK (-10)
 
@@ -18,6 +21,7 @@ int tc_lexer_init(struct tc_lexer *lx, struct tc_shell *sh, struct tc_input *in)
 	if (in && !in->sh)
 		in->sh = sh;
 	lx->peek = NO_PEEK;
+	lx->parse_depth = 0;
 	lx->word = tam_str_new("");
 	return lx->word ? TC_OK : TC_ERR_NOMEM;
 }
@@ -271,6 +275,10 @@ static int lex_dollar(struct tc_lexer *lx, struct wpart_buf *wb,
 		      bool in_dquote, bool record_raw, unsigned *flags,
 		      int depth, unsigned long start_line);
 
+static int lex_backquote(struct tc_lexer *lx, struct wpart_buf *wb,
+			 bool in_dquote, bool record_raw, unsigned *flags,
+			 unsigned long start);
+
 /* Inside '...': everything up to the next ' is literal. */
 static int lex_single(struct tc_lexer *lx, struct wpart_buf *wb,
 		      bool record_raw, unsigned long start)
@@ -326,8 +334,8 @@ static int lex_double(struct tc_lexer *lx, struct wpart_buf *wb,
 			continue;
 		}
 		if (c == '`') {
-			*flags |= TC_WORD_BACKQ;
-			if ((r = wb_add_char(wb, TC_WPART_QUOTED, c)) != TC_OK)
+			r = lex_backquote(lx, wb, true, record_raw, flags, start);
+			if (r != TC_OK)
 				return r;
 			continue;
 		}
@@ -354,8 +362,8 @@ static int lex_double(struct tc_lexer *lx, struct wpart_buf *wb,
 	}
 }
 
-static int lex_brace_arg(struct tc_lexer *lx, bool in_dquote, bool record_raw,
-			 int depth, unsigned long start,
+static int lex_brace_arg(struct tc_lexer *lx, bool in_dquote, bool is_trim,
+			 bool record_raw, int depth, unsigned long start,
 			 struct tc_wpart **out_parts, unsigned *out_flags)
 {
 	struct wpart_buf wb;
@@ -364,6 +372,7 @@ static int lex_brace_arg(struct tc_lexer *lx, bool in_dquote, bool record_raw,
 		return r;
 	unsigned flags = 0;
 	bool at_start = true;
+	enum tc_wpart_kind dq_kind = is_trim ? TC_WPART_LITERAL : TC_WPART_QUOTED;
 
 	for (;;) {
 		int c = getch_cont(lx);
@@ -392,12 +401,12 @@ static int lex_brace_arg(struct tc_lexer *lx, bool in_dquote, bool record_raw,
 				if (r != TC_OK)
 					goto out;
 			} else if (c == '$') {
-				r = lex_dollar(lx, &wb, true, record_raw, &flags, depth, start);
+				r = lex_dollar(lx, &wb, !is_trim, record_raw, &flags, depth, start);
 				if (r != TC_OK)
 					goto out;
 			} else if (c == '`') {
-				flags |= TC_WORD_BACKQ;
-				if ((r = wb_add_char(&wb, TC_WPART_QUOTED, c)) != TC_OK)
+				r = lex_backquote(lx, &wb, !is_trim, record_raw, &flags, start);
+				if (r != TC_OK)
 					goto out;
 			} else if (c == '\\') {
 				int d = getch(lx);
@@ -416,14 +425,14 @@ static int lex_brace_arg(struct tc_lexer *lx, bool in_dquote, bool record_raw,
 				}
 				if (record_raw && (r = raw_add(lx, d)) != TC_OK)
 					goto out;
-				if (!is_dquote_escapable(d) && d != '}') {
+				if (!is_trim && !is_dquote_escapable(d) && d != '}') {
 					if ((r = wb_add_char(&wb, TC_WPART_QUOTED, '\\')) != TC_OK)
 						goto out;
 				}
 				if ((r = wb_add_char(&wb, TC_WPART_QUOTED, d)) != TC_OK)
 					goto out;
 			} else {
-				if ((r = wb_add_char(&wb, TC_WPART_QUOTED, c)) != TC_OK)
+				if ((r = wb_add_char(&wb, dq_kind, c)) != TC_OK)
 					goto out;
 			}
 		} else {
@@ -462,8 +471,8 @@ static int lex_brace_arg(struct tc_lexer *lx, bool in_dquote, bool record_raw,
 				if (r != TC_OK)
 					goto out;
 			} else if (c == '`') {
-				flags |= TC_WORD_BACKQ;
-				if ((r = wb_add_char(&wb, TC_WPART_LITERAL, c)) != TC_OK)
+				r = lex_backquote(lx, &wb, false, record_raw, &flags, start);
+				if (r != TC_OK)
 					goto out;
 			} else {
 				if (c == '*' || c == '?' || c == '[')
@@ -745,7 +754,11 @@ static int lex_param_brace(struct tc_lexer *lx, struct wpart_buf *wb,
 		return TC_ERR_SYNTAX;
 	}
 
-	r = lex_brace_arg(lx, in_dquote, record_raw, depth, start, &arg, &arg_flags);
+	bool is_trim = (op == TC_PARAM_TRIM_SUFFIX_S ||
+			op == TC_PARAM_TRIM_SUFFIX_L ||
+			op == TC_PARAM_TRIM_PREFIX_S ||
+			op == TC_PARAM_TRIM_PREFIX_L);
+	r = lex_brace_arg(lx, in_dquote, is_trim, record_raw, depth, start, &arg, &arg_flags);
 	if (r != TC_OK)
 		return r;
 
@@ -769,6 +782,636 @@ emit:
 	}
 }
 
+static int hex_val(int c)
+{
+	if (c >= '0' && c <= '9')
+		return c - '0';
+	if (c >= 'a' && c <= 'f')
+		return c - 'a' + 10;
+	if (c >= 'A' && c <= 'F')
+		return c - 'A' + 10;
+	return -1;
+}
+
+static int wb_add_utf8(struct wpart_buf *wb, uint32_t cp, bool *truncated)
+{
+	if (cp == 0) {
+		*truncated = true;
+		return TC_OK;
+	}
+	if (*truncated)
+		return TC_OK;
+	unsigned char out[4];
+	size_t n = 0;
+	if (cp <= 0x7F) {
+		out[0] = (unsigned char)cp;
+		n = 1;
+	} else if (cp <= 0x7FF) {
+		out[0] = (unsigned char)(0xC0 | (cp >> 6));
+		out[1] = (unsigned char)(0x80 | (cp & 0x3F));
+		n = 2;
+	} else if (cp <= 0xFFFF) {
+		out[0] = (unsigned char)(0xE0 | (cp >> 12));
+		out[1] = (unsigned char)(0x80 | ((cp >> 6) & 0x3F));
+		out[2] = (unsigned char)(0x80 | (cp & 0x3F));
+		n = 3;
+	} else if (cp <= 0x10FFFF) {
+		out[0] = (unsigned char)(0xF0 | (cp >> 18));
+		out[1] = (unsigned char)(0x80 | ((cp >> 12) & 0x3F));
+		out[2] = (unsigned char)(0x80 | ((cp >> 6) & 0x3F));
+		out[3] = (unsigned char)(0x80 | (cp & 0x3F));
+		n = 4;
+	} else {
+		/* Out-of-range codepoint: emit replacement character U+FFFD. */
+		out[0] = 0xEF;
+		out[1] = 0xBF;
+		out[2] = 0xBD;
+		n = 3;
+	}
+	for (size_t i = 0; i < n; i++) {
+		int r = wb_add_char(wb, TC_WPART_QUOTED, out[i]);
+		if (r != TC_OK)
+			return r;
+	}
+	return TC_OK;
+}
+
+/* POSIX.1-2024 XCU 2.2.4: $'...' ANSI-C quoting. */
+static int lex_ansi_single(struct tc_lexer *lx, struct wpart_buf *wb,
+			   bool record_raw, unsigned *flags,
+			   unsigned long start)
+{
+	*flags |= TC_WORD_QUOTED | TC_WORD_ANSI_Q;
+	int r = wb_ensure_quoted(wb);
+	if (r != TC_OK)
+		return r;
+	bool truncated = false;
+
+	for (;;) {
+		int c = getch(lx);
+		if (c == TC_IN_EOF) {
+			tc_error(lx->sh, start, "unterminated $'...' at end of input");
+			return TC_ERR_SYNTAX;
+		}
+		if (c < TC_IN_EOF)
+			return input_failure(lx, c);
+		if (c == 0)
+			return nul_byte(lx);
+		if (record_raw && (r = raw_add(lx, c)) != TC_OK)
+			return r;
+		if (c == '\'')
+			return TC_OK;
+		if (c != '\\') {
+			if (!truncated &&
+			    (r = wb_add_char(wb, TC_WPART_QUOTED, c)) != TC_OK)
+				return r;
+			continue;
+		}
+		int d = getch(lx);
+		if (d == TC_IN_EOF) {
+			tc_error(lx->sh, start, "unterminated $'...' at end of input");
+			return TC_ERR_SYNTAX;
+		}
+		if (d < TC_IN_EOF)
+			return input_failure(lx, d);
+		if (d == 0)
+			return nul_byte(lx);
+		if (record_raw && (r = raw_add(lx, d)) != TC_OK)
+			return r;
+
+		int emit = -1;
+		switch (d) {
+		case 'a': emit = '\a'; break;
+		case 'b': emit = '\b'; break;
+		case 'e':
+		case 'E': emit = 0x1B; break;
+		case 'f': emit = '\f'; break;
+		case 'n': emit = '\n'; break;
+		case 'r': emit = '\r'; break;
+		case 't': emit = '\t'; break;
+		case 'v': emit = '\v'; break;
+		case '\\': emit = '\\'; break;
+		case '\'': emit = '\''; break;
+		case '"': emit = '"'; break;
+		case '?': emit = '?'; break;
+		case '0': case '1': case '2': case '3':
+		case '4': case '5': case '6': case '7': {
+			unsigned val = (unsigned)(d - '0');
+			for (int k = 1; k < 3; k++) {
+				int e = getch(lx);
+				if (e < TC_IN_EOF)
+					return input_failure(lx, e);
+				if (e >= '0' && e <= '7') {
+					if (record_raw && (r = raw_add(lx, e)) != TC_OK)
+						return r;
+					val = (val << 3) | (unsigned)(e - '0');
+				} else {
+					if (e != TC_IN_EOF)
+						ungetch(lx, e);
+					break;
+				}
+			}
+			emit = (int)(val & 0xFF);
+			break;
+		}
+		case 'x': {
+			unsigned val = 0;
+			int ndig = 0;
+			for (int k = 0; k < 2; k++) {
+				int e = getch(lx);
+				if (e < TC_IN_EOF)
+					return input_failure(lx, e);
+				int hv = hex_val(e);
+				if (hv >= 0) {
+					if (record_raw && (r = raw_add(lx, e)) != TC_OK)
+						return r;
+					val = (val << 4) | (unsigned)hv;
+					ndig++;
+				} else {
+					if (e != TC_IN_EOF)
+						ungetch(lx, e);
+					break;
+				}
+			}
+			if (ndig > 0) {
+				emit = (int)(val & 0xFF);
+			} else if (!truncated) {
+				if ((r = wb_add_char(wb, TC_WPART_QUOTED, '\\')) != TC_OK ||
+				    (r = wb_add_char(wb, TC_WPART_QUOTED, 'x')) != TC_OK)
+					return r;
+			}
+			break;
+		}
+		case 'u':
+		case 'U': {
+			int maxd = (d == 'u') ? 4 : 8;
+			uint32_t cp = 0;
+			int ndig = 0;
+			for (int k = 0; k < maxd; k++) {
+				int e = getch(lx);
+				if (e < TC_IN_EOF)
+					return input_failure(lx, e);
+				int hv = hex_val(e);
+				if (hv >= 0) {
+					if (record_raw && (r = raw_add(lx, e)) != TC_OK)
+						return r;
+					cp = (cp << 4) | (uint32_t)hv;
+					ndig++;
+				} else {
+					if (e != TC_IN_EOF)
+						ungetch(lx, e);
+					break;
+				}
+			}
+			if (ndig > 0) {
+				if ((r = wb_add_utf8(wb, cp, &truncated)) != TC_OK)
+					return r;
+			} else if (!truncated) {
+				if ((r = wb_add_char(wb, TC_WPART_QUOTED, '\\')) != TC_OK ||
+				    (r = wb_add_char(wb, TC_WPART_QUOTED, d)) != TC_OK)
+					return r;
+			}
+			break;
+		}
+		case 'c': {
+			int e = getch(lx);
+			if (e == TC_IN_EOF) {
+				tc_error(lx->sh, start, "unterminated $'...' at end of input");
+				return TC_ERR_SYNTAX;
+			}
+			if (e < TC_IN_EOF)
+				return input_failure(lx, e);
+			if (e == 0)
+				return nul_byte(lx);
+			if (record_raw && (r = raw_add(lx, e)) != TC_OK)
+				return r;
+			if (e == '\\') {
+				int f = getch(lx);
+				if (f == '\\') {
+					if (record_raw && (r = raw_add(lx, f)) != TC_OK)
+						return r;
+				} else if (f != TC_IN_EOF) {
+					ungetch(lx, f);
+				}
+				emit = 0x1C;
+			} else if (e == '?') {
+				emit = 0x7F;
+			} else {
+				emit = (toupper((unsigned char)e) ^ 0x40) & 0x7F;
+			}
+			break;
+		}
+		default:
+			if (!truncated) {
+				if ((r = wb_add_char(wb, TC_WPART_QUOTED, '\\')) != TC_OK ||
+				    (r = wb_add_char(wb, TC_WPART_QUOTED, d)) != TC_OK)
+					return r;
+			}
+			break;
+		}
+
+		if (emit == 0) {
+			truncated = true;
+		} else if (emit > 0 && !truncated) {
+			if ((r = wb_add_char(wb, TC_WPART_QUOTED, emit)) != TC_OK)
+				return r;
+		}
+	}
+}
+
+/* Backquote command substitution (`...`), XCU 2.6.3: unescape body and parse
+ * once at parse time into TC_WPART_CMDSUB. */
+static int lex_backquote(struct tc_lexer *lx, struct wpart_buf *wb,
+			 bool in_dquote, bool record_raw, unsigned *flags,
+			 unsigned long start)
+{
+	*flags |= TC_WORD_BACKQ;
+	tam_str_t body = tam_str_new("");
+	if (!body) {
+		tc_error(lx->sh, start, "out of memory");
+		return TC_ERR_NOMEM;
+	}
+	int r = TC_OK;
+
+	for (;;) {
+		int c = getch(lx);
+		if (c == TC_IN_EOF) {
+			tc_error(lx->sh, start, "unterminated ``...`' at end of input");
+			r = TC_ERR_SYNTAX;
+			goto out;
+		}
+		if (c < TC_IN_EOF) {
+			r = input_failure(lx, c);
+			goto out;
+		}
+		if (c == 0) {
+			r = nul_byte(lx);
+			goto out;
+		}
+		if (record_raw && (r = raw_add(lx, c)) != TC_OK)
+			goto out;
+		if (c == '`')
+			break;
+		if (c == '\\') {
+			int d = getch(lx);
+			if (d == TC_IN_EOF) {
+				tc_error(lx->sh, start, "unterminated ``...`' at end of input");
+				r = TC_ERR_SYNTAX;
+				goto out;
+			}
+			if (d < TC_IN_EOF) {
+				r = input_failure(lx, d);
+				goto out;
+			}
+			if (d == 0) {
+				r = nul_byte(lx);
+				goto out;
+			}
+			if (record_raw && (r = raw_add(lx, d)) != TC_OK)
+				goto out;
+			if (d == '\n')
+				continue;
+			if (d == '$' || d == '`' || d == '\\' ||
+			    (in_dquote && d == '"')) {
+				c = d;
+			} else {
+				if (tam_str_len(body) + 2 > TC_WORD_MAX) {
+					tc_error(lx->sh, start, "word longer than %zu bytes",
+						 TC_WORD_MAX);
+					r = TC_ERR_NOMEM;
+					goto out;
+				}
+				char pair[2] = {'\\', (char)d};
+				tam_str_t nb = tam_str_cat_len(body, pair, 2);
+				if (!nb) {
+					tc_error(lx->sh, start, "out of memory");
+					r = TC_ERR_NOMEM;
+					goto out;
+				}
+				body = nb;
+				continue;
+			}
+		}
+		if (tam_str_len(body) >= TC_WORD_MAX) {
+			tc_error(lx->sh, start, "word longer than %zu bytes", TC_WORD_MAX);
+			r = TC_ERR_NOMEM;
+			goto out;
+		}
+		char ch = (char)c;
+		tam_str_t nb = tam_str_cat_len(body, &ch, 1);
+		if (!nb) {
+			tc_error(lx->sh, start, "out of memory");
+			r = TC_ERR_NOMEM;
+			goto out;
+		}
+		body = nb;
+	}
+
+	struct tc_node *cmd = NULL;
+	r = tc_parse_cmdsub_string(lx->sh, body, tam_str_len(body), start,
+				   lx->parse_depth, &cmd);
+	if (r != TC_OK)
+		goto out;
+
+	struct tc_wpart *wp = tc_arena_alloc(&lx->sh->arena, sizeof(*wp));
+	if (!wp) {
+		tc_error(lx->sh, start, "out of memory");
+		r = TC_ERR_NOMEM;
+		goto out;
+	}
+	memset(wp, 0, sizeof(*wp));
+	wp->kind = TC_WPART_CMDSUB;
+	wp->quoted = in_dquote;
+	wp->cmd = cmd;
+	r = wb_add_part(wb, wp);
+
+out:
+	tam_str_free(body);
+	return r;
+}
+
+static int lex_cmdsub(struct tc_lexer *lx, struct wpart_buf *wb,
+		      bool in_dquote, bool record_raw, unsigned *flags,
+		      unsigned long start)
+{
+	*flags |= TC_WORD_CMDSUB;
+	struct tc_node *cmd = NULL;
+	int r = tc_parse_cmdsub(lx, start, &cmd);
+	if (r != TC_OK)
+		return r;
+	if (record_raw && (r = raw_add(lx, ')')) != TC_OK)
+		return r;
+	struct tc_wpart *wp = tc_arena_alloc(&lx->sh->arena, sizeof(*wp));
+	if (!wp) {
+		tc_error(lx->sh, start, "out of memory");
+		return TC_ERR_NOMEM;
+	}
+	memset(wp, 0, sizeof(*wp));
+	wp->kind = TC_WPART_CMDSUB;
+	wp->quoted = in_dquote;
+	wp->cmd = cmd;
+	return wb_add_part(wb, wp);
+}
+
+/* Parse the inner text of $((...)) into expandable word parts (parameter,
+ * command substitution, nested arithmetic, backslash escapes). */
+static int lex_arith_parts(struct tc_shell *sh, const char *src, size_t len,
+			   unsigned long start_line, unsigned parse_depth,
+			   struct tc_wpart **out)
+{
+	struct tc_input ain;
+	tc_input_from_string(&ain, src, len);
+	ain.line = start_line;
+	ain.sh = sh;
+	struct tc_lexer alx;
+	int r = tc_lexer_init(&alx, sh, &ain);
+	if (r != TC_OK) {
+		tc_input_finish(&ain);
+		return r;
+	}
+	alx.parse_depth = parse_depth;
+
+	struct wpart_buf wb;
+	r = wb_init(&wb, &alx);
+	if (r != TC_OK) {
+		tc_lexer_finish(&alx);
+		tc_input_finish(&ain);
+		return r;
+	}
+	unsigned aflags = 0;
+
+	for (;;) {
+		int c = getch_cont(&alx);
+		if (c == TC_IN_EOF)
+			break;
+		if (c < TC_IN_EOF) {
+			r = input_failure(&alx, c);
+			goto out;
+		}
+		if (c == '$') {
+			r = lex_dollar(&alx, &wb, true, false, &aflags, 0, ain.line);
+			if (r != TC_OK)
+				goto out;
+		} else if (c == '`') {
+			r = lex_backquote(&alx, &wb, true, false, &aflags, ain.line);
+			if (r != TC_OK)
+				goto out;
+		} else if (c == '\\') {
+			int d = getch(&alx);
+			if (d == TC_IN_EOF) {
+				if ((r = wb_add_char(&wb, TC_WPART_QUOTED, '\\')) != TC_OK)
+					goto out;
+				break;
+			}
+			if (d < TC_IN_EOF) {
+				r = input_failure(&alx, d);
+				goto out;
+			}
+			if (d == '$' || d == '`' || d == '\\') {
+				if ((r = wb_add_char(&wb, TC_WPART_QUOTED, d)) != TC_OK)
+					goto out;
+			} else {
+				if ((r = wb_add_char(&wb, TC_WPART_QUOTED, '\\')) != TC_OK ||
+				    (r = wb_add_char(&wb, TC_WPART_QUOTED, d)) != TC_OK)
+					goto out;
+			}
+		} else {
+			if ((r = wb_add_char(&wb, TC_WPART_QUOTED, c)) != TC_OK)
+				goto out;
+		}
+	}
+
+	if ((r = wb_flush(&wb)) == TC_OK)
+		*out = wb.head;
+
+out:
+	wb_finish(&wb);
+	tc_lexer_finish(&alx);
+	tc_input_finish(&ain);
+	return r;
+}
+
+/* Disambiguate $((...)) arithmetic expansion from $( (subshell) ... )
+ * command substitution (XCU 2.6.3 / 2.6.4). */
+static int lex_arith_or_cmdsub(struct tc_lexer *lx, struct wpart_buf *wb,
+			       bool in_dquote, bool record_raw, unsigned *flags,
+			       unsigned long start)
+{
+	if (lx->parse_depth >= TC_PARSE_DEPTH_MAX) {
+		tc_error(lx->sh, start, "nesting depth exceeds limit (%d)",
+			 TC_PARSE_DEPTH_MAX);
+		return TC_ERR_SYNTAX;
+	}
+	tam_str_t buf = tam_str_new("");
+	if (!buf) {
+		tc_error(lx->sh, start, "out of memory");
+		return TC_ERR_NOMEM;
+	}
+	int r = TC_OK;
+	int pdepth = 1;
+	int in_sq = 0, in_dq = 0;
+
+	while (pdepth > 0) {
+		int c = in_sq ? getch(lx) : getch_cont(lx);
+		if (c == TC_IN_EOF) {
+			tc_error(lx->sh, start, "unterminated `$((' at end of input");
+			r = TC_ERR_SYNTAX;
+			goto out;
+		}
+		if (c < TC_IN_EOF) {
+			r = input_failure(lx, c);
+			goto out;
+		}
+		if (c == 0) {
+			r = nul_byte(lx);
+			goto out;
+		}
+		if (!in_sq && !in_dq) {
+			if (c == '(') {
+				pdepth++;
+			} else if (c == ')') {
+				pdepth--;
+				if (pdepth == 0)
+					break;
+			} else if (c == '\'') {
+				in_sq = 1;
+			} else if (c == '"') {
+				in_dq = 1;
+			}
+		} else if (in_sq) {
+			if (c == '\'')
+				in_sq = 0;
+		} else if (in_dq) {
+			if (c == '"')
+				in_dq = 0;
+		}
+
+		if (c == '\\' && !in_sq) {
+			int d = getch(lx);
+			if (d == TC_IN_EOF) {
+				tc_error(lx->sh, start, "unterminated `$((' at end of input");
+				r = TC_ERR_SYNTAX;
+				goto out;
+			}
+			if (d < TC_IN_EOF) {
+				r = input_failure(lx, d);
+				goto out;
+			}
+			if (d == 0) {
+				r = nul_byte(lx);
+				goto out;
+			}
+			if (tam_str_len(buf) + 2 > TC_WORD_MAX) {
+				tc_error(lx->sh, start, "word longer than %zu bytes",
+					 TC_WORD_MAX);
+				r = TC_ERR_NOMEM;
+				goto out;
+			}
+			char pair[2] = {'\\', (char)d};
+			tam_str_t nb = tam_str_cat_len(buf, pair, 2);
+			if (!nb) {
+				tc_error(lx->sh, start, "out of memory");
+				r = TC_ERR_NOMEM;
+				goto out;
+			}
+			buf = nb;
+			continue;
+		}
+
+		if (tam_str_len(buf) >= TC_WORD_MAX) {
+			tc_error(lx->sh, start, "word longer than %zu bytes", TC_WORD_MAX);
+			r = TC_ERR_NOMEM;
+			goto out;
+		}
+		char ch = (char)c;
+		tam_str_t nb = tam_str_cat_len(buf, &ch, 1);
+		if (!nb) {
+			tc_error(lx->sh, start, "out of memory");
+			r = TC_ERR_NOMEM;
+			goto out;
+		}
+		buf = nb;
+	}
+
+	int after = getch_cont(lx);
+	if (after < TC_IN_EOF) {
+		r = input_failure(lx, after);
+		goto out;
+	}
+	if (after == ')') {
+		*flags |= TC_WORD_ARITH;
+		if (record_raw && (r = raw_add(lx, ')')) != TC_OK)
+			goto out;
+		struct tc_wpart *arg = NULL;
+		r = lex_arith_parts(lx->sh, buf, tam_str_len(buf), start,
+				    lx->parse_depth + 1, &arg);
+		if (r != TC_OK)
+			goto out;
+		struct tc_wpart *wp = tc_arena_alloc(&lx->sh->arena, sizeof(*wp));
+		if (!wp) {
+			tc_error(lx->sh, start, "out of memory");
+			r = TC_ERR_NOMEM;
+			goto out;
+		}
+		memset(wp, 0, sizeof(*wp));
+		wp->kind = TC_WPART_ARITH;
+		wp->quoted = in_dquote;
+		wp->arg = arg;
+		r = wb_add_part(wb, wp);
+		goto out;
+	}
+
+	/* Not followed by ')': treat as $( ( ... ) ... ) command substitution. */
+	tam_str_t push = tam_str_new("(");
+	if (!push) {
+		tc_error(lx->sh, start, "out of memory");
+		r = TC_ERR_NOMEM;
+		goto out;
+	}
+	tam_str_t t = tam_str_cat_len(push, buf, tam_str_len(buf));
+	if (t) {
+		push = t;
+		t = tam_str_cat_len(push, ")", 1);
+	}
+	if (t && after != TC_IN_EOF) {
+		push = t;
+		char ac = (char)after;
+		t = tam_str_cat_len(push, &ac, 1);
+	}
+	if (!t) {
+		tam_str_free(push);
+		tc_error(lx->sh, start, "out of memory");
+		r = TC_ERR_NOMEM;
+		goto out;
+	}
+	push = t;
+	if (lx->peek != NO_PEEK) {
+		/* Should not happen, but preserve peek if set. */
+		char pc = (char)lx->peek;
+		lx->peek = NO_PEEK;
+		t = tam_str_cat_len(push, &pc, 1);
+		if (!t) {
+			tam_str_free(push);
+			tc_error(lx->sh, start, "out of memory");
+			r = TC_ERR_NOMEM;
+			goto out;
+		}
+		push = t;
+	}
+	if (tc_input_pushback(lx->in, push, tam_str_len(push)) < 0) {
+		tam_str_free(push);
+		tc_error(lx->sh, start, "out of memory");
+		r = TC_ERR_NOMEM;
+		goto out;
+	}
+	tam_str_free(push);
+	r = lex_cmdsub(lx, wb, in_dquote, record_raw, flags, start);
+
+out:
+	tam_str_free(buf);
+	return r;
+}
+
 static int lex_dollar(struct tc_lexer *lx, struct wpart_buf *wb,
 		      bool in_dquote, bool record_raw, unsigned *flags,
 		      int depth, unsigned long start_line)
@@ -787,19 +1430,19 @@ static int lex_dollar(struct tc_lexer *lx, struct wpart_buf *wb,
 		if (e == '(') {
 			if (record_raw && (r = raw_add(lx, e)) != TC_OK)
 				return r;
-			*flags |= TC_WORD_ARITH;
-		} else {
-			if (e != TC_IN_EOF)
-				ungetch(lx, e);
-			*flags |= TC_WORD_CMDSUB;
+			return lex_arith_or_cmdsub(lx, wb, in_dquote, record_raw,
+						   flags, start_line);
 		}
-		return wb_add_char(wb, in_dquote ? TC_WPART_QUOTED : TC_WPART_LITERAL, '$');
+		if (e != TC_IN_EOF)
+			ungetch(lx, e);
+		return lex_cmdsub(lx, wb, in_dquote, record_raw, flags, start_line);
 	}
 
 	if (d == '\'' && !in_dquote) {
-		*flags |= TC_WORD_ANSI_Q;
-		ungetch(lx, d);
-		return wb_add_char(wb, TC_WPART_LITERAL, '$');
+		int r;
+		if (record_raw && (r = raw_add(lx, d)) != TC_OK)
+			return r;
+		return lex_ansi_single(lx, wb, record_raw, flags, start_line);
 	}
 
 	if (d == '{') {
@@ -955,8 +1598,7 @@ static int lex_word(struct tc_lexer *lx, int c, struct tc_token *tok)
 			r = lex_dollar(lx, &wb, false, true, &flags, 0, lx->in->line);
 			break;
 		case '`':
-			flags |= TC_WORD_BACKQ;
-			r = wb_add_char(&wb, TC_WPART_LITERAL, c);
+			r = lex_backquote(lx, &wb, false, true, &flags, lx->in->line);
 			break;
 		case '*': case '?': case '[':
 			flags |= TC_WORD_GLOB;
@@ -1143,8 +1785,8 @@ static int lex_heredoc_parts(struct tc_shell *sh, const char *body, size_t blen,
 			if (r != TC_OK)
 				goto out;
 		} else if (c == '`') {
-			flags |= TC_WORD_BACKQ;
-			if ((r = wb_add_char(&wb, TC_WPART_QUOTED, c)) != TC_OK)
+			r = lex_backquote(&hlx, &wb, true, false, &flags, hin.line);
+			if (r != TC_OK)
 				goto out;
 		} else {
 			if ((r = wb_add_char(&wb, TC_WPART_QUOTED, c)) != TC_OK)
@@ -1152,18 +1794,13 @@ static int lex_heredoc_parts(struct tc_shell *sh, const char *body, size_t blen,
 		}
 	}
 
-	if (flags & (TC_WORD_CMDSUB | TC_WORD_ARITH | TC_WORD_BACKQ)) {
-		tc_error(sh, start_line,
-			 "command or arithmetic substitutions inside here-documents are not supported yet; see ROADMAP.md");
-		r = TC_ERR_SYNTAX;
-		goto out;
-	}
 	if ((r = wb_flush(&wb)) == TC_OK)
 		*out = wb.head;
 
 out:
 	wb_finish(&wb);
 	tc_lexer_finish(&hlx);
+	tc_input_finish(&hin);
 	return r;
 }
 

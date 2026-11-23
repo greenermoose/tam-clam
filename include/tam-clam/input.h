@@ -28,6 +28,8 @@ struct tc_input {
 	size_t str_len, str_pos;
 	unsigned char buf[TC_INPUT_BUF];
 	size_t len, pos;
+	unsigned char *push;    /* LIFO pushback buffer for $(( disambiguation */
+	size_t push_len, push_pos;
 	bool bytewise;          /* read one byte at a time */
 	bool eof;
 	int err;
@@ -42,6 +44,9 @@ void tc_input_from_string(struct tc_input *in, const char *s, size_t len);
 /* fd is owned by the caller. bytewise is for descriptors the shell shares
  * with the commands it runs. */
 void tc_input_from_fd(struct tc_input *in, int fd, bool bytewise);
+void tc_input_finish(struct tc_input *in);
+/* Push bytes back so they are read before the remaining input. 0 or -1. */
+int tc_input_pushback(struct tc_input *in, const char *s, size_t len);
 int tc_input_getc(struct tc_input *in);
 /* Ask for the primary prompt before the next line is read. */
 void tc_input_new_command(struct tc_input *in);

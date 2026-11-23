@@ -3,56 +3,52 @@ WHATNOW
 What tam-clam is doing now and what comes next. Read this first; revise
 it at the end of every session (work/README-work).
 
-Updated: 2026-11-23, with W5 (0.0.4)
+Updated: 2026-11-23, with W6 (0.1.0)
 
 
 STATE
 
-  Version 0.0.4, compound commands and functions, on branch dev. It
-  completes Phase P1 (foundation) by adding:
-  - compound commands: if/elif/else/fi, while, until, for (with and
-    without 'in'), case (plain-string patterns plus exact bare '*'
-    match-all; other unquoted globs refused until 0.1.0), { ...; } brace
-    groups, ( ... ) subshells, and trailing redirections on any compound
-    command (including inside pipelines);
-  - shell functions (src/func.c: refcounted ASTs in private arenas,
-    POSIX command lookup precedence, scoped positional parameters and
-    prefix assignments, settable recursion limit via FUNCNEST defaulting
-    to 1000 with hard ceiling 2000);
-  - break, continue, and return special builtins with explicit flow
-    state (no setjmp/longjmp);
-  - explicit parser nesting limit (128), execution depth limit (8192),
-    and arena mark/rewind for loop iterations.
-  readelf -d lists only libc.so.6. make test and make sanitize pass
-  (289 unit checks, 80 script/refusal/startup checks against bash --posix).
+  Version 0.1.0, Phase P2 start (expansions), on branch dev. It adds:
+  - command substitution ($(...) and `...`), parsed once at parse time
+    into TC_WPART_CMDSUB AST subtrees (including POSIX $((cmd); (cmd))
+    disambiguation via tc_input_pushback, unquoted here-documents, and
+    AST deep-cloning for functions);
+  - $'...' ANSI-C quoting (POSIX.1-2024 XCU 2.2.4, including octal, hex,
+    \u/\U UTF-8, \cX control escapes, and NUL truncation);
+  - arithmetic expansion ($((...)), src/arith.c) with 64-bit signed
+    integers, checked overflow, short-circuiting, and explicit recursion
+    depth limit (128);
+  - linear-time POSIX pattern matcher (src/pattern.c) with per-byte
+    quoting metadata (no in-band escape bytes), wired into pathname
+    expansion, case patterns, and ${x#pat}/${x##pat}/${x%pat}/${x%%pat};
+  - IFS field splitting (POSIX XCU 2.6.5) and pathname expansion
+    (src/glob.c, XCU 2.6.6 / 2.13.3).
+  readelf -d lists only libc.so.6. make test and make sanitize pass.
 
   Fred's decisions so far are in ROADMAP.md and the plans: POSIX.1-2024
   is the target; lint mode is P2 0.1.5; tam-clam ships only its own key
   map (no built-in readline map), drafted in arch/keys.md and agreed with
-  Fred before 0.2.0; unquoted expansions containing IFS characters pass
-  through as a single word until field splitting lands in 0.1.0; case
-  allows bare unquoted '*' as an exact match-all while refusing other
-  unquoted globs until 0.1.0; FUNCNEST sets the function recursion limit.
+  Fred before 0.2.0; FUNCNEST sets the function recursion limit; signed
+  64-bit arithmetic overflow is a reported error.
 
 
 NEXT
 
-  1. 0.1.0, Phase P2 start (plans/P2-posix-language.md):
-     - command substitution ($(...) and `...`);
-     - $'...' ANSI-C quoting;
-     - arithmetic expansion ($((...)));
-     - IFS field splitting;
-     - pathname expansion (globbing) with our own pattern matcher (also
-       enabling full patterns in case and ${x%pat}/${x#pat}).
-     Bump VERSION to 0.1.0 in the first code commit.
+  1. 0.1.1 (plans/P2-posix-language.md):
+     - background commands (&), wait, and $!;
+     - trap for signals and EXIT, run at safe points only;
+     - remaining special builtins (set, shift, eval, ., export,
+       readonly, unset, exec, times).
+     Bump VERSION to 0.1.1 in the first code commit.
 
-  2. 0.1.1, background commands, wait, trap, and the remaining special
-     builtins (set, shift, eval, ., export, readonly, unset, exec, times).
+  2. 0.1.2, regular POSIX builtins (read, printf, echo, test/[,
+     getopts, command, type, hash, umask, alias/unalias, kill, pwd,
+     ulimit).
 
 
 WAITING FOR FRED
 
-  - Trying 0.0.4: build/tam-clam -c '...', or run it on a terminal. It
+  - Trying 0.1.0: build/tam-clam -c '...', or run it on a terminal. It
     is not installed and is nobody's login shell.
   - Whether to install dash, so the script tests compare against it as
     well as bash --posix.

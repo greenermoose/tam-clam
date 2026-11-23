@@ -111,6 +111,7 @@ static int enter_depth(struct tc_parser *p, unsigned long line)
 		return TC_ERR_SYNTAX;
 	}
 	p->depth++;
+	p->lx.parse_depth = p->depth;
 	return TC_OK;
 }
 
@@ -118,6 +119,7 @@ static void leave_depth(struct tc_parser *p)
 {
 	if (p->depth > 0)
 		p->depth--;
+	p->lx.parse_depth = p->depth;
 }
 
 static int unsupported(struct tc_parser *p, unsigned long line, const char *what)
@@ -187,58 +189,6 @@ static int is_redir_op(enum tc_token_kind k)
 	default:
 		return 0;
 	}
-}
-
-static int check_parts(struct tc_parser *p, const struct tc_wpart *parts,
-		       unsigned long line, bool allow_glob)
-{
-	for (const struct tc_wpart *wp = parts; wp; wp = wp->next) {
-		if (wp->kind != TC_WPART_PARAM)
-			continue;
-		if (wp->arg_flags & TC_WORD_CMDSUB)
-			return unsupported(p, line, "command substitutions (`$(...)')");
-		if (wp->arg_flags & TC_WORD_ARITH)
-			return unsupported(p, line, "arithmetic expansions (`$((...))')");
-		if (wp->arg_flags & TC_WORD_BACKQ)
-			return unsupported(p, line, "command substitutions (`...`)");
-		if (wp->arg_flags & TC_WORD_ANSI_Q)
-			return unsupported(p, line, "ANSI-C quoting (`$'...'')");
-		bool is_trim = (wp->op == TC_PARAM_TRIM_SUFFIX_S ||
-				wp->op == TC_PARAM_TRIM_SUFFIX_L ||
-				wp->op == TC_PARAM_TRIM_PREFIX_S ||
-				wp->op == TC_PARAM_TRIM_PREFIX_L);
-		if ((is_trim || !allow_glob) && (wp->arg_flags & TC_WORD_GLOB))
-			return unsupported(p, line, "patterns (`*', `?', `[')");
-		int r = check_parts(p, wp->arg, line, allow_glob && !is_trim);
-		if (r != TC_OK)
-			return r;
-	}
-	return TC_OK;
-}
-
-/* Refuse words that need expansions tam-clam does not do yet. */
-static int check_word(struct tc_parser *p, const struct tc_token *t, bool allow_glob)
-{
-	if (t->flags & TC_WORD_CMDSUB)
-		return unsupported(p, t->line, "command substitutions (`$(...)')");
-	if (t->flags & TC_WORD_ARITH)
-		return unsupported(p, t->line, "arithmetic expansions (`$((...))')");
-	if (t->flags & TC_WORD_BACKQ)
-		return unsupported(p, t->line, "command substitutions (`...`)");
-	if (t->flags & TC_WORD_ANSI_Q)
-		return unsupported(p, t->line, "ANSI-C quoting (`$'...'')");
-	if (!allow_glob && (t->flags & TC_WORD_GLOB))
-		return unsupported(p, t->line, "patterns (`*', `?', `[')");
-	return check_parts(p, t->parts, t->line, allow_glob);
-}
-
-static bool is_bare_star_tok(const struct tc_token *t)
-{
-	return t->kind == TC_TOK_WORD && !(t->flags & TC_WORD_QUOTED) &&
-	       t->len == 1 && t->text[0] == '*' &&
-	       t->parts && t->parts->kind == TC_WPART_LITERAL &&
-	       t->parts->len == 1 && t->parts->text[0] == '*' &&
-	       !t->parts->next;
 }
 
 static void tok_to_word(const struct tc_token *t, struct tc_word *w)
@@ -384,8 +334,6 @@ static int parse_redir(struct tc_parser *p, struct redir_link **out)
 		return unexpected(p);
 
 	enum tc_redir_kind kind = token_to_redir(op);
-	if (kind != TC_REDIR_HEREDOC && (r = check_word(p, &p->tok, false)) != TC_OK)
-		return r;
 
 	struct tc_arena *a = &p->sh->arena;
 	struct redir_link *rl = tc_arena_alloc(a, sizeof(*rl));
@@ -449,8 +397,6 @@ static int parse_simple(struct tc_parser *p, struct tc_node **out)
 			nr++;
 		} else if (p->tok.kind == TC_TOK_WORD) {
 			if (nw == 0 && (p->tok.flags & TC_WORD_ASSIGN)) {
-				if ((r = check_word(p, &p->tok, true)) != TC_OK)
-					return r;
 				if (na == TC_WORDS_MAX) {
 					tc_error(p->sh, p->tok.line,
 						 "more than %d assignments in one command",
@@ -472,8 +418,6 @@ static int parse_simple(struct tc_parser *p, struct tc_node **out)
 			}
 			if (nw == 0 && na == 0 && nr == 0 && is_reserved(&p->tok))
 				return unexpected(p);
-			if ((r = check_word(p, &p->tok, false)) != TC_OK)
-				return r;
 			if (nw == TC_WORDS_MAX) {
 				tc_error(p->sh, p->tok.line,
 					 "more than %d words in one command",
@@ -754,8 +698,6 @@ static int parse_for(struct tc_parser *p, struct tc_node **out)
 		if ((r = advance(p)) != TC_OK)
 			goto err;
 		while (p->tok.kind == TC_TOK_WORD) {
-			if ((r = check_word(p, &p->tok, false)) != TC_OK)
-				goto err;
 			if (nw == TC_WORDS_MAX) {
 				tc_error(p->sh, p->tok.line,
 					 "more than %d words in for list",
@@ -850,9 +792,6 @@ static int parse_case(struct tc_parser *p, struct tc_node **out)
 		r = unexpected(p);
 		goto err;
 	}
-	/* The case subject word is not pathname-expanded in POSIX. */
-	if ((r = check_word(p, &p->tok, true)) != TC_OK)
-		goto err;
 	struct tc_word subject;
 	tok_to_word(&p->tok, &subject);
 	if ((r = advance(p)) != TC_OK)
@@ -884,10 +823,6 @@ static int parse_case(struct tc_parser *p, struct tc_node **out)
 				r = unexpected(p);
 				goto err;
 			}
-			/* Allow bare unquoted '*' (exact match-all); refuse other globs. */
-			if (!is_bare_star_tok(&p->tok) &&
-			    (r = check_word(p, &p->tok, false)) != TC_OK)
-				goto err;
 			struct word_link *wl = tc_arena_alloc(a, sizeof(*wl));
 			if (!wl) {
 				tc_error(p->sh, p->tok.line, "out of memory");
@@ -1330,6 +1265,7 @@ int tc_parse_next(struct tc_parser *p, struct tc_node **out)
 	*out = NULL;
 	p->have_peek = 0;
 	p->depth = 0;
+	p->lx.parse_depth = 0;
 	p->hd_head = NULL;
 	p->hd_tail = NULL;
 	tc_input_new_command(p->lx.in);
@@ -1347,10 +1283,105 @@ int tc_parse_next(struct tc_parser *p, struct tc_node **out)
 	return flush_heredocs(p);
 }
 
+int tc_parse_cmdsub(struct tc_lexer *lx, unsigned long start_line,
+		    struct tc_node **out)
+{
+	*out = NULL;
+	if (lx->parse_depth >= TC_PARSE_DEPTH_MAX) {
+		tc_error(lx->sh, start_line, "nesting depth exceeds limit (%d)",
+			 TC_PARSE_DEPTH_MAX);
+		return TC_ERR_SYNTAX;
+	}
+	struct tc_parser sub;
+	int r = tc_parser_init(&sub, lx->sh, lx->in);
+	if (r != TC_OK) {
+		tc_error(lx->sh, start_line, "out of memory");
+		return r;
+	}
+	sub.lx.peek = lx->peek;
+	lx->peek = -10;
+	sub.depth = lx->parse_depth + 1;
+	sub.lx.parse_depth = sub.depth;
+
+	r = advance(&sub);
+	if (r == TC_OK)
+		r = parse_linebreak(&sub);
+	if (r == TC_OK) {
+		if (sub.tok.kind == TC_TOK_RPAREN) {
+			*out = NULL;
+		} else {
+			r = parse_compound_list(&sub, out);
+			if (r == TC_OK) {
+				if (sub.tok.kind == TC_TOK_END) {
+					tc_error(lx->sh, start_line,
+						 "unterminated `$(' at end of input");
+					r = TC_ERR_SYNTAX;
+				} else if (sub.tok.kind != TC_TOK_RPAREN) {
+					r = unexpected(&sub);
+				} else {
+					r = flush_heredocs(&sub);
+				}
+			}
+		}
+	}
+
+	lx->peek = sub.lx.peek;
+	tc_parser_finish(&sub);
+	return r;
+}
+
+int tc_parse_cmdsub_string(struct tc_shell *sh, const char *src, size_t len,
+			   unsigned long start_line, unsigned depth,
+			   struct tc_node **out)
+{
+	*out = NULL;
+	if (depth >= TC_PARSE_DEPTH_MAX) {
+		tc_error(sh, start_line, "nesting depth exceeds limit (%d)",
+			 TC_PARSE_DEPTH_MAX);
+		return TC_ERR_SYNTAX;
+	}
+	struct tc_input in;
+	tc_input_from_string(&in, src, len);
+	in.line = start_line;
+	in.sh = sh;
+
+	struct tc_parser sub;
+	int r = tc_parser_init(&sub, sh, &in);
+	if (r != TC_OK) {
+		tc_error(sh, start_line, "out of memory");
+		tc_input_finish(&in);
+		return r;
+	}
+	sub.depth = depth + 1;
+	sub.lx.parse_depth = sub.depth;
+
+	r = advance(&sub);
+	if (r == TC_OK)
+		r = parse_linebreak(&sub);
+	if (r == TC_OK) {
+		if (sub.tok.kind == TC_TOK_END) {
+			*out = NULL;
+		} else {
+			r = parse_compound_list(&sub, out);
+			if (r == TC_OK) {
+				if (sub.tok.kind != TC_TOK_END)
+					r = unexpected(&sub);
+				else
+					r = flush_heredocs(&sub);
+			}
+		}
+	}
+
+	tc_parser_finish(&sub);
+	tc_input_finish(&in);
+	return r;
+}
+
 void tc_parser_recover(struct tc_parser *p)
 {
 	p->have_peek = 0;
 	p->depth = 0;
+	p->lx.parse_depth = 0;
 	p->hd_head = NULL;
 	p->hd_tail = NULL;
 	if (p->have_tok &&
@@ -1366,6 +1397,7 @@ void tc_parser_reset(struct tc_parser *p)
 	p->have_tok = 0;
 	p->have_peek = 0;
 	p->depth = 0;
+	p->lx.parse_depth = 0;
 	p->hd_head = NULL;
 	p->hd_tail = NULL;
 }

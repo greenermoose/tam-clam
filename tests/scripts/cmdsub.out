@@ -1,0 +1,15 @@
+a:hello:b
+nested:inner:deep
+empty::end
+newlines:x:end
+backq:hi there
+backq-dq:quoted
+backq-nest:deep2
+case:matched
+comment:ok
+subshell:one
+two
+assign:val:7
+bare:5
+hd:from-hd:5
+fn:alpha:beta
