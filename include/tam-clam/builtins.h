@@ -19,4 +19,19 @@ struct tc_builtin {
 /* NULL when name is not a builtin. */
 const struct tc_builtin *tc_builtin_find(const char *name);
 
+/* Special and process-control builtins implemented in builtins_special.c. */
+int tc_bi_set(struct tc_shell *sh, int argc, char **argv, unsigned long line);
+int tc_bi_shift(struct tc_shell *sh, int argc, char **argv, unsigned long line);
+int tc_bi_eval(struct tc_shell *sh, int argc, char **argv, unsigned long line);
+int tc_bi_dot(struct tc_shell *sh, int argc, char **argv, unsigned long line);
+int tc_bi_export(struct tc_shell *sh, int argc, char **argv, unsigned long line);
+int tc_bi_readonly(struct tc_shell *sh, int argc, char **argv, unsigned long line);
+int tc_bi_unset(struct tc_shell *sh, int argc, char **argv, unsigned long line);
+int tc_bi_exec_stub(struct tc_shell *sh, int argc, char **argv, unsigned long line);
+int tc_bi_times(struct tc_shell *sh, int argc, char **argv, unsigned long line);
+int tc_bi_wait(struct tc_shell *sh, int argc, char **argv, unsigned long line);
+
+/* Write s in POSIX single-quoted form to fd. 0 or -1. */
+int tc_write_shell_quoted(int fd, const char *s);
+
 #endif

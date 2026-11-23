@@ -323,6 +323,9 @@ static struct tc_node *clone_node(struct tc_arena *a,
 			return NULL;
 		dst->u.funcdef.body = clone_node(a, src->u.funcdef.body, depth + 1);
 		return dst->u.funcdef.body ? dst : NULL;
+	case TC_NODE_BG:
+		dst->u.bg.child = clone_node(a, src->u.bg.child, depth + 1);
+		return dst->u.bg.child ? dst : NULL;
 	case TC_NODE_SEQ:
 		return NULL;
 	}

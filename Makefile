@@ -28,11 +28,11 @@ LIBTAM := $(LIBTAM_PREFIX)/lib/libtam.a
 
 # Everything but main.c, so the unit tests can link it.
 CORE_SRCS = src/arena.c src/var.c src/func.c src/pattern.c src/arith.c src/glob.c \
-	src/shell.c src/signals.c src/input.c src/lex.c \
-	src/parse.c src/expand.c src/builtins.c src/exec.c
+	src/shell.c src/signals.c src/trap.c src/bg.c src/input.c src/lex.c \
+	src/parse.c src/expand.c src/builtins.c src/builtins_special.c src/exec.c
 CORE_OBJS = $(patsubst src/%.c,$(B)/%.o,$(CORE_SRCS))
 TESTS = $(B)/tests/test_var $(B)/tests/test_func $(B)/tests/test_pattern \
-	$(B)/tests/test_arith $(B)/tests/test_glob \
+	$(B)/tests/test_arith $(B)/tests/test_glob $(B)/tests/test_trap \
 	$(B)/tests/test_lex $(B)/tests/test_parse $(B)/tests/test_expand
 
 all: $(B)/tam-clam

@@ -3,26 +3,28 @@ WHATNOW
 What tam-clam is doing now and what comes next. Read this first; revise
 it at the end of every session (work/README-work).
 
-Updated: 2026-11-23, with W6 (0.1.0)
+Updated: 2026-11-23, with W7 (0.1.1)
 
 
 STATE
 
-  Version 0.1.0, Phase P2 start (expansions), on branch dev. It adds:
-  - command substitution ($(...) and `...`), parsed once at parse time
-    into TC_WPART_CMDSUB AST subtrees (including POSIX $((cmd); (cmd))
-    disambiguation via tc_input_pushback, unquoted here-documents, and
-    AST deep-cloning for functions);
-  - $'...' ANSI-C quoting (POSIX.1-2024 XCU 2.2.4, including octal, hex,
-    \u/\U UTF-8, \cX control escapes, and NUL truncation);
-  - arithmetic expansion ($((...)), src/arith.c) with 64-bit signed
-    integers, checked overflow, short-circuiting, and explicit recursion
-    depth limit (128);
-  - linear-time POSIX pattern matcher (src/pattern.c) with per-byte
-    quoting metadata (no in-band escape bytes), wired into pathname
-    expansion, case patterns, and ${x#pat}/${x##pat}/${x%pat}/${x%%pat};
-  - IFS field splitting (POSIX XCU 2.6.5) and pathname expansion
-    (src/glob.c, XCU 2.6.6 / 2.13.3).
+  Version 0.1.1, Phase P2 (process control, traps, and special builtins),
+  on branch dev. It adds:
+  - background commands (&) parsed into TC_NODE_BG (in lists, compound
+    lists, and function AST clones), executed with /dev/null stdin and
+    ignored SIGINT/SIGQUIT when job control is off, setting $!;
+  - background process tracking (src/bg.c) with non-blocking zombie
+    reaping and the wait builtin (all jobs, specific PIDs, 127 for
+    unknown/re-waited PIDs, EINTR interruption for trapped signals);
+  - async-signal-safe signal flag dispatch (src/signals.c) and per-shell
+    trap table (src/trap.c) supporting signals and EXIT at safe points
+    only, inherited-SIG_IGN protection in non-interactive shells, and
+    $(trap) subshell display preservation;
+  - remaining POSIX special builtins (src/builtins_special.c): set
+    (variables, positional params, -a/-f, -o/+o, refusing 0.1.3 options),
+    shift, eval, . (dot, with PATH search, fd >= 10, and return),
+    export, readonly, unset (-v/-f), exec (persistent redirections and
+    process replacement), and times.
   readelf -d lists only libc.so.6. make test and make sanitize pass.
 
   Fred's decisions so far are in ROADMAP.md and the plans: POSIX.1-2024
@@ -34,21 +36,19 @@ STATE
 
 NEXT
 
-  1. 0.1.1 (plans/P2-posix-language.md):
-     - background commands (&), wait, and $!;
-     - trap for signals and EXIT, run at safe points only;
-     - remaining special builtins (set, shift, eval, ., export,
-       readonly, unset, exec, times).
-     Bump VERSION to 0.1.1 in the first code commit.
+  1. 0.1.2 (plans/P2-posix-language.md):
+     - regular POSIX builtins: read, printf, echo (POSIX-style: no
+       options except as dash does), test and [, getopts, command, type,
+       hash, umask, alias and unalias, kill, pwd, ulimit.
+     Bump VERSION to 0.1.2 in the first code commit.
 
-  2. 0.1.2, regular POSIX builtins (read, printf, echo, test/[,
-     getopts, command, type, hash, umask, alias/unalias, kill, pwd,
-     ulimit).
+  2. 0.1.3, shell options (set -e, set -u, set -o pipefail, set -x with
+     PS4 and line numbers, set -C, set -n).
 
 
 WAITING FOR FRED
 
-  - Trying 0.1.0: build/tam-clam -c '...', or run it on a terminal. It
+  - Trying 0.1.1: build/tam-clam -c '...', or run it on a terminal. It
     is not installed and is nobody's login shell.
   - Whether to install dash, so the script tests compare against it as
     well as bash --posix.

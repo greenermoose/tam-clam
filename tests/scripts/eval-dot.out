@@ -1,0 +1,9 @@
+hello world
+eval-empty:0
+eval-ws:0
+eval-var:42
+dash-dash
+in-dot
+dot-ret:9:from_dot
+path-dot:found_via_path
+dot-empty:0

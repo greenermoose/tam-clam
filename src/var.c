@@ -449,3 +449,51 @@ void tc_var_pop_overrides(struct tc_vars *v, struct tc_var_save *saves,
 		free(sv->value);
 	}
 }
+
+static int cmp_var_entry(const void *a, const void *b)
+{
+	const struct tc_var_entry *ea = *(const struct tc_var_entry *const *)a;
+	const struct tc_var_entry *eb = *(const struct tc_var_entry *const *)b;
+	return strcmp(ea->name, eb->name);
+}
+
+int tc_var_list(const struct tc_vars *v, unsigned filter_flag,
+		const struct tc_var_entry ***out, size_t *out_n)
+{
+	*out = NULL;
+	*out_n = 0;
+	size_t count = 0;
+	for (size_t i = 0; i < v->cap; i++) {
+		const struct tc_var_entry *e = &v->slots[i];
+		if (!e->name)
+			continue;
+		if (filter_flag == 0) {
+			if (e->value != NULL)
+				count++;
+		} else if (e->flags & filter_flag) {
+			count++;
+		}
+	}
+	if (count == 0)
+		return TC_VAR_OK;
+
+	const struct tc_var_entry **arr = malloc(count * sizeof(*arr));
+	if (!arr)
+		return TC_VAR_ERR_NOMEM;
+	size_t pos = 0;
+	for (size_t i = 0; i < v->cap; i++) {
+		const struct tc_var_entry *e = &v->slots[i];
+		if (!e->name)
+			continue;
+		if (filter_flag == 0) {
+			if (e->value != NULL)
+				arr[pos++] = e;
+		} else if (e->flags & filter_flag) {
+			arr[pos++] = e;
+		}
+	}
+	qsort(arr, pos, sizeof(*arr), cmp_var_entry);
+	*out = arr;
+	*out_n = pos;
+	return TC_VAR_OK;
+}

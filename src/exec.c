@@ -12,12 +12,15 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include "tam-clam/bg.h"
 #include "tam-clam/builtins.h"
 #include "tam-clam/exec.h"
 #include "tam-clam/expand.h"
 #include "tam-clam/lex.h"
+#include "tam-clam/parse.h"
 #include "tam-clam/pattern.h"
 #include "tam-clam/signals.h"
+#include "tam-clam/trap.h"
 
 /* Used when PATH is unset. */
 #define TC_DEFAULT_PATH "/usr/local/bin:/usr/bin:/bin"
@@ -430,7 +433,8 @@ static int apply_assigns_persist(struct tc_shell *sh,
 		int er = tc_expand_single(sh, &assigns[i].value, true, &val);
 		if (er != TC_EXP_OK)
 			return er == TC_EXP_ERR ? fatal_exp_error(sh) : TC_STATUS_USAGE;
-		int sr = tc_var_set(&sh->vars, assigns[i].name, val, 0);
+		int sr = tc_var_set(&sh->vars, assigns[i].name, val,
+				    sh->opt_allexport ? TC_VAR_EXPORT : 0);
 		if (sr == TC_VAR_ERR_READONLY) {
 			tc_error(sh, assigns[i].line, "%s: readonly variable",
 				 assigns[i].name);
@@ -565,14 +569,15 @@ static int exec_builtin(struct tc_shell *sh, const struct tc_builtin *bi,
 	pid_t *writers = NULL;
 	size_t nwriters = 0;
 	if (apply_redirs(sh, redirs, nr, &saves, &nsaves, &writers, &nwriters) < 0)
-		return 1;
+		return bi->special ? fatal_exp_error(sh) : 1;
 
 	struct tc_var_save *vsaves = NULL;
 	size_t nvsaves = 0;
 	if (na > 0) {
 		if (bi->special) {
+			unsigned fl = sh->opt_allexport ? TC_VAR_EXPORT : 0;
 			for (size_t i = 0; i < na; i++) {
-				int sr = tc_var_set(&sh->vars, kvs[i].name, kvs[i].value, 0);
+				int sr = tc_var_set(&sh->vars, kvs[i].name, kvs[i].value, fl);
 				if (sr != TC_VAR_OK) {
 					tc_error(sh, line, "out of memory");
 					restore_fds(saves, nsaves);
@@ -654,9 +659,44 @@ static int exec_simple(struct tc_shell *sh, const struct tc_node *n)
 	 * 3. Regular builtins
 	 * 4. External commands */
 	const struct tc_builtin *bi = tc_builtin_find(argv[0]);
-	if (bi && bi->special)
+	if (bi && bi->special) {
+		if (strcmp(argv[0], "exec") == 0) {
+			pid_t *writers = NULL;
+			size_t nwriters = 0;
+			if (apply_redirs(sh, n->u.simple.redirs, nr,
+					 NULL, &(size_t){0}, &writers, &nwriters) < 0)
+				return fatal_exp_error(sh);
+			size_t ci = 1;
+			if (ci < argc && strcmp(argv[ci], "--") == 0)
+				ci++;
+			if (ci >= argc) {
+				unsigned fl = sh->opt_allexport ? TC_VAR_EXPORT : 0;
+				for (size_t i = 0; i < na; i++) {
+					if (tc_var_set(&sh->vars, kvs[i].name,
+						       kvs[i].value, fl) != TC_VAR_OK) {
+						tc_error(sh, n->line, "out of memory");
+						for (size_t j = 0; j < nwriters; j++)
+							wait_child(writers[j]);
+						return TC_STATUS_USAGE;
+					}
+				}
+				for (size_t j = 0; j < nwriters; j++)
+					wait_child(writers[j]);
+				return 0;
+			}
+			tc_signals_child();
+			int st = run_external(sh, argv + ci, kvs, na, n->line);
+			for (size_t j = 0; j < nwriters; j++)
+				wait_child(writers[j]);
+			if (!sh->interactive) {
+				sh->exit_requested = true;
+				sh->exit_status = st;
+			}
+			return st;
+		}
 		return exec_builtin(sh, bi, (int)argc, argv, kvs, na,
 				    n->u.simple.redirs, nr, n->line);
+	}
 
 	struct tc_func *fn = tc_func_find(&sh->funcs, argv[0]);
 	if (fn)
@@ -725,9 +765,12 @@ static int exec_pipeline(struct tc_shell *sh, const struct tc_node *n)
 		}
 		if (pid == 0) {
 			tc_signals_child();
+			tc_traps_subshell_reset(&sh->traps);
+			tc_bg_reset_subshell(&sh->bg);
 			sh->interactive = false;
 			sh->loop_depth = 0;
 			sh->func_depth = 0;
+			sh->dot_depth = 0;
 			sh->flow = TC_FLOW_NONE;
 			if (in_fd >= 0) {
 				if (in_fd != STDIN_FILENO) {
@@ -745,6 +788,8 @@ static int exec_pipeline(struct tc_shell *sh, const struct tc_node *n)
 				}
 			}
 			int st = exec_one(sh, n->u.pipeline.cmds[i]);
+			sh->status = sh->exit_requested ? sh->exit_status : st;
+			tc_trap_run_exit(sh);
 			_exit(sh->exit_requested ? sh->exit_status : st);
 		}
 		if (in_fd >= 0)
@@ -789,18 +834,59 @@ static int exec_subshell(struct tc_shell *sh, const struct tc_node *n)
 	}
 	if (pid == 0) {
 		tc_signals_child();
+		tc_traps_subshell_reset(&sh->traps);
+		tc_bg_reset_subshell(&sh->bg);
 		sh->interactive = false;
 		sh->loop_depth = 0;
 		sh->func_depth = 0;
+		sh->dot_depth = 0;
 		sh->flow = TC_FLOW_NONE;
 		int st = tc_exec(sh, n->u.group.body);
-		if (sh->exit_requested)
-			_exit(sh->exit_status);
 		if (sh->flow == TC_FLOW_RETURN)
-			_exit(sh->return_status);
-		_exit(st);
+			st = sh->return_status;
+		sh->status = sh->exit_requested ? sh->exit_status : st;
+		tc_trap_run_exit(sh);
+		_exit(sh->exit_requested ? sh->exit_status : st);
 	}
 	return wait_child(pid);
+}
+
+static int exec_bg(struct tc_shell *sh, const struct tc_node *n)
+{
+	pid_t pid = fork();
+	if (pid < 0) {
+		tc_error(sh, n->line, "cannot fork background command: %s",
+			 strerror(errno));
+		return TC_STATUS_USAGE;
+	}
+	if (pid == 0) {
+		tc_signals_bg_child();
+		tc_traps_subshell_reset(&sh->traps);
+		tc_bg_reset_subshell(&sh->bg);
+		sh->interactive = false;
+		sh->loop_depth = 0;
+		sh->func_depth = 0;
+		sh->dot_depth = 0;
+		sh->flow = TC_FLOW_NONE;
+		/* POSIX XCU 2.9.3.1: stdin of an async list is /dev/null
+		 * before explicit redirections when job control is off. */
+		int devnull = open("/dev/null", O_RDONLY);
+		if (devnull >= 0) {
+			if (devnull != STDIN_FILENO) {
+				(void)dup2(devnull, STDIN_FILENO);
+				close(devnull);
+			}
+		}
+		int st = tc_exec(sh, n->u.bg.child);
+		if (sh->flow == TC_FLOW_RETURN)
+			st = sh->return_status;
+		sh->status = sh->exit_requested ? sh->exit_status : st;
+		tc_trap_run_exit(sh);
+		_exit(sh->exit_requested ? sh->exit_status : st);
+	}
+	sh->last_bg_pid = pid;
+	(void)tc_bg_add(&sh->bg, pid);
+	return 0;
 }
 
 static int exec_if(struct tc_shell *sh, const struct tc_node *n)
@@ -914,7 +1000,8 @@ static int exec_for(struct tc_shell *sh, const struct tc_node *n)
 
 	for (size_t i = 0; i < nitems; i++) {
 		tc_arena_rewind(&sh->arena, mark);
-		int sr = tc_var_set(&sh->vars, n->u.for_cmd.name, items[i], 0);
+		int sr = tc_var_set(&sh->vars, n->u.for_cmd.name, items[i],
+				    sh->opt_allexport ? TC_VAR_EXPORT : 0);
 		if (sr == TC_VAR_ERR_READONLY) {
 			tc_error(sh, n->line, "%s: readonly variable",
 				 n->u.for_cmd.name);
@@ -1031,6 +1118,9 @@ static int exec_one(struct tc_shell *sh, const struct tc_node *n)
 	case TC_NODE_FUNCDEF:
 		status = exec_funcdef(sh, n);
 		break;
+	case TC_NODE_BG:
+		status = exec_bg(sh, n);
+		break;
 	default:
 		status = TC_STATUS_USAGE;
 		break;
@@ -1051,10 +1141,74 @@ int tc_exec(struct tc_shell *sh, const struct tc_node *n)
 			cur = cur->u.seq.first;
 		}
 		sh->status = exec_one(sh, cur);
+		tc_trap_run_pending(sh);
+		tc_bg_reap_nonblock(&sh->bg);
 		if (flow_stop(sh))
 			break;
 	}
 	return sh->status;
+}
+
+int tc_exec_input(struct tc_shell *sh, struct tc_input *in,
+		  unsigned long call_line, bool *ran_any)
+{
+	if (ran_any)
+		*ran_any = false;
+	struct tc_input *saved_in = sh->in;
+	sh->in = in;
+	in->sh = sh;
+
+	struct tc_parser p;
+	if (tc_parser_init(&p, sh, in) != TC_OK) {
+		tc_error(sh, call_line, "out of memory");
+		sh->in = saved_in;
+		tc_input_finish(in);
+		return TC_STATUS_USAGE;
+	}
+
+	int status = 0;
+	for (;;) {
+		struct tc_arena_mark mark = tc_arena_mark(&sh->arena);
+		struct tc_node *node = NULL;
+		int r = tc_parse_next(&p, &node);
+		if (r == TC_END) {
+			tc_arena_rewind(&sh->arena, mark);
+			break;
+		}
+		if (r == TC_OK) {
+			if (node) {
+				if (ran_any)
+					*ran_any = true;
+				status = tc_exec(sh, node);
+			}
+			tc_arena_rewind(&sh->arena, mark);
+			tc_trap_run_pending(sh);
+			if (flow_stop(sh))
+				break;
+			continue;
+		}
+		tc_arena_rewind(&sh->arena, mark);
+		status = TC_STATUS_USAGE;
+		sh->status = status;
+		if (!sh->interactive) {
+			sh->exit_requested = true;
+			sh->exit_status = status;
+		}
+		break;
+	}
+
+	tc_parser_finish(&p);
+	tc_input_finish(in);
+	sh->in = saved_in;
+	return status;
+}
+
+int tc_exec_string(struct tc_shell *sh, const char *src, size_t len,
+		   unsigned long call_line, bool *ran_any)
+{
+	struct tc_input in;
+	tc_input_from_string(&in, src, len);
+	return tc_exec_input(sh, &in, call_line, ran_any);
 }
 
 int tc_exec_cmdsub(struct tc_shell *sh, const struct tc_node *cmd,
@@ -1088,9 +1242,12 @@ int tc_exec_cmdsub(struct tc_shell *sh, const struct tc_node *cmd,
 	}
 	if (pid == 0) {
 		tc_signals_child();
+		tc_traps_subshell_reset(&sh->traps);
+		tc_bg_reset_subshell(&sh->bg);
 		sh->interactive = false;
 		sh->loop_depth = 0;
 		sh->func_depth = 0;
+		sh->dot_depth = 0;
 		sh->flow = TC_FLOW_NONE;
 		close(pfd[0]);
 		if (pfd[1] != STDOUT_FILENO) {
@@ -1099,11 +1256,11 @@ int tc_exec_cmdsub(struct tc_shell *sh, const struct tc_node *cmd,
 			close(pfd[1]);
 		}
 		int st = tc_exec(sh, cmd);
-		if (sh->exit_requested)
-			_exit(sh->exit_status);
 		if (sh->flow == TC_FLOW_RETURN)
-			_exit(sh->return_status);
-		_exit(st);
+			st = sh->return_status;
+		sh->status = sh->exit_requested ? sh->exit_status : st;
+		tc_trap_run_exit(sh);
+		_exit(sh->exit_requested ? sh->exit_status : st);
 	}
 
 	close(pfd[1]);

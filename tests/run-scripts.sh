@@ -60,6 +60,7 @@ for f in "$here"/scripts/*.sh; do
 	[ "$ref" = none ] || check "scripts/$s under $ref" "$ref" "$here/scripts" "$s"
 done
 for f in "$here"/refuse/*.sh; do
+	[ -f "$f" ] || continue
 	s=$(basename "$f")
 	check "refuse/$s" "$shell" "$here/refuse" "$s"
 done
@@ -140,6 +141,25 @@ expect 'arithmetic 64-bit overflow is an error' 1 '' \
 	"$shell" -c 'echo $((9223372036854775807 + 1))'
 expect 'arithmetic division by zero is an error' 1 '' \
 	"$shell" -c 'echo $((1 / 0))'
+
+# 0.1.1: special builtin errors exit non-interactive shells, deferred set
+# options are refused, eval/. depth limits stop runaway recursion, exec
+# failure exits with 127.
+expect 'shift past $# exits non-interactive shell' 1 '' \
+	"$shell" -c 'set -- a; shift 2; echo after'
+expect 'readonly reassignment exits non-interactive shell' 1 '' \
+	"$shell" -c 'readonly R=1; R=2; echo after'
+expect 'set -e is refused until 0.1.3' 2 '' \
+	"$shell" -c 'set -e; echo after'
+expect 'set -o pipefail is refused until 0.1.3' 2 '' \
+	"$shell" -c 'set -o pipefail; echo after'
+expect 'exec missing command exits 127' 127 '' \
+	"$shell" -c 'exec nosuchcmd_011; echo after'
+expect 'eval recursion depth limit stops runaway eval' 1 '' \
+	"$shell" -c 'x="eval \"\$x\""; eval "$x"'
+printf '. "%s/self.sh"\n' "$tmp" >"$tmp/self.sh"
+expect 'dot recursion depth limit stops runaway sourcing' 1 '' \
+	"$shell" -c ". \"$tmp/self.sh\""
 
 echo "run-scripts: $pass passed, $fail failed (reference shell: $ref)"
 [ "$fail" -eq 0 ]

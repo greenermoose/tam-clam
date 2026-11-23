@@ -5,9 +5,9 @@ of versions. Versions follow semantic versioning: during 0.x, the minor
 number marks a phase's big step and the patch number marks each
 milestone inside it.
 
-**Current version:** 0.1.0 (expansions: command substitution, `$'...'`,
-arithmetic, IFS field splitting, and pathname expansion, 2026-11-23;
-development continues on branch `dev`).
+**Current version:** 0.1.1 (background commands `&`, `wait`, `$!`, `trap`,
+and the remaining POSIX special builtins, 2026-11-23; development continues
+on branch `dev`).
 
 ## Decided
 

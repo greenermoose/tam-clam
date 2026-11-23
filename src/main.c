@@ -52,6 +52,8 @@ static int run(struct tc_shell *sh, struct tc_input *in)
 			if (node)
 				tc_exec(sh, node);
 			tc_arena_reset(&sh->arena);
+			tc_trap_run_pending(sh);
+			tc_bg_reap_nonblock(&sh->bg);
 			if (sh->exit_requested)
 				break;
 			continue;
@@ -61,6 +63,9 @@ static int run(struct tc_shell *sh, struct tc_input *in)
 			(void)tc_write_all(STDERR_FILENO, "\n", 1);
 			tc_parser_reset(&p);
 			sh->status = 130;
+			tc_trap_run_pending(sh);
+			if (sh->exit_requested)
+				break;
 			continue;
 		}
 		sh->status = TC_STATUS_USAGE;
@@ -186,11 +191,15 @@ int main(int argc, char **argv)
 		sh.interactive = isatty(STDIN_FILENO) && isatty(STDERR_FILENO);
 		if (sh.interactive) {
 			in.prompt = true;
+			tc_traps_finish(&sh.traps);
+			tc_traps_init(&sh.traps, true);
 			if (tc_signals_interactive() < 0)
 				tc_error(&sh, 0, "cannot set up signals: %s", strerror(errno));
 		}
 		status = run(&sh, &in);
 	}
+	tc_trap_run_exit(&sh);
+	status = sh.exit_requested ? sh.exit_status : status;
 	tc_shell_finish(&sh);
 	return status;
 }

@@ -115,6 +115,7 @@ enum tc_node_kind {
 	TC_NODE_FOR,       /* for name [in words...] do body done */
 	TC_NODE_CASE,      /* case word in items... esac */
 	TC_NODE_FUNCDEF,   /* name() compound_command */
+	TC_NODE_BG,        /* cmd & */
 };
 
 struct tc_node {
@@ -175,6 +176,9 @@ struct tc_node {
 			const char *name;
 			struct tc_node *body;
 		} funcdef;
+		struct {
+			struct tc_node *child;
+		} bg;
 	} u;
 };
 

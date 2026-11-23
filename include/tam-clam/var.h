@@ -87,4 +87,10 @@ int tc_var_push_overrides(struct tc_vars *v, const struct tc_var_kv *kvs,
 void tc_var_pop_overrides(struct tc_vars *v, struct tc_var_save *saves,
 			  size_t nsaved);
 
+/* Return a heap-allocated, name-sorted array of pointers to entries matching
+ * filter_flag (0 = all entries with non-NULL value, TC_VAR_EXPORT or
+ * TC_VAR_READONLY = all entries with that flag). Caller frees *out. */
+int tc_var_list(const struct tc_vars *v, unsigned filter_flag,
+		const struct tc_var_entry ***out, size_t *out_n);
+
 #endif

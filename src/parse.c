@@ -122,17 +122,8 @@ static void leave_depth(struct tc_parser *p)
 	p->lx.parse_depth = p->depth;
 }
 
-static int unsupported(struct tc_parser *p, unsigned long line, const char *what)
-{
-	tc_error(p->sh, line, "%s %s not supported yet; see ROADMAP.md", what,
-		 strchr(what, ' ') ? "are" : "is");
-	return TC_ERR_SYNTAX;
-}
-
 static int unexpected(struct tc_parser *p)
 {
-	if (p->tok.kind == TC_TOK_AMP)
-		return unsupported(p, p->tok.line, "background commands (`&')");
 	tc_error(p->sh, p->tok.line, "syntax error: unexpected %s%s%s",
 		 p->tok.kind == TC_TOK_WORD ? "`" : "",
 		 p->tok.kind == TC_TOK_WORD ? p->tok.text : tc_token_name(p->tok.kind),
@@ -1204,7 +1195,19 @@ static int parse_compound_list(struct tc_parser *p, struct tc_node **out)
 			if ((r = parse_linebreak(p)) != TC_OK)
 				return r;
 		} else if (p->tok.kind == TC_TOK_AMP) {
-			return unsupported(p, p->tok.line, "background commands (`&')");
+			struct tc_node *bg = tc_arena_alloc(&p->sh->arena, sizeof(*bg));
+			if (!bg) {
+				tc_error(p->sh, p->tok.line, "out of memory");
+				return TC_ERR_NOMEM;
+			}
+			bg->kind = TC_NODE_BG;
+			bg->line = (*slot)->line;
+			bg->u.bg.child = *slot;
+			*slot = bg;
+			if ((r = advance(p)) != TC_OK)
+				return r;
+			if ((r = parse_linebreak(p)) != TC_OK)
+				return r;
 		} else {
 			break;
 		}
@@ -1237,7 +1240,18 @@ static int parse_list(struct tc_parser *p, struct tc_node **out)
 	*out = first;
 	struct tc_node **slot = out;
 
-	while (p->tok.kind == TC_TOK_SEMI) {
+	while (p->tok.kind == TC_TOK_SEMI || p->tok.kind == TC_TOK_AMP) {
+		if (p->tok.kind == TC_TOK_AMP) {
+			struct tc_node *bg = tc_arena_alloc(&p->sh->arena, sizeof(*bg));
+			if (!bg) {
+				tc_error(p->sh, p->tok.line, "out of memory");
+				return TC_ERR_NOMEM;
+			}
+			bg->kind = TC_NODE_BG;
+			bg->line = (*slot)->line;
+			bg->u.bg.child = *slot;
+			*slot = bg;
+		}
 		if ((r = advance(p)) != TC_OK)
 			return r;
 		if (p->tok.kind == TC_TOK_NEWLINE || p->tok.kind == TC_TOK_END)

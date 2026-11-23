@@ -10,7 +10,9 @@
 #include <sys/types.h>
 
 #include "tam-clam/arena.h"
+#include "tam-clam/bg.h"
 #include "tam-clam/func.h"
+#include "tam-clam/trap.h"
 #include "tam-clam/var.h"
 
 struct tc_input;
@@ -38,6 +40,8 @@ enum {
 #define TC_FUNC_DEPTH_DEFAULT 1000
 #define TC_FUNC_DEPTH_MAX     2000
 #define TC_EXEC_DEPTH_MAX     8192
+#define TC_DOT_DEPTH_MAX      128
+#define TC_EVAL_DEPTH_MAX     128
 
 /* Explicit flow control (no setjmp/longjmp). */
 enum tc_flow {
@@ -61,12 +65,20 @@ struct tc_shell {
 	unsigned func_depth;       /* active function call depth */
 	unsigned func_limit;       /* default recursion limit (1000) */
 	unsigned exec_depth;       /* active AST execution nesting depth */
+	unsigned dot_depth;        /* active . (dot) script nesting depth */
+	unsigned eval_depth;       /* active eval nesting depth */
+	unsigned trap_depth;       /* active trap dispatch nesting depth */
+	bool in_exit_trap;         /* true while running EXIT trap */
+	bool opt_allexport;        /* set -a */
+	bool opt_noglob;           /* set -f */
 	pid_t root_pid;            /* $$: main shell PID */
-	pid_t last_bg_pid;         /* $!: 0 until background jobs in 0.1.1 */
+	pid_t last_bg_pid;         /* $!: last background PID */
 	bool cmdsub_ran;           /* true if a command sub ran in current simple cmd */
 	int cmdsub_status;         /* exit status of last command substitution */
 	struct tc_vars vars;       /* shell variables and environment */
 	struct tc_funcs funcs;     /* shell functions */
+	struct tc_traps traps;     /* signal and EXIT traps */
+	struct tc_bg_table bg;     /* background child tracking */
 	char **params;             /* positional parameters $1..$N */
 	size_t nparams;
 	struct tc_arena arena;     /* memory for the command being run */
@@ -78,6 +90,8 @@ void tc_shell_finish(struct tc_shell *sh);
 
 /* Replace positional parameters ($1..$N) with heap copies of argv[0..n). */
 int tc_shell_set_params(struct tc_shell *sh, int n, char *const *argv);
+/* Shift positional parameters left by n (n <= sh->nparams). */
+void tc_shell_shift_params(struct tc_shell *sh, size_t n);
 
 /* Report an error on standard error as "name: line N: message". line 0
  * leaves the line out. Never fails loudly: a failed write is ignored. */

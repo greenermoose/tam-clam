@@ -172,9 +172,19 @@ static int lookup_param(struct tc_shell *sh, const char *name,
 			snprintf(num, sizeof(num), "%zu", sh->nparams);
 			*out_val = tc_arena_strndup(&sh->arena, num, strlen(num));
 			return *out_val ? TC_EXP_OK : (tc_error(sh, line, "out of memory"), TC_EXP_NOMEM);
-		case '-':
-			*out_val = sh->interactive ? "i" : "";
-			return TC_EXP_OK;
+		case '-': {
+			char flags[16];
+			size_t fn = 0;
+			if (sh->opt_allexport)
+				flags[fn++] = 'a';
+			if (sh->opt_noglob)
+				flags[fn++] = 'f';
+			if (sh->interactive)
+				flags[fn++] = 'i';
+			flags[fn] = '\0';
+			*out_val = tc_arena_strndup(&sh->arena, flags, fn);
+			return *out_val ? TC_EXP_OK : (tc_error(sh, line, "out of memory"), TC_EXP_NOMEM);
+		}
 		case '0':
 			*out_val = sh->name ? sh->name : "";
 			return TC_EXP_OK;
@@ -954,7 +964,7 @@ static int expand_one_word(struct tc_shell *sh, const struct tc_word *w,
 
 	/* Pathname expansion (globbing) and quote removal on each field. */
 	for (struct field_link *fl = fs.head; fl; fl = fl->next) {
-		if (tc_pat_has_meta(&fl->pat)) {
+		if (!sh->opt_noglob && tc_pat_has_meta(&fl->pat)) {
 			char **matches = NULL;
 			size_t nmatches = 0;
 			int gr = tc_glob_expand(sh, &fl->pat, w->line,

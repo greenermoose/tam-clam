@@ -430,8 +430,8 @@ static int bi_return(struct tc_shell *sh, int argc, char **argv, unsigned long l
 			status = TC_STATUS_USAGE;
 		}
 	}
-	if (sh->func_depth == 0) {
-		tc_error(sh, line, "return: can only return from a function");
+	if (sh->func_depth == 0 && sh->dot_depth == 0) {
+		tc_error(sh, line, "return: can only return from a function or sourced script");
 		return 1;
 	}
 	sh->flow = TC_FLOW_RETURN;
@@ -440,14 +440,25 @@ static int bi_return(struct tc_shell *sh, int argc, char **argv, unsigned long l
 }
 
 static const struct tc_builtin builtins[] = {
+	{".", tc_bi_dot, true},
 	{":", bi_true, true},
 	{"break", bi_break, true},
 	{"cd", bi_cd, false},
 	{"continue", bi_continue, true},
+	{"eval", tc_bi_eval, true},
+	{"exec", tc_bi_exec_stub, true},
 	{"exit", bi_exit, true},
+	{"export", tc_bi_export, true},
 	{"false", bi_false, false},
+	{"readonly", tc_bi_readonly, true},
 	{"return", bi_return, true},
+	{"set", tc_bi_set, true},
+	{"shift", tc_bi_shift, true},
+	{"times", tc_bi_times, true},
+	{"trap", tc_bi_trap, true},
 	{"true", bi_true, false},
+	{"unset", tc_bi_unset, true},
+	{"wait", tc_bi_wait, false},
 };
 
 const struct tc_builtin *tc_builtin_find(const char *name)

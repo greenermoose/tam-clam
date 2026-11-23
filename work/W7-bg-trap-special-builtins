@@ -1,0 +1,57 @@
+W7 BACKGROUND COMMANDS, TRAPS, AND SPECIAL BUILTINS (0.1.1)
+
+Date: 2026-11-23
+AI harness: agy
+AI model: Gemini 4 Neon (Medium)
+
+GUIDANCE
+
+  Fred: "/plan Do the next work slice for tam-clam"
+  Fred: "Approved. Proceed."
+
+DONE
+
+  - Added TC_NODE_BG to include/tam-clam/ast.h, parsed '&' in lists and
+    compound lists (src/parse.c), removed the '&' refusal, and cloned
+    TC_NODE_BG in src/func.c.
+  - Generalized signal handling (include/tam-clam/signals.h,
+    src/signals.c) with volatile sig_atomic_t pending flags, handler
+    setup without SA_RESTART, inherited-SIG_IGN detection, and child /
+    background-child signal resets.
+  - Added trap table and safe-point dispatch (include/tam-clam/trap.h,
+    src/trap.c) supporting signal traps, EXIT traps, inherited-SIG_IGN
+    protection in non-interactive shells, $(trap) subshell display
+    preservation, and the trap special builtin.
+  - Added background process tracking (include/tam-clam/bg.h, src/bg.c)
+    with non-blocking zombie reaping, wait-all, wait-pid (127 on
+    unknown/re-waited PIDs), and EINTR interruption for trapped signals.
+  - Added remaining POSIX special builtins plus wait
+    (src/builtins_special.c, src/builtins.c): set (vars, positional
+    params, -a/-f, -o/+o, refusing 0.1.3 options), shift, eval, . (dot
+    with PATH search, fd >= 10, and return), export, readonly, unset
+    (-v/-f), exec (persistent redirections and execve replacement in
+    src/exec.c), times, and wait.
+  - Extended src/exec.c with tc_exec_input/tc_exec_string (using arena
+    marks), exec_bg, subshell trap/bg resets and EXIT trap hooks,
+    allexport support, and safe-point trap/reap calls; wired main.c
+    for pending traps and shell EXIT trap.
+  - Extended src/var.c with tc_var_list(), src/shell.c with
+    tc_shell_shift_params(), and src/expand.c with noglob and $- flags.
+  - Added tests/test_trap.c, updated tests/test_parse.c and
+    tests/run-scripts.sh, removed obsolete tests/refuse/later-line.*,
+    and added reference-compared script tests (bg-wait, trap,
+    special-vars, set-shift, eval-dot, exec-times).
+  - Bumped VERSION to 0.1.1 and updated ROADMAP.md,
+    plans/P2-posix-language.md, and work/WHATNOW.
+  - Verified make test, make sanitize (ASan + UBSan), and readelf -d
+    (only libc.so.6).
+
+FAILED
+
+  - Nothing.
+
+HANDOFF
+
+  - 0.1.1 is complete. Next is 0.1.2 (plans/P2-posix-language.md):
+    regular POSIX builtins (read, printf, echo, test/[, getopts,
+    command, type, hash, umask, alias/unalias, kill, pwd, ulimit).

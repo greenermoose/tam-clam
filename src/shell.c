@@ -63,6 +63,8 @@ void tc_shell_init(struct tc_shell *sh, const char *name)
 	tc_arena_init(&sh->arena, TC_ARENA_MAX);
 	tc_var_init(&sh->vars);
 	tc_funcs_init(&sh->funcs);
+	tc_traps_init(&sh->traps, false);
+	tc_bg_init(&sh->bg);
 	(void)tc_var_import_environ(&sh->vars, environ);
 
 	if (!tc_var_get(&sh->vars, "IFS"))
@@ -122,9 +124,26 @@ int tc_shell_set_params(struct tc_shell *sh, int n, char *const *argv)
 	return TC_OK;
 }
 
+void tc_shell_shift_params(struct tc_shell *sh, size_t n)
+{
+	if (n == 0 || sh->nparams == 0)
+		return;
+	if (n >= sh->nparams) {
+		free_params(sh);
+		return;
+	}
+	for (size_t i = 0; i < n; i++)
+		free(sh->params[i]);
+	size_t rem = sh->nparams - n;
+	memmove(sh->params, sh->params + n, rem * sizeof(*sh->params));
+	sh->nparams = rem;
+}
+
 void tc_shell_finish(struct tc_shell *sh)
 {
 	free_params(sh);
+	tc_bg_finish(&sh->bg);
+	tc_traps_finish(&sh->traps);
 	tc_funcs_finish(&sh->funcs);
 	tc_var_finish(&sh->vars);
 	tc_arena_finish(&sh->arena);

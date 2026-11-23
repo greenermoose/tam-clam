@@ -6,6 +6,7 @@
 #include <stddef.h>
 
 #include "tam-clam/ast.h"
+#include "tam-clam/input.h"
 #include "tam-clam/shell.h"
 
 /* Maximum bytes captured from one command substitution. */
@@ -13,6 +14,16 @@
 
 /* Run a tree. Sets and returns sh->status. */
 int tc_exec(struct tc_shell *sh, const struct tc_node *n);
+
+/* Parse and execute all commands from input in the current shell using
+ * arena marks so enclosing ASTs remain intact. Sets *ran_any if at least
+ * one command ran. Returns exit status (or TC_STATUS_USAGE on syntax error). */
+int tc_exec_input(struct tc_shell *sh, struct tc_input *in,
+		  unsigned long call_line, bool *ran_any);
+
+/* Convenience wrapper around tc_exec_input for a string (eval, traps). */
+int tc_exec_string(struct tc_shell *sh, const char *src, size_t len,
+		   unsigned long call_line, bool *ran_any);
 
 /* Run cmd in a subshell, capture stdout (stripping trailing newlines) into
  * sh->arena, and record sh->cmdsub_ran / sh->cmdsub_status.

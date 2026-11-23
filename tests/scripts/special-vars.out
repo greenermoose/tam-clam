@@ -1,0 +1,12 @@
+hello:world
+export-p:ok
+ro:fixed
+readonly-p:ok
+unset:gone:gone
+hi
+unset-f:127
+flag-a:on
+auto:yes:unset
+flag-f:on
+*.sh
+flag-f:off

@@ -223,11 +223,26 @@ int main(void)
 		CHECK(fails(deep));
 	}
 
-	/* Valid shell that 0.1.0 still refuses rather than runs wrongly. */
-	CHECK(fails("a &"));
+	/* 0.1.1: background commands (&) parse into TC_NODE_BG. */
+	start(&f, "a &\na & b; c &\n{ a & b; }\n");
+	CHECK(tc_parse_next(&f.p, &n) == TC_OK && n && n->kind == TC_NODE_BG &&
+	      is_simple(n->u.bg.child, 1, "a"));
+	CHECK(tc_parse_next(&f.p, &n) == TC_OK && n && n->kind == TC_NODE_SEQ &&
+	      n->u.seq.first->kind == TC_NODE_BG &&
+	      is_simple(n->u.seq.first->u.bg.child, 1, "a") &&
+	      n->u.seq.rest->kind == TC_NODE_SEQ &&
+	      is_simple(n->u.seq.rest->u.seq.first, 1, "b") &&
+	      n->u.seq.rest->u.seq.rest->kind == TC_NODE_BG &&
+	      is_simple(n->u.seq.rest->u.seq.rest->u.bg.child, 1, "c"));
+	CHECK(tc_parse_next(&f.p, &n) == TC_OK && n && n->kind == TC_NODE_GROUP &&
+	      n->u.group.body->kind == TC_NODE_SEQ &&
+	      n->u.group.body->u.seq.first->kind == TC_NODE_BG);
+	stop(&f);
+	CHECK(fails("&"));
+	CHECK(fails("a & &"));
 
 	/* An error leaves the next line parseable after recovery. */
-	start(&f, "a & b c\nok\n");
+	start(&f, "a ; ; b c\nok\n");
 	CHECK(tc_parse_next(&f.p, &n) == TC_ERR_SYNTAX);
 	tc_parser_recover(&f.p);
 	CHECK(tc_parse_next(&f.p, &n) == TC_OK && is_simple(n, 1, "ok"));
