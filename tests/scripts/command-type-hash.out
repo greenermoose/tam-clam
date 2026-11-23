@@ -1,0 +1,11 @@
+FUNC:shadow
+bypassed
+echo
+set
+if
+missing-v:1
+default-path-ok
+survived-special:1
+type-ok:0
+type-miss:1
+hash-ok:0

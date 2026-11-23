@@ -31,4 +31,14 @@ int tc_exec_string(struct tc_shell *sh, const char *src, size_t len,
 int tc_exec_cmdsub(struct tc_shell *sh, const struct tc_node *cmd,
 		   unsigned long line, char **out, size_t *out_len);
 
+/* Find an executable regular file in PATH (or default POSIX PATH when
+ * default_path is true). Returns a heap-allocated path or NULL. */
+char *tc_exec_find_in_path(struct tc_shell *sh, const char *name,
+			   bool default_path);
+
+/* Execute a simple command bypassing shell functions (used by `command`).
+ * When default_path is true, uses the default POSIX PATH. */
+int tc_exec_command_builtin(struct tc_shell *sh, int argc, char **argv,
+			    bool default_path, unsigned long line);
+
 #endif

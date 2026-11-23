@@ -8,6 +8,7 @@
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -95,10 +96,48 @@ static void try_exec(const struct tc_shell *sh, const char *path,
 	errno = ENOEXEC;
 }
 
+char *tc_exec_find_in_path(struct tc_shell *sh, const char *name,
+			   bool default_path)
+{
+	if (!name || name[0] == '\0' || strchr(name, '/'))
+		return NULL;
+	const char *path = default_path ? TC_DEFAULT_PATH
+					: tc_var_get(&sh->vars, "PATH");
+	if (!path)
+		path = TC_DEFAULT_PATH;
+	size_t nlen = strlen(name);
+	char buf[TC_PATH_MAX];
+	for (const char *p = path;; p++) {
+		const char *end = strchr(p, ':');
+		size_t dlen = end ? (size_t)(end - p) : strlen(p);
+		const char *dir = dlen ? p : ".";
+		size_t use = dlen ? dlen : 1;
+		if (use + 1 + nlen < sizeof(buf)) {
+			memcpy(buf, dir, use);
+			buf[use] = '/';
+			memcpy(buf + use + 1, name, nlen + 1);
+			struct stat st;
+			if (stat(buf, &st) == 0 && !S_ISDIR(st.st_mode) &&
+			    access(buf, X_OK) == 0) {
+				size_t blen = use + 1 + nlen;
+				char *out = malloc(blen + 1);
+				if (out)
+					memcpy(out, buf, blen + 1);
+				return out;
+			}
+		}
+		if (!end)
+			break;
+		p = end;
+	}
+	return NULL;
+}
+
 /* In the child: find and run argv[0]. Returns the exit status to use
  * when nothing could be run. */
 static int run_external(struct tc_shell *sh, char **argv,
 			const struct tc_var_kv *overrides, size_t noverrides,
+			const char *cached_path, bool default_path,
 			unsigned long line)
 {
 	const char *name = argv[0];
@@ -122,7 +161,18 @@ static int run_external(struct tc_shell *sh, char **argv,
 		return (e == ENOENT || e == ENOTDIR) ? TC_STATUS_NOTFOUND : TC_STATUS_NOEXEC;
 	}
 
-	const char *path = tc_var_lookup_override(&sh->vars, overrides, noverrides, "PATH");
+	if (cached_path) {
+		try_exec(sh, cached_path, argv, envp);
+		if (errno != ENOENT && errno != ENOTDIR && errno != EACCES &&
+		    errno != ELOOP) {
+			tc_error(sh, line, "%s: %s", cached_path, strerror(errno));
+			return TC_STATUS_NOEXEC;
+		}
+	}
+
+	const char *path = default_path
+			       ? TC_DEFAULT_PATH
+			       : tc_var_lookup_override(&sh->vars, overrides, noverrides, "PATH");
 	if (!path)
 		path = TC_DEFAULT_PATH;
 	size_t nlen = strlen(name);
@@ -685,7 +735,7 @@ static int exec_simple(struct tc_shell *sh, const struct tc_node *n)
 				return 0;
 			}
 			tc_signals_child();
-			int st = run_external(sh, argv + ci, kvs, na, n->line);
+			int st = run_external(sh, argv + ci, kvs, na, NULL, false, n->line);
 			for (size_t j = 0; j < nwriters; j++)
 				wait_child(writers[j]);
 			if (!sh->interactive) {
@@ -707,6 +757,27 @@ static int exec_simple(struct tc_shell *sh, const struct tc_node *n)
 		return exec_builtin(sh, bi, (int)argc, argv, kvs, na,
 				    n->u.simple.redirs, nr, n->line);
 
+	const char *cached_path = NULL;
+	bool path_overridden = false;
+	for (size_t i = 0; i < na; i++) {
+		if (strcmp(kvs[i].name, "PATH") == 0) {
+			path_overridden = true;
+			break;
+		}
+	}
+	if (!path_overridden && argv[0][0] != '\0' && !strchr(argv[0], '/')) {
+		tc_hash_sync(&sh->hash, sh->vars.path_gen);
+		cached_path = tc_hash_get(&sh->hash, argv[0], true);
+		if (!cached_path) {
+			char *found = tc_exec_find_in_path(sh, argv[0], false);
+			if (found) {
+				if (tc_hash_put(&sh->hash, argv[0], found, true) == 0)
+					cached_path = tc_hash_get(&sh->hash, argv[0], false);
+				free(found);
+			}
+		}
+	}
+
 	pid_t pid = fork();
 	if (pid < 0) {
 		tc_error(sh, n->line, "cannot start %s: %s", argv[0], strerror(errno));
@@ -719,7 +790,58 @@ static int exec_simple(struct tc_shell *sh, const struct tc_node *n)
 		if (apply_redirs(sh, n->u.simple.redirs, nr,
 				 NULL, &(size_t){0}, &writers, &nwriters) < 0)
 			_exit(1);
-		_exit(run_external(sh, argv, kvs, na, n->line));
+		_exit(run_external(sh, argv, kvs, na, cached_path, false, n->line));
+	}
+	return wait_child(pid);
+}
+
+int tc_exec_command_builtin(struct tc_shell *sh, int argc, char **argv,
+			    bool default_path, unsigned long line)
+{
+	const struct tc_builtin *bi = tc_builtin_find(argv[0]);
+	if (bi) {
+		if (bi->special) {
+			if (strcmp(argv[0], "exec") == 0) {
+				int ci = 1;
+				if (ci < argc && strcmp(argv[ci], "--") == 0)
+					ci++;
+				if (ci >= argc)
+					return 0;
+				tc_signals_child();
+				return run_external(sh, argv + ci, NULL, 0, NULL,
+						    default_path, line);
+			}
+			bool prev = sh->in_command_builtin;
+			sh->in_command_builtin = true;
+			int st = bi->fn(sh, argc, argv, line);
+			sh->in_command_builtin = prev;
+			return st;
+		}
+		return bi->fn(sh, argc, argv, line);
+	}
+
+	const char *cached_path = NULL;
+	if (!default_path && argv[0][0] != '\0' && !strchr(argv[0], '/')) {
+		tc_hash_sync(&sh->hash, sh->vars.path_gen);
+		cached_path = tc_hash_get(&sh->hash, argv[0], true);
+		if (!cached_path) {
+			char *found = tc_exec_find_in_path(sh, argv[0], false);
+			if (found) {
+				if (tc_hash_put(&sh->hash, argv[0], found, true) == 0)
+					cached_path = tc_hash_get(&sh->hash, argv[0], false);
+				free(found);
+			}
+		}
+	}
+
+	pid_t pid = fork();
+	if (pid < 0) {
+		tc_error(sh, line, "cannot start %s: %s", argv[0], strerror(errno));
+		return TC_STATUS_USAGE;
+	}
+	if (pid == 0) {
+		tc_signals_child();
+		_exit(run_external(sh, argv, NULL, 0, cached_path, default_path, line));
 	}
 	return wait_child(pid);
 }

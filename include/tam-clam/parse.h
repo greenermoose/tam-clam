@@ -22,6 +22,7 @@ struct tc_parser {
 	int have_tok;
 	struct tc_token peek_tok; /* 1-token lookahead for WORD '(' */
 	int have_peek;
+	bool alias_next;          /* next word in simple command eligible for alias */
 	unsigned depth;           /* current compound nesting depth */
 	struct tc_heredoc_pending *hd_head;
 	struct tc_heredoc_pending *hd_tail;
@@ -47,5 +48,8 @@ int tc_parse_cmdsub(struct tc_lexer *lx, unsigned long start_line,
 int tc_parse_cmdsub_string(struct tc_shell *sh, const char *src, size_t len,
 			   unsigned long start_line, unsigned depth,
 			   struct tc_node **out);
+
+/* True if s is a POSIX shell reserved word (!, {, }, if, then, ...). */
+bool tc_is_reserved_word(const char *s);
 
 #endif

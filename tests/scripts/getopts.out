@@ -1,0 +1,9 @@
+opt=a arg=NONE ind=2
+opt=b arg=val ind=4
+opt=c arg=foo ind=5
+rem:2:rest1 rest2
+silent=a arg=NONE
+silent=? arg=z
+silent=: arg=b
+cluster=x arg=NONE
+cluster=y arg=val

@@ -1652,6 +1652,7 @@ out:
 
 int tc_lex_next(struct tc_lexer *lx, struct tc_token *tok)
 {
+	tc_input_pop_done_aliases(lx->in);
 	tok->text = NULL;
 	tok->len = 0;
 	tok->parts = NULL;

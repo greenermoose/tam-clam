@@ -1,0 +1,57 @@
+W8 REGULAR POSIX BUILTINS (0.1.2)
+
+Date: 2026-11-23
+AI harness: agy
+AI model: Gemini 4 Neon (Medium)
+
+GUIDANCE
+
+  Fred: "/plan Do the next work slice of tam-clam"
+  Fred: "Find to have echo recognize -n only matching bash --posix.
+         Plan approved. Proceed. Make sure to include some fun ways to
+         test this version in the sandbox/."
+
+DONE
+
+  - Added PATH generation tracking (path_gen) in var.h/var.c and command
+    hash table (include/tam-clam/hash.h, src/hash.c) with the hash
+    builtin (-r, listing, utility lookup) and PATH caching in src/exec.c.
+  - Added alias table and alias/unalias builtins (include/tam-clam/alias.h,
+    src/alias.c), plus POSIX command-position alias expansion in
+    input.c/lex.c/parse.c with bounded stack (TC_ALIAS_DEPTH_MAX),
+    self/mutual recursion prevention, and trailing-blank chaining.
+  - Added test and [ (src/bi_test.c) with exact POSIX 0..4-arg rules,
+    bounded recursive-descent for 5+ args, file, string, and checked
+    64-bit integer primaries.
+  - Added printf (src/bi_printf.c) with format reuse, flags/widths/*,
+    %b/\c/\0ddd, 'c character constants, numeric/float conversions, %q,
+    and checked writes.
+  - Added echo (-n only, no default backslash escapes), pwd (-L/-P),
+    umask (octal and symbolic -S), read (-r, -d, bytewise stdin, IFS
+    splitting, default REPLY), kill (-l, -s, -SIG, refusing %job), and
+    ulimit (-H/-S/-a and resource flags) in src/builtins_io.c.
+  - Added getopts (OPTIND/OPTARG, silent mode, explicit args), command
+    (-p/-v/-V, function bypass, suppressing special-builtin fatal exit),
+    and type in src/builtins_cmd.c; wired all 0.1.2 builtins in
+    builtins.h/builtins.c and exposed tc_getcwd/tc_valid_pwd in shell.c
+    and tc_is_reserved_word in parse.c.
+  - Added unit tests (tests/test_alias.c, tests/test_hash.c,
+    tests/test_test.c), 7 reference-compared script tests (echo-printf,
+    test-builtin, read, getopts, command-type-hash,
+    umask-pwd-kill-ulimit, alias), and 0.1.2 checks in tests/run-scripts.sh.
+  - Added sandbox/demo-0.1.2-builtins and updated sandbox/play and
+    sandbox/README-sandbox.
+  - Bumped VERSION to 0.1.2 and updated ROADMAP.md,
+    plans/P2-posix-language.md, and work/WHATNOW.
+  - Verified make test, make sanitize (ASan + UBSan), readelf -d (only
+    libc.so.6), and ./sandbox/demo-0.1.2-builtins.
+
+FAILED
+
+  - Nothing.
+
+HANDOFF
+
+  - 0.1.2 is complete. Next is 0.1.3 (plans/P2-posix-language.md):
+    shell options (set -e, set -u, set -o pipefail, set -x with PS4 and
+    line numbers, set -C, set -n).

@@ -21,6 +21,16 @@ enum {
 };
 
 #define TC_INPUT_BUF 4096
+#define TC_ALIAS_DEPTH_MAX 64
+
+struct tc_alias_frame {
+	char *name;
+	char *buf;
+	size_t len;
+	size_t pos;
+	bool done;
+	bool ends_blank;
+};
 
 struct tc_input {
 	int fd;                 /* -1 for a string */
@@ -30,6 +40,9 @@ struct tc_input {
 	size_t len, pos;
 	unsigned char *push;    /* LIFO pushback buffer for $(( disambiguation */
 	size_t push_len, push_pos;
+	struct tc_alias_frame alias_stack[TC_ALIAS_DEPTH_MAX];
+	size_t alias_depth;
+	bool alias_ended_blank; /* a frame ending in blank just finished */
 	bool bytewise;          /* read one byte at a time */
 	bool eof;
 	int err;
@@ -47,6 +60,15 @@ void tc_input_from_fd(struct tc_input *in, int fd, bool bytewise);
 void tc_input_finish(struct tc_input *in);
 /* Push bytes back so they are read before the remaining input. 0 or -1. */
 int tc_input_pushback(struct tc_input *in, const char *s, size_t len);
+/* Push a single lookahead byte back to whichever source produced it. 0 or -1. */
+int tc_input_ungetc_byte(struct tc_input *in, unsigned char c);
+/* Push an alias expansion frame onto the input stack. 0 ok, -1 OOM, -2 depth. */
+int tc_input_push_alias(struct tc_input *in, const char *name,
+			const char *val, size_t len);
+/* True if alias name is currently active on the expansion stack. */
+bool tc_input_alias_active(const struct tc_input *in, const char *name);
+/* Pop finished alias frames from the top of the stack. */
+void tc_input_pop_done_aliases(struct tc_input *in);
 int tc_input_getc(struct tc_input *in);
 /* Ask for the primary prompt before the next line is read. */
 void tc_input_new_command(struct tc_input *in);

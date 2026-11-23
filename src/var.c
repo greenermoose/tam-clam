@@ -70,6 +70,7 @@ void tc_var_init(struct tc_vars *v)
 	v->count = 0;
 	v->envp = NULL;
 	v->env_dirty = true;
+	v->path_gen = 0;
 }
 
 void tc_var_finish(struct tc_vars *v)
@@ -86,6 +87,7 @@ void tc_var_finish(struct tc_vars *v)
 	v->cap = 0;
 	v->count = 0;
 	v->env_dirty = true;
+	v->path_gen = 0;
 }
 
 static struct tc_var_entry *find_slot(struct tc_var_entry *slots, size_t cap,
@@ -161,6 +163,8 @@ int tc_var_set(struct tc_vars *v, const char *name, const char *val,
 				return TC_VAR_ERR_NOMEM;
 			free(e->value);
 			e->value = copy;
+			if (strcmp(name, "PATH") == 0)
+				v->path_gen++;
 		}
 		e->flags |= add_flags;
 		if (e->flags & TC_VAR_EXPORT)
@@ -179,6 +183,8 @@ int tc_var_set(struct tc_vars *v, const char *name, const char *val,
 	e->value = vcopy;
 	e->flags = add_flags;
 	v->count++;
+	if (val != NULL && strcmp(name, "PATH") == 0)
+		v->path_gen++;
 	if (e->flags & TC_VAR_EXPORT)
 		v->env_dirty = true;
 	return TC_VAR_OK;
@@ -202,6 +208,8 @@ int tc_var_unset(struct tc_vars *v, const char *name)
 				return TC_VAR_ERR_READONLY;
 			if (e->flags & TC_VAR_EXPORT)
 				v->env_dirty = true;
+			if (strcmp(name, "PATH") == 0)
+				v->path_gen++;
 			free(e->name);
 			free(e->value);
 			e->name = NULL;
@@ -442,6 +450,8 @@ void tc_var_pop_overrides(struct tc_vars *v, struct tc_var_save *saves,
 					sv->value = NULL;
 					e->flags = sv->flags;
 					v->env_dirty = true;
+					if (strcmp(sv->name, "PATH") == 0)
+						v->path_gen++;
 				}
 			}
 		}

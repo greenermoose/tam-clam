@@ -31,6 +31,19 @@ int tc_bi_exec_stub(struct tc_shell *sh, int argc, char **argv, unsigned long li
 int tc_bi_times(struct tc_shell *sh, int argc, char **argv, unsigned long line);
 int tc_bi_wait(struct tc_shell *sh, int argc, char **argv, unsigned long line);
 
+/* Regular POSIX builtins (0.1.2). */
+int tc_bi_test(struct tc_shell *sh, int argc, char **argv, unsigned long line);
+int tc_bi_printf(struct tc_shell *sh, int argc, char **argv, unsigned long line);
+int tc_bi_echo(struct tc_shell *sh, int argc, char **argv, unsigned long line);
+int tc_bi_pwd(struct tc_shell *sh, int argc, char **argv, unsigned long line);
+int tc_bi_umask(struct tc_shell *sh, int argc, char **argv, unsigned long line);
+int tc_bi_read(struct tc_shell *sh, int argc, char **argv, unsigned long line);
+int tc_bi_kill(struct tc_shell *sh, int argc, char **argv, unsigned long line);
+int tc_bi_ulimit(struct tc_shell *sh, int argc, char **argv, unsigned long line);
+int tc_bi_getopts(struct tc_shell *sh, int argc, char **argv, unsigned long line);
+int tc_bi_command(struct tc_shell *sh, int argc, char **argv, unsigned long line);
+int tc_bi_type(struct tc_shell *sh, int argc, char **argv, unsigned long line);
+
 /* Write s in POSIX single-quoted form to fd. 0 or -1. */
 int tc_write_shell_quoted(int fd, const char *s);
 

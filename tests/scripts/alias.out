@@ -1,0 +1,7 @@
+hello world
+[aliased] once
+quoted
+[aliased] prefix expanded
+greet='echo hello'
+[aliased] after-unalias:1
+plain

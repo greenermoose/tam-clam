@@ -1,0 +1,8 @@
+<alpha><beta><gamma  delta>
+<one><two><three:four>
+<only1><><>
+cont:<helloworld>
+raw:<a\ b>
+cooked:<a b>
+eof:1:<no-newline>
+reply:<default-reply>

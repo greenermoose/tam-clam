@@ -22,7 +22,7 @@
 
 static int special_fail(struct tc_shell *sh, int status)
 {
-	if (!sh->interactive) {
+	if (!sh->interactive && !sh->in_command_builtin) {
 		sh->exit_requested = true;
 		sh->exit_status = status;
 	}

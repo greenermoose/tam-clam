@@ -388,7 +388,7 @@ static int bi_loop_flow(struct tc_shell *sh, int argc, char **argv,
 	if (argc == 2 && parse_positive_count(argv[1], &n) < 0) {
 		tc_error(sh, line, "%s: %s: a positive integer is needed",
 			 cmd, argv[1]);
-		if (!sh->interactive) {
+		if (!sh->interactive && !sh->in_command_builtin) {
 			sh->exit_requested = true;
 			sh->exit_status = 1;
 		}
@@ -442,21 +442,36 @@ static int bi_return(struct tc_shell *sh, int argc, char **argv, unsigned long l
 static const struct tc_builtin builtins[] = {
 	{".", tc_bi_dot, true},
 	{":", bi_true, true},
+	{"[", tc_bi_test, false},
+	{"alias", tc_bi_alias, false},
 	{"break", bi_break, true},
 	{"cd", bi_cd, false},
+	{"command", tc_bi_command, false},
 	{"continue", bi_continue, true},
+	{"echo", tc_bi_echo, false},
 	{"eval", tc_bi_eval, true},
 	{"exec", tc_bi_exec_stub, true},
 	{"exit", bi_exit, true},
 	{"export", tc_bi_export, true},
 	{"false", bi_false, false},
+	{"getopts", tc_bi_getopts, false},
+	{"hash", tc_bi_hash, false},
+	{"kill", tc_bi_kill, false},
+	{"printf", tc_bi_printf, false},
+	{"pwd", tc_bi_pwd, false},
+	{"read", tc_bi_read, false},
 	{"readonly", tc_bi_readonly, true},
 	{"return", bi_return, true},
 	{"set", tc_bi_set, true},
 	{"shift", tc_bi_shift, true},
+	{"test", tc_bi_test, false},
 	{"times", tc_bi_times, true},
 	{"trap", tc_bi_trap, true},
 	{"true", bi_true, false},
+	{"type", tc_bi_type, false},
+	{"ulimit", tc_bi_ulimit, false},
+	{"umask", tc_bi_umask, false},
+	{"unalias", tc_bi_unalias, false},
 	{"unset", tc_bi_unset, true},
 	{"wait", tc_bi_wait, false},
 };

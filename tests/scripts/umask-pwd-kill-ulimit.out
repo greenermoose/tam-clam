@@ -1,0 +1,11 @@
+0027
+u=rwx,g=rx,o=
+0022
+u=rwx,g=rx,o=rx
+pwd-L:0
+pwd-P:0
+TERM
+TERM
+trap-kill:1
+killed-bg:0
+64

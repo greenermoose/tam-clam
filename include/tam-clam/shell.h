@@ -9,9 +9,11 @@
 #include <stddef.h>
 #include <sys/types.h>
 
+#include "tam-clam/alias.h"
 #include "tam-clam/arena.h"
 #include "tam-clam/bg.h"
 #include "tam-clam/func.h"
+#include "tam-clam/hash.h"
 #include "tam-clam/trap.h"
 #include "tam-clam/var.h"
 
@@ -69,14 +71,19 @@ struct tc_shell {
 	unsigned eval_depth;       /* active eval nesting depth */
 	unsigned trap_depth;       /* active trap dispatch nesting depth */
 	bool in_exit_trap;         /* true while running EXIT trap */
+	bool in_command_builtin;   /* true while `command` runs a special builtin */
 	bool opt_allexport;        /* set -a */
 	bool opt_noglob;           /* set -f */
 	pid_t root_pid;            /* $$: main shell PID */
 	pid_t last_bg_pid;         /* $!: last background PID */
 	bool cmdsub_ran;           /* true if a command sub ran in current simple cmd */
 	int cmdsub_status;         /* exit status of last command substitution */
+	size_t getopts_pos;        /* char offset inside current getopts arg */
+	long getopts_optind;       /* last OPTIND observed by getopts */
 	struct tc_vars vars;       /* shell variables and environment */
 	struct tc_funcs funcs;     /* shell functions */
+	struct tc_aliases aliases; /* shell aliases */
+	struct tc_hash_table hash; /* cached PATH lookups */
 	struct tc_traps traps;     /* signal and EXIT traps */
 	struct tc_bg_table bg;     /* background child tracking */
 	char **params;             /* positional parameters $1..$N */
@@ -100,5 +107,10 @@ void tc_error(const struct tc_shell *sh, unsigned long line, const char *fmt, ..
 
 /* Write all of buf to fd, retrying short writes and EINTR. 0 or -1. */
 int tc_write_all(int fd, const void *buf, size_t len);
+
+/* Heap-allocated current working directory (NULL on failure, errno set). */
+char *tc_getcwd(void);
+/* True if pwd is an absolute path without . or .. that matches stat("."). */
+bool tc_valid_pwd(const char *pwd);
 
 #endif

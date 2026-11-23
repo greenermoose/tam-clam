@@ -318,7 +318,7 @@ static int print_one_trap(const struct tc_traps *t, int sig)
 
 static int trap_special_fail(struct tc_shell *sh, int status)
 {
-	if (!sh->interactive) {
+	if (!sh->interactive && !sh->in_command_builtin) {
 		sh->exit_requested = true;
 		sh->exit_status = status;
 	}

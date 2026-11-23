@@ -35,5 +35,8 @@ IN THIS REPOSITORY
                                      $(...), IFS splitting, and globbing
     ./sandbox/demo-0.1.1-jobs-traps  0.1.1: parallel &/wait/$!, traps,
                                      set/shift/eval/./exec/times
+    ./sandbox/demo-0.1.2-builtins    0.1.2: printf menu, getopts, read,
+                                     test/[, aliases, type/command/hash,
+                                     umask, pwd, kill, ulimit
     ./sandbox/demo-interactive       start an interactive tam-clam
                                      prompt with ideas to try live

@@ -14,6 +14,8 @@ static void input_common(struct tc_input *in)
 	in->len = in->pos = 0;
 	in->push = NULL;
 	in->push_len = in->push_pos = 0;
+	in->alias_depth = 0;
+	in->alias_ended_blank = false;
 	in->eof = false;
 	in->err = 0;
 	in->line = 1;
@@ -25,9 +27,73 @@ static void input_common(struct tc_input *in)
 
 void tc_input_finish(struct tc_input *in)
 {
+	while (in->alias_depth > 0) {
+		in->alias_depth--;
+		free(in->alias_stack[in->alias_depth].name);
+		free(in->alias_stack[in->alias_depth].buf);
+	}
 	free(in->push);
 	in->push = NULL;
 	in->push_len = in->push_pos = 0;
+}
+
+int tc_input_push_alias(struct tc_input *in, const char *name,
+			const char *val, size_t len)
+{
+	if (in->alias_depth >= TC_ALIAS_DEPTH_MAX)
+		return -2;
+	size_t nlen = strlen(name);
+	char *ncopy = malloc(nlen + 1);
+	char *vcopy = len ? malloc(len) : NULL;
+	if (!ncopy || (len && !vcopy)) {
+		free(ncopy);
+		free(vcopy);
+		return -1;
+	}
+	memcpy(ncopy, name, nlen + 1);
+	if (len)
+		memcpy(vcopy, val, len);
+	struct tc_alias_frame *f = &in->alias_stack[in->alias_depth++];
+	f->name = ncopy;
+	f->buf = vcopy;
+	f->len = len;
+	f->pos = 0;
+	f->done = false;
+	f->ends_blank = (len > 0 && (val[len - 1] == ' ' || val[len - 1] == '\t'));
+	return 0;
+}
+
+bool tc_input_alias_active(const struct tc_input *in, const char *name)
+{
+	for (size_t i = 0; i < in->alias_depth; i++) {
+		if (strcmp(in->alias_stack[i].name, name) == 0)
+			return true;
+	}
+	return false;
+}
+
+void tc_input_pop_done_aliases(struct tc_input *in)
+{
+	while (in->alias_depth > 0 && in->alias_stack[in->alias_depth - 1].done) {
+		in->alias_depth--;
+		free(in->alias_stack[in->alias_depth].name);
+		free(in->alias_stack[in->alias_depth].buf);
+	}
+}
+
+int tc_input_ungetc_byte(struct tc_input *in, unsigned char c)
+{
+	for (size_t i = in->alias_depth; i > 0; i--) {
+		struct tc_alias_frame *f = &in->alias_stack[i - 1];
+		if (!f->done && f->pos > 0 && (unsigned char)f->buf[f->pos - 1] == c) {
+			f->pos--;
+			return 0;
+		}
+		if (!f->done)
+			break;
+	}
+	char ch = (char)c;
+	return tc_input_pushback(in, &ch, 1);
 }
 
 int tc_input_pushback(struct tc_input *in, const char *s, size_t len)
@@ -120,6 +186,17 @@ static int fill(struct tc_input *in)
 
 int tc_input_getc(struct tc_input *in)
 {
+	for (size_t i = in->alias_depth; i > 0; i--) {
+		struct tc_alias_frame *f = &in->alias_stack[i - 1];
+		if (f->done)
+			continue;
+		if (f->pos < f->len)
+			return (unsigned char)f->buf[f->pos++];
+		f->done = true;
+		if (f->ends_blank)
+			in->alias_ended_blank = true;
+	}
+
 	int c;
 	if (in->push && in->push_pos < in->push_len) {
 		c = in->push[in->push_pos++];

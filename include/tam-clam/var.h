@@ -7,6 +7,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #include "tam-clam/arena.h"
 
@@ -32,8 +33,9 @@ struct tc_vars {
 	struct tc_var_entry *slots;
 	size_t cap;
 	size_t count;
-	char **envp;   /* cached NULL-terminated NAME=VALUE array */
+	char **envp;       /* cached NULL-terminated NAME=VALUE array */
 	bool env_dirty;
+	uint64_t path_gen; /* bumped whenever PATH is set or unset */
 };
 
 struct tc_var_kv {

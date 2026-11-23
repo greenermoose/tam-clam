@@ -161,5 +161,16 @@ printf '. "%s/self.sh"\n' "$tmp" >"$tmp/self.sh"
 expect 'dot recursion depth limit stops runaway sourcing' 1 '' \
 	"$shell" -c ". \"$tmp/self.sh\""
 
+# 0.1.2: dash-style echo (-n only), printf %q, read -d (POSIX.1-2024),
+# and kill %job refusal until 0.2.2.
+expect 'echo treats -e as literal operand (dash style)' 0 '-e hello' \
+	"$shell" -c 'echo -e hello'
+expect 'printf %q shell-quotes strings safely' 0 "'a b'" \
+	"$shell" -c 'printf "%q" "a b"'
+expect 'read -d reads up to custom delimiter' 0 'one|two' \
+	"$shell" -c 'printf "one:two:" | { read -d : a; read -d : b; echo "$a|$b"; }'
+expect 'kill %1 is refused until 0.2.2' 2 '' \
+	"$shell" -c 'kill %1'
+
 echo "run-scripts: $pass passed, $fail failed (reference shell: $ref)"
 [ "$fail" -eq 0 ]

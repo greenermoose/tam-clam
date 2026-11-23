@@ -30,6 +30,7 @@ int tc_parser_init(struct tc_parser *p, struct tc_shell *sh, struct tc_input *in
 	p->sh = sh;
 	p->have_tok = 0;
 	p->have_peek = 0;
+	p->alias_next = false;
 	p->depth = 0;
 	p->hd_head = NULL;
 	p->hd_tail = NULL;
@@ -137,18 +138,61 @@ static bool is_word_eq(const struct tc_token *t, const char *kw)
 	       strcmp(t->text, kw) == 0;
 }
 
-static int is_reserved(const struct tc_token *t)
+bool tc_is_reserved_word(const char *s)
 {
 	static const char *const words[] = {
 		"!", "{", "}", "case", "do", "done", "elif", "else", "esac",
 		"fi", "for", "if", "in", "then", "until", "while",
 	};
+	for (size_t i = 0; i < sizeof(words) / sizeof(words[0]); i++)
+		if (strcmp(s, words[i]) == 0)
+			return true;
+	return false;
+}
+
+static int is_reserved(const struct tc_token *t)
+{
 	if (t->kind != TC_TOK_WORD || (t->flags & TC_WORD_QUOTED))
 		return 0;
-	for (size_t i = 0; i < sizeof(words) / sizeof(words[0]); i++)
-		if (strcmp(t->text, words[i]) == 0)
-			return 1;
-	return 0;
+	return tc_is_reserved_word(t->text) ? 1 : 0;
+}
+
+static int expand_alias_at_tok(struct tc_parser *p)
+{
+	for (;;) {
+		if (p->have_peek || p->tok.kind != TC_TOK_WORD ||
+		    (p->tok.flags & TC_WORD_QUOTED) ||
+		    (p->tok.flags & TC_WORD_ASSIGN) ||
+		    is_reserved(&p->tok))
+			return TC_OK;
+
+		const char *val = tc_alias_get(&p->sh->aliases, p->tok.text);
+		if (!val || tc_input_alias_active(p->lx.in, p->tok.text))
+			return TC_OK;
+
+		if (p->lx.peek >= 0) {
+			if (tc_input_ungetc_byte(p->lx.in, (unsigned char)p->lx.peek) < 0) {
+				tc_error(p->sh, p->tok.line, "out of memory");
+				return TC_ERR_NOMEM;
+			}
+			tc_lexer_reset(&p->lx);
+		}
+		size_t vlen = strlen(val);
+		int pr = tc_input_push_alias(p->lx.in, p->tok.text, val, vlen);
+		if (pr == -2) {
+			tc_error(p->sh, p->tok.line,
+				 "alias expansion depth exceeds limit (%d)",
+				 TC_ALIAS_DEPTH_MAX);
+			return TC_ERR_SYNTAX;
+		}
+		if (pr < 0) {
+			tc_error(p->sh, p->tok.line, "out of memory");
+			return TC_ERR_NOMEM;
+		}
+		int r = advance(p);
+		if (r != TC_OK)
+			return r;
+	}
 }
 
 static bool is_compound_end(const struct tc_token *t)
@@ -425,10 +469,16 @@ static int parse_simple(struct tc_parser *p, struct tc_node **out)
 			nw++;
 			if ((r = advance(p)) != TC_OK)
 				return r;
+			if (p->lx.in->alias_ended_blank) {
+				p->lx.in->alias_ended_blank = false;
+				if ((r = expand_alias_at_tok(p)) != TC_OK)
+					return r;
+			}
 		} else {
 			break;
 		}
 	}
+	p->lx.in->alias_ended_blank = false;
 
 	struct tc_node *node = tc_arena_alloc(a, sizeof(*node));
 	struct tc_assign *assigns = na ? tc_arena_alloc(a, na * sizeof(*assigns)) : NULL;
@@ -980,8 +1030,14 @@ static int parse_compound_with_redirs(struct tc_parser *p, struct tc_node **out)
 
 static int parse_command(struct tc_parser *p, struct tc_node **out)
 {
-	if (starts_compound(&p->tok))
+	int er = expand_alias_at_tok(p);
+	if (er != TC_OK)
+		return er;
+
+	if (starts_compound(&p->tok)) {
+		p->alias_next = false;
 		return parse_compound_with_redirs(p, out);
+	}
 
 	/* Function definition: fname '(' ')' linebreak compound_command [redirs] */
 	if (p->tok.kind == TC_TOK_WORD && !(p->tok.flags & TC_WORD_QUOTED) &&
@@ -1047,8 +1103,12 @@ static int parse_pipeline(struct tc_parser *p, struct tc_node **out)
 	unsigned long line = p->tok.line;
 	int r;
 
+	if ((r = expand_alias_at_tok(p)) != TC_OK)
+		return r;
+
 	if (is_word_eq(&p->tok, "!")) {
 		bang = true;
+		p->alias_next = false;
 		if ((r = advance(p)) != TC_OK)
 			return r;
 	}
@@ -1278,6 +1338,7 @@ int tc_parse_next(struct tc_parser *p, struct tc_node **out)
 {
 	*out = NULL;
 	p->have_peek = 0;
+	p->alias_next = false;
 	p->depth = 0;
 	p->lx.parse_depth = 0;
 	p->hd_head = NULL;
@@ -1394,6 +1455,7 @@ int tc_parse_cmdsub_string(struct tc_shell *sh, const char *src, size_t len,
 void tc_parser_recover(struct tc_parser *p)
 {
 	p->have_peek = 0;
+	p->alias_next = false;
 	p->depth = 0;
 	p->lx.parse_depth = 0;
 	p->hd_head = NULL;
@@ -1410,6 +1472,7 @@ void tc_parser_reset(struct tc_parser *p)
 	tc_lexer_reset(&p->lx);
 	p->have_tok = 0;
 	p->have_peek = 0;
+	p->alias_next = false;
 	p->depth = 0;
 	p->lx.parse_depth = 0;
 	p->hd_head = NULL;

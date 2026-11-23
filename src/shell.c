@@ -12,7 +12,7 @@
 
 extern char **environ;
 
-static bool valid_initial_pwd(const char *pwd)
+bool tc_valid_pwd(const char *pwd)
 {
 	if (!pwd || pwd[0] != '/')
 		return false;
@@ -37,7 +37,7 @@ static bool valid_initial_pwd(const char *pwd)
 	return st_pwd.st_dev == st_dot.st_dev && st_pwd.st_ino == st_dot.st_ino;
 }
 
-static char *shell_getcwd(void)
+char *tc_getcwd(void)
 {
 	size_t cap = 256;
 	for (;;) {
@@ -48,8 +48,10 @@ static char *shell_getcwd(void)
 			return buf;
 		int e = errno;
 		free(buf);
-		if (e != ERANGE || cap > ((size_t)1 << 20))
+		if (e != ERANGE || cap > ((size_t)1 << 20)) {
+			errno = e;
 			return NULL;
+		}
 		cap *= 2;
 	}
 }
@@ -60,9 +62,12 @@ void tc_shell_init(struct tc_shell *sh, const char *name)
 	sh->name = name;
 	sh->root_pid = getpid();
 	sh->func_limit = TC_FUNC_DEPTH_DEFAULT;
+	sh->getopts_optind = 1;
 	tc_arena_init(&sh->arena, TC_ARENA_MAX);
 	tc_var_init(&sh->vars);
 	tc_funcs_init(&sh->funcs);
+	tc_alias_init(&sh->aliases);
+	tc_hash_init(&sh->hash);
 	tc_traps_init(&sh->traps, false);
 	tc_bg_init(&sh->bg);
 	(void)tc_var_import_environ(&sh->vars, environ);
@@ -73,10 +78,11 @@ void tc_shell_init(struct tc_shell *sh, const char *name)
 		(void)tc_var_set(&sh->vars, "PS1", geteuid() == 0 ? "# " : "$ ", 0);
 	if (!tc_var_get(&sh->vars, "PS2"))
 		(void)tc_var_set(&sh->vars, "PS2", "> ", 0);
+	(void)tc_var_set(&sh->vars, "OPTIND", "1", 0);
 
 	const char *pwd = tc_var_get(&sh->vars, "PWD");
-	if (!valid_initial_pwd(pwd)) {
-		char *cwd = shell_getcwd();
+	if (!tc_valid_pwd(pwd)) {
+		char *cwd = tc_getcwd();
 		if (cwd) {
 			(void)tc_var_set(&sh->vars, "PWD", cwd, TC_VAR_EXPORT);
 			free(cwd);
@@ -144,6 +150,8 @@ void tc_shell_finish(struct tc_shell *sh)
 	free_params(sh);
 	tc_bg_finish(&sh->bg);
 	tc_traps_finish(&sh->traps);
+	tc_hash_finish(&sh->hash);
+	tc_alias_finish(&sh->aliases);
 	tc_funcs_finish(&sh->funcs);
 	tc_var_finish(&sh->vars);
 	tc_arena_finish(&sh->arena);

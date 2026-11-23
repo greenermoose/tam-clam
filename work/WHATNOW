@@ -3,53 +3,62 @@ WHATNOW
 What tam-clam is doing now and what comes next. Read this first; revise
 it at the end of every session (work/README-work).
 
-Updated: 2026-11-23, with W7 (0.1.1)
+Updated: 2026-11-23, with W8 (0.1.2)
 
 
 STATE
 
-  Version 0.1.1, Phase P2 (process control, traps, and special builtins),
-  on branch dev. It adds:
-  - background commands (&) parsed into TC_NODE_BG (in lists, compound
-    lists, and function AST clones), executed with /dev/null stdin and
-    ignored SIGINT/SIGQUIT when job control is off, setting $!;
-  - background process tracking (src/bg.c) with non-blocking zombie
-    reaping and the wait builtin (all jobs, specific PIDs, 127 for
-    unknown/re-waited PIDs, EINTR interruption for trapped signals);
-  - async-signal-safe signal flag dispatch (src/signals.c) and per-shell
-    trap table (src/trap.c) supporting signals and EXIT at safe points
-    only, inherited-SIG_IGN protection in non-interactive shells, and
-    $(trap) subshell display preservation;
-  - remaining POSIX special builtins (src/builtins_special.c): set
-    (variables, positional params, -a/-f, -o/+o, refusing 0.1.3 options),
-    shift, eval, . (dot, with PATH search, fd >= 10, and return),
-    export, readonly, unset (-v/-f), exec (persistent redirections and
-    process replacement), and times.
+  Version 0.1.2, Phase P2 (regular POSIX builtins), on branch dev.
+  It adds:
+  - command hash table (src/hash.c) with automatic invalidation on PATH
+    changes (var.c path_gen), integrated with external command lookup in
+    src/exec.c, plus the hash builtin (-r, list, lookup);
+  - alias table (src/alias.c) with alias and unalias (-a), plus POSIX
+    command-position alias expansion in input.c/lex.c/parse.c with
+    bounded recursion prevention (TC_ALIAS_DEPTH_MAX) and trailing-blank
+    chaining;
+  - test and [ (src/bi_test.c) with exact POSIX 0..4-arg disambiguation,
+    bounded recursive-descent for 5+ args (-o, -a, !, parens), file,
+    string, and checked 64-bit integer primaries;
+  - printf (src/bi_printf.c) with format reuse, width/precision/*,
+    %b/\c/\0ddd, 'c char constants, numeric/float conversions, and %q;
+  - echo (-n only, no backslash escapes by default), pwd (-L/-P),
+    umask (octal and symbolic -S), read (-r, -d, bytewise stdin, IFS
+    splitting, default REPLY), kill (-l, -s, -SIG, refusing %job), and
+    ulimit (-H/-S/-a and resource flags) in src/builtins_io.c;
+  - getopts (OPTIND/OPTARG, silent mode, explicit args), command
+    (-p/-v/-V, function bypass, suppressing special-builtin fatal exit),
+    and type in src/builtins_cmd.c;
+  - sandbox/demo-0.1.2-builtins added to sandbox/play.
   readelf -d lists only libc.so.6. make test and make sanitize pass.
 
   Fred's decisions so far are in ROADMAP.md and the plans: POSIX.1-2024
   is the target; lint mode is P2 0.1.5; tam-clam ships only its own key
   map (no built-in readline map), drafted in arch/keys.md and agreed with
   Fred before 0.2.0; FUNCNEST sets the function recursion limit; signed
-  64-bit arithmetic overflow is a reported error.
+  64-bit arithmetic overflow is a reported error; echo recognizes -n only
+  and does not interpret backslash escapes by default.
 
 
 NEXT
 
-  1. 0.1.2 (plans/P2-posix-language.md):
-     - regular POSIX builtins: read, printf, echo (POSIX-style: no
-       options except as dash does), test and [, getopts, command, type,
-       hash, umask, alias and unalias, kill, pwd, ulimit.
-     Bump VERSION to 0.1.2 in the first code commit.
+  1. 0.1.3 (plans/P2-posix-language.md):
+     - shell options: set -e (errexit, exact POSIX rules), set -u
+       (nounset), set -o pipefail (POSIX.1-2024), set -x (xtrace with
+       PS4 and line numbers), set -C (noclobber), set -n (noexec, parse
+       only).
+     Bump VERSION to 0.1.3 in the first code commit.
 
-  2. 0.1.3, shell options (set -e, set -u, set -o pipefail, set -x with
-     PS4 and line numbers, set -C, set -n).
+  2. 0.1.4, POSIX spec suite (tests/spec/) run against dash,
+     bash --posix, mksh and busybox ash, plus fuzzing campaign on the
+     lexer, parser, and expander.
 
 
 WAITING FOR FRED
 
-  - Trying 0.1.1: build/tam-clam -c '...', or run it on a terminal. It
-    is not installed and is nobody's login shell.
+  - Trying 0.1.2: ./sandbox/demo-0.1.2-builtins, ./sandbox/play, or
+    build/tam-clam -c '...'. It is not installed and is nobody's login
+    shell.
   - Whether to install dash, so the script tests compare against it as
     well as bash --posix.
 

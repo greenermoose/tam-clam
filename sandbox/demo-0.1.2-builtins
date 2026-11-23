@@ -1,0 +1,110 @@
+#!/bin/sh
+# Demo 0.1.2: regular POSIX builtins (printf, echo, read, test/[, getopts,
+# command, type, hash, umask, alias/unalias, kill, pwd, ulimit).
+set -eu
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+SH="$ROOT/build/tam-clam"
+[ -x "$SH" ] || make -C "$ROOT"
+
+echo "--- 0.1.2: regular POSIX builtins ---"
+"$SH" <<'SCRIPT'
+echo "=== 1. Clam Cafe Menu (printf formatting, reuse, %q, echo -n) ==="
+printf '  %-16s %6s  %s\n' "ITEM" "PRICE" "HEX-ID"
+printf '  %-16s %6s  %s\n' "----------------" "------" "------"
+printf '  %-16s $%5.2f  0x%04X\n' \
+	"Steamed Clams" 12.50 48879 \
+	"Clam Chowder"  9.75  51966 \
+	"Garlic Bread"  4.25  64206
+echo -n "  Safe-quoted note via %q: "
+printf '%q\n' "Chef's special: extra butter!"
+
+echo ""
+echo "=== 2. Order Parser (getopts with clusters, args, silent mode) ==="
+parse_order() {
+	OPTIND=1
+	qty=1
+	spicy=no
+	note="none"
+	while getopts ":sn:q:" opt; do
+		case "$opt" in
+		s) spicy=yes ;;
+		q) qty=$OPTARG ;;
+		n) note=$OPTARG ;;
+		'?') echo "  [order] unknown flag: -$OPTARG" ;;
+		:) echo "  [order] -$OPTARG needs a value" ;;
+		esac
+	done
+	shift $((OPTIND - 1))
+	echo "  [order] item='$*' qty=$qty spicy=$spicy note='$note'"
+}
+parse_order -sq3 -n "extra lemon" -- "Clam Chowder"
+parse_order -z "Mystery Dish"
+
+echo ""
+echo "=== 3. Kitchen Ticket Reader (read, -r, -d, IFS splitting) ==="
+printf 'Table-4,Clam Chowder,2,hot\\nfast\n' | {
+	IFS=, read -r table dish count flags
+	echo "  Ticket: table=$table | dish=$dish | count=$count | flags=$flags"
+}
+printf 'first:second:third:' | {
+	read -d : a
+	read -d : b
+	read -d : c
+	echo "  Custom -d ':' pieces: [$a] [$b] [$c]"
+}
+
+echo ""
+echo "=== 4. Alias Magic (expansion, self-ref, trailing-blank chain, quote bypass) ==="
+alias say='echo [alias]'
+say "Hello from an alias!"
+alias chef='say Chef: '
+alias dish='Chowder is ready!'
+chef dish
+'say' 2>/dev/null || echo "  (quoted 'say' bypassed alias lookup as required by POSIX)"
+unalias say chef dish
+
+echo ""
+echo "=== 5. Command Detective (type, command -v, function bypass, hash) ==="
+echo() { printf '  [shadowed echo] %s\n' "$*"; }
+echo "calling function"
+command echo "  [command echo] bypassed the shadowing function!"
+unset -f echo
+
+for name in if set echo command sh; do
+	type "$name" | sed 's/^/  /'
+done
+command shift 99 2>/dev/null
+echo "  command shift 99 failed with status $? without killing the script!"
+
+hash -r
+hash sh
+echo "  Cached in hash table:"
+hash | sed 's/^/    /'
+hash -r
+
+echo ""
+echo "=== 6. File Tests, Symlink pwd -L/-P, umask, kill & ulimit ==="
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+mkdir "$tmp/real-kitchen"
+ln -s "$tmp/real-kitchen" "$tmp/shortcut"
+printf 'recipe\n' >"$tmp/real-kitchen/menu.txt"
+
+if [ -d "$tmp/real-kitchen" -a -s "$tmp/real-kitchen/menu.txt" -a -L "$tmp/shortcut" ]; then
+	echo "  [ -d ... -a -s ... -a -L ... ] passed!"
+fi
+(
+	cd -L "$tmp/shortcut"
+	echo "  pwd -L: $(pwd -L)"
+	echo "  pwd -P: $(pwd -P)"
+)
+(
+	umask 0027
+	echo "  umask octal=$(umask) symbolic=$(umask -S)"
+)
+echo "  kill -l 15 -> $(kill -l 15), kill -l 143 -> $(kill -l 143)"
+(
+	ulimit -S -n 128
+	echo "  subshell soft open-files limit (ulimit -S -n): $(ulimit -S -n)"
+)
+SCRIPT

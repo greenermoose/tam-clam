@@ -18,9 +18,10 @@ while :; do
 	printf '  5) 0.0.4 control     (if, loops, case, {}, (), functions, FUNCNEST)\n'
 	printf '  6) 0.1.0 expansions  ($'\''...'\'', $((...)), $(...), IFS, globbing)\n'
 	printf '  7) 0.1.1 jobs/traps  (&, wait, $!, trap, set/shift/eval/./exec/times)\n'
-	printf '  8) interactive shell (try tam-clam live at a prompt)\n'
+	printf '  8) 0.1.2 builtins    (printf, echo, read, test/[, getopts, alias, type, ...)\n'
+	printf '  9) interactive shell (try tam-clam live at a prompt)\n'
 	printf '  q) quit\n'
-	printf 'Choose [1-8, q]: '
+	printf 'Choose [1-9, q]: '
 	IFS= read -r choice || break
 	printf '\n'
 	case "$choice" in
@@ -31,7 +32,8 @@ while :; do
 	5) "$ROOT/sandbox/demo-0.0.4-control" ;;
 	6) "$ROOT/sandbox/demo-0.1.0-expansions" ;;
 	7) "$ROOT/sandbox/demo-0.1.1-jobs-traps" ;;
-	8) "$ROOT/sandbox/demo-interactive" ;;
+	8) "$ROOT/sandbox/demo-0.1.2-builtins" ;;
+	9) "$ROOT/sandbox/demo-interactive" ;;
 	q|Q) break ;;
 	*) echo "Unknown choice: $choice" ;;
 	esac
