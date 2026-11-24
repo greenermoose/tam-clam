@@ -37,6 +37,8 @@ IN THIS REPOSITORY
                          version removes it
   bash-evaluation.md     how bash works; what to take and what not to
                          repeat
+  keys.md                tam-clam key bindings following the Tamlinux
+                         standard in tamlinux/arch/keybindings.md
 
   Later phases add their own files here, for example expansion.md and
   jobs.md (P2), line-editor.md and history.md (P3).

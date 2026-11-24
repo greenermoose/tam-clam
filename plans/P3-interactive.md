@@ -21,10 +21,11 @@ libtam, and with a history that can never be lost or corrupted.
   timestamp, exit status and working directory, appended with
   `O_APPEND` in single writes so several shells can share the file
   without locking or losing lines. A reader that skips a damaged record
-  instead of failing. Ctrl+R incremental search, and Up/Down that search
+  instead of failing. Ctrl+F incremental search, and Up/Down that search
   by prefix (as fish and zsh do). A private mode that writes no history.
-- **0.2.2** Job control: process groups, `tcsetpgrp`, Ctrl+Z, `fg`, `bg`,
-  `jobs`, `%n` job IDs, notifications of finished jobs before the prompt.
+- **0.2.2** Job control: process groups, `tcsetpgrp`, Ctrl+P (`VSUSP`),
+  Ctrl+\ (`VINTR`), `fg`, `bg`, `jobs`, `%n` job IDs, notifications of
+  finished jobs before the prompt.
 - **0.2.3** Completion of command names, files, variables and user names,
   and a small declarative format for command options (one file per
   command, like fish's `share/completions/`), loaded lazily.
@@ -48,16 +49,19 @@ file manager, pager) is defined in `tamlinux/arch/keybindings.md`.
 defines shell-specific bindings on top of it.
 
 - Before 0.2.0 code is written, `tamlinux/arch/keybindings.md` is agreed
-  with Fred and `arch/keys.md` is drafted against it.
-- Principles for the draft: the letter names the action where it can;
-  the most frequent actions get the easiest keys; keys that terminals
-  and the Linux console deliver unreliably are avoided; and every action
-  has a name (as zsh's widgets do), so a user can rebind it.
-- Keys always name the physical key (Ctrl, Alt, Meta, a letter), never a
-  placeholder.
-- The draft also lists the keys that are not ours to choose because the
-  terminal or other programs give them meaning: Ctrl+C, Ctrl+Z, Ctrl+D,
-  and Ctrl+S and Ctrl+Q where flow control is on.
+  with Fred and `arch/keys.md` is drafted against it. (Drafted 2026-11-23.)
+- Principles: no double-acting `Ctrl` codes; three-physical-key ceiling;
+  the letter names the action where it can; keys that terminals and the
+  Linux console deliver unreliably are avoided or paired with `Alt`
+  fallbacks; and every action has a canonical widget name so users can
+  search/run it (`Ctrl+E`) or rebind it.
+- Keys always name the physical key (`Meta`, `Ctrl`, `Alt`, `Shift`, a
+  letter, or a named key), never a placeholder.
+- Foreground child signals use `termios` `VINTR` = `Ctrl+\` (Break, with
+  `VQUIT` disabled) and `VSUSP` = `Ctrl+P` (Pause), leaving `Ctrl+C`
+  (Copy) and `Ctrl+Z` (Undo) free everywhere. The four legacy ASCII
+  collisions (`Ctrl+H`, `Ctrl+I`, `Ctrl+J`/`M`, `Ctrl+[`) are never
+  bound separately.
 - Decided by Fred on 2026-11-17: no readline-style key map is built in.
   tam-clam ships only its own map. The binding format must be able to
   express readline's keys, so that if users ask for them later, a
@@ -85,6 +89,7 @@ defines shell-specific bindings on top of it.
 
 ## Open points
 
-- The key map itself (`arch/keys.md`), to agree with Fred before 0.2.0.
+- Confirm `arch/keys.md` (drafted against `tamlinux/arch/keybindings.md`)
+  before writing 0.2.0 line-editor code.
 - Fred's energy rule: no timers or background polling while the shell
   waits for input. Does that rule out showing a clock in the prompt?

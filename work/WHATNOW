@@ -3,7 +3,7 @@ WHATNOW
 What tam-clam is doing now and what comes next. Read this first; revise
 it at the end of every session (work/README-work).
 
-Updated: 2026-11-23, with W12 (0.1.5)
+Updated: 2026-11-23, with W13 (0.1.5)
 
 
 STATE
@@ -25,31 +25,30 @@ STATE
 
   Fred's decisions so far are in ROADMAP.md and the plans: POSIX.1-2024
   is the target; lint mode is P2 0.1.5 (done); the Tamlinux-wide
-  keybinding standard lives in tamlinux/arch/keybindings.md (decided
-  2026-11-23, W12) and tam-clam ships only its own key map (no vi mode,
-  no built-in readline map), drafted in arch/keys.md against that
-  standard before 0.2.0; FUNCNEST sets the function recursion limit;
-  signed 64-bit arithmetic overflow is a reported error; echo recognizes
-  -n only and does not interpret backslash escapes by default.
+  keybinding standard lives in tamlinux/arch/keybindings.md (settled
+  2026-11-23) and tam-clam's arch/keys.md is drafted against it (W13,
+  no vi mode, no built-in readline map, VINTR=Ctrl+\, VSUSP=Ctrl+P,
+  Ctrl+F history search, Ctrl+Q quit); FUNCNEST sets the function
+  recursion limit; signed 64-bit arithmetic overflow is a reported
+  error; echo recognizes -n only and does not interpret backslash
+  escapes by default.
 
 
 NEXT
 
-  1. Phase P3 preparation (plans/P3-interactive.md):
-     - Once Fred finishes tamlinux/arch/keybindings.md, draft
-       arch/keys.md following it and adding shell-specific bindings, and
-       agree it with Fred before writing line-editor code.
-
-  2. 0.2.0 (plans/P3-interactive.md):
-     - Our own line editor on libtam's tam_tty, tam_key, and tam_uni:
-       agreed key bindings, UTF-8, wide characters, bracketed paste.
+  1. 0.2.0 (plans/P3-interactive.md, arch/keys.md):
+     - Our own line editor (src/edit/) on libtam's tam_tty, tam_key, and
+       tam_uni: arch/keys.md bindings, UTF-8, wide characters, selection,
+       undo/redo, kill/clipboard ring + OSC 52 write, multi-line editing,
+       bracketed paste (closing the CSI 200~/201~ gap), SIGWINCH redraw,
+       and PTY tests (tests/pty/).
      Bump VERSION to 0.2.0 in the first code commit.
 
 
 WAITING FOR FRED
 
-  - Refining and agreeing tamlinux/arch/keybindings.md before drafting
-    arch/keys.md and starting 0.2.0.
+  - Quick review / go-ahead on arch/keys.md to begin 0.2.0 line-editor
+    implementation.
   - Trying 0.1.5: ./sandbox/demo-0.1.5-lint, ./sandbox/play, or
     ./build/tam-clam --lint <script.sh>.
   - Optional: installing dash / mksh / busybox for multi-shell spec

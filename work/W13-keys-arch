@@ -1,0 +1,37 @@
+W13 TAM-CLAM KEY BINDINGS SPEC (ARCH/KEYS.MD)
+
+Date: 2026-11-23
+AI harness: agy 1.5.15
+AI model: Gemini 4 Neon (Medium)
+Continues: W12
+
+GUIDANCE
+
+  Fred: "Done. Proceed!" (after finalizing tamlinux/arch/keybindings.md)
+
+DONE
+
+  - Drafted arch/keys.md implementing tamlinux/arch/keybindings.md for
+    tam-clam: universal Ctrl map (no double-acting Ctrl codes), raw-mode
+    and child-process termios rules (VINTR=Ctrl+\, VQUIT disabled,
+    VSUSP=Ctrl+P), navigation/selection/deletion with TERM=linux Alt
+    fallbacks (Alt+,/., Alt+</>, Alt+Backspace/D, Alt+M), shell-specific
+    bindings (Alt+Enter, Alt+E, Alt+V, Alt+Q, Alt+#, Alt+L, Alt+N/Shift+N,
+    Tab/Shift+Tab), OSC 52 clipboard policy, shared bind format, and
+    libtam tam_key notes for 0.2.0 bracketed paste.
+  - Listed arch/keys.md in arch/README-arch.
+  - Aligned plans/P3-interactive.md and ROADMAP.md with the settled
+    standard (Ctrl+F history search, Ctrl+P pause, Ctrl+\ break).
+  - Updated work/WHATNOW.
+  - Verified make test passes and line lengths follow work/README-work.
+
+FAILED
+
+  - Nothing.
+
+HANDOFF
+
+  - Phase P3 preparation (arch/keys.md) is drafted and ready for Fred's
+    go-ahead.
+  - Next: implement 0.2.0 (line editor in src/edit/ on libtam tam_tty,
+    tam_key, tam_uni, bumping VERSION to 0.2.0).

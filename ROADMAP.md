@@ -70,7 +70,8 @@ enters a Tamlinux release.
   characters, bracketed paste.
 - **0.2.1** History: an append-only file with timestamps, safe for several
   shells at once, and incremental search.
-- **0.2.2** Job control: `fg`, `bg`, `jobs`, Ctrl+Z, process groups.
+- **0.2.2** Job control: `fg`, `bg`, `jobs`, Ctrl+P (`VSUSP`), Ctrl+\\
+  (`VINTR`), process groups.
 - **0.2.3** Completion: commands, files, variables, and a small
   completion language for options.
 - **0.2.4** Syntax highlighting while typing and suggestions from
