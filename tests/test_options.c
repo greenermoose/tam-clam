@@ -53,7 +53,10 @@ static void test_char_and_name_options(void)
 	CHECK(strcmp(flags, "af") == 0);
 
 	CHECK(tc_opt_set_char(&sh, 'v', true) == TC_OPT_DEFERRED);
-	CHECK(tc_opt_set_char(&sh, 'm', true) == TC_OPT_DEFERRED);
+	CHECK(tc_opt_set_char(&sh, 'm', true) == TC_OPT_OK);
+	CHECK(sh.opt_monitor);
+	CHECK(tc_opt_set_name(&sh, "monitor", false) == TC_OPT_OK);
+	CHECK(!sh.opt_monitor);
 	CHECK(tc_opt_set_char(&sh, 'Z', true) == TC_OPT_INVALID);
 
 	CHECK(tc_opt_set_name(&sh, "verbose", true) == TC_OPT_DEFERRED);

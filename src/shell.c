@@ -70,6 +70,8 @@ void tc_shell_init(struct tc_shell *sh, const char *name)
 	tc_hash_init(&sh->hash);
 	tc_traps_init(&sh->traps, false);
 	tc_bg_init(&sh->bg);
+	tc_jobs_init(&sh->jobs);
+	sh->tty_fd = -1;
 	(void)tc_var_import_environ(&sh->vars, environ);
 
 	if (!tc_var_get(&sh->vars, "IFS"))
@@ -150,6 +152,7 @@ void tc_shell_shift_params(struct tc_shell *sh, size_t n)
 void tc_shell_finish(struct tc_shell *sh)
 {
 	free_params(sh);
+	tc_jobs_finish(&sh->jobs);
 	tc_bg_finish(&sh->bg);
 	tc_traps_finish(&sh->traps);
 	tc_hash_finish(&sh->hash);

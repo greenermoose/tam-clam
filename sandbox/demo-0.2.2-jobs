@@ -1,0 +1,23 @@
+#!/bin/sh
+# 0.2.2 demo: job control (Ctrl+P Pause, Ctrl+\ Break, fg, bg, jobs, %n).
+set -eu
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+SH="$ROOT/build/tam-clam"
+[ -x "$SH" ] || make -C "$ROOT"
+
+cat <<EOF
+=== tam-clam $(cat "$ROOT/VERSION") job control demo ===
+Follows arch/keys.md (Ctrl+P Pause / SIGTSTP, Ctrl+\\ Break / SIGINT).
+
+Things to try at the live prompt:
+  sleep 30            press Ctrl+P to suspend -> [1]+ Stopped sleep 30
+  jobs                list active jobs (also: jobs -l, jobs -p)
+  bg %1               resume job 1 in the background
+  fg %1               bring job 1 back to the foreground (Ctrl+\\ to stop it)
+  sleep 10 &          launch in background -> [N] <pid>
+  kill %1             terminate job 1's entire process group
+  sleep 0.2 &         wait a moment, press Enter -> [1]+ Done notification
+  Ctrl+Q              exit on empty prompt
+
+EOF
+exec env HISTFILE="" PS1='tam-clam$ ' PS2='tam-clam> ' "$SH"

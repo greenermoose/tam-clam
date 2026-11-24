@@ -158,14 +158,14 @@ expect 'dot recursion depth limit stops runaway sourcing' 1 '' \
 	"$shell" -c ". \"$tmp/self.sh\""
 
 # 0.1.2: dash-style echo (-n only), printf %q, read -d (POSIX.1-2024),
-# and kill %job refusal until 0.2.2.
+# and kill %job (0.2.2 job control).
 expect 'echo treats -e as literal operand (dash style)' 0 '-e hello' \
 	"$shell" -c 'echo -e hello'
 expect 'printf %q shell-quotes strings safely' 0 "'a b'" \
 	"$shell" -c 'printf "%q" "a b"'
 expect 'read -d reads up to custom delimiter' 0 'one|two' \
 	"$shell" -c 'printf "one:two:" | { read -d : a; read -d : b; echo "$a|$b"; }'
-expect 'kill %1 is refused until 0.2.2' 2 '' \
+expect 'kill %1 reports no such job (0.2.2)' 1 '' \
 	"$shell" -c 'kill %1'
 
 # 0.1.3: CLI flags (-e, -u, -o pipefail, -n, -C, -x, clustered flags).

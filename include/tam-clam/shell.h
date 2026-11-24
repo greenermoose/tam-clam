@@ -14,6 +14,7 @@
 #include "tam-clam/bg.h"
 #include "tam-clam/func.h"
 #include "tam-clam/hash.h"
+#include "tam-clam/jobs.h"
 #include "tam-clam/trap.h"
 #include "tam-clam/var.h"
 
@@ -78,6 +79,7 @@ struct tc_shell {
 	bool opt_noclobber;        /* set -C */
 	bool opt_errexit;          /* set -e */
 	bool opt_noglob;           /* set -f */
+	bool opt_monitor;          /* set -m */
 	bool opt_noexec;           /* set -n */
 	bool opt_nounset;          /* set -u */
 	bool opt_xtrace;           /* set -x */
@@ -98,6 +100,10 @@ struct tc_shell {
 	struct tc_hash_table hash; /* cached PATH lookups */
 	struct tc_traps traps;     /* signal and EXIT traps */
 	struct tc_bg_table bg;     /* background child tracking */
+	struct tc_job_table jobs;  /* job control table (0.2.2) */
+	bool job_control;          /* interactive terminal job control active */
+	pid_t shell_pgid;          /* shell's own process group */
+	int tty_fd;                /* controlling terminal fd, or -1 */
 	char **params;             /* positional parameters $1..$N */
 	size_t nparams;
 	struct tc_arena arena;     /* memory for the command being run */

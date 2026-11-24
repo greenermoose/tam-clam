@@ -1,0 +1,47 @@
+W16 JOB CONTROL (0.2.2)
+
+Date: 2026-11-24
+AI harness: agy 1.5.15
+AI model: Gemini 4 Neon (Medium)
+Continues: W15
+
+GUIDANCE
+
+  Fred: "/plan Do the 0.2.2 work"
+  Fred: "Approved. Proceed."
+
+DONE
+
+  - Implemented POSIX job control in include/tam-clam/jobs.h and
+    src/jobs.c:
+    - Interactive terminal initialization (setpgid, tcsetpgrp, set -m),
+      ignoring SIGTSTP/SIGTTIN/SIGTTOU in interactive shell and
+      restoring them in children (src/signals.c).
+    - Bounded job table (TC_JOBS_MAX = 256) with smallest-ID reuse,
+      POSIX + / - current/previous ordering, %job_id resolution
+      (%, %%, %+, %-, %n, %prefix, %?substr), non-blocking reaping,
+      and Done/Stopped prompt notifications.
+    - Process-group foreground and background execution in src/exec.c
+      with tcsetpgrp handoff/reclaim and WUNTRACED stop handling.
+    - Enabled set -m / -o monitor in src/options.c.
+    - Added jobs [-l|-p], fg [%id], bg [%id ...] builtins, plus %job_id
+      support in wait (src/builtins_special.c) and kill
+      (src/builtins_io.c).
+  - Added tests/test_jobs.c and extended tests/pty/test_pty.c with live
+    Ctrl+P (VSUSP) stop, jobs, bg %1, fg %1, kill %1, wait %1, Ctrl+\
+    (VINTR) interrupt, and [1]+ Done prompt notification tests.
+  - Added sandbox/demo-0.2.2-jobs; bumped VERSION to 0.2.2; updated
+    ROADMAP.md, plans/P3-interactive.md, sandbox/, and work/WHATNOW.
+  - Verified make clean test, make sanitize, and readelf -d (only
+    libc.so.6).
+
+FAILED
+
+  - Nothing.
+
+HANDOFF
+
+  - 0.2.2 job control is complete on dev.
+  - Next: 0.2.3 completion (plans/P3-interactive.md): commands, files,
+    variables, user names, and a small declarative completion format
+    for command options (loaded lazily).

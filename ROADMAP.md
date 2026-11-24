@@ -5,11 +5,11 @@ of versions. Versions follow semantic versioning: during 0.x, the minor
 number marks a phase's big step and the patch number marks each
 milestone inside it.
 
-**Current version:** 0.2.1 (Phase P3 in progress: append-only shared
-history with `O_APPEND` single writes, damaged-record recovery, `Up`/`Down`
-prefix search, `Ctrl+F` incremental search, `Alt+L` last-arg, `history`
-builtin, and `--private` mode, 2026-11-24; development continues on branch
-`dev`).
+**Current version:** 0.2.2 (Phase P3 in progress: POSIX job control with
+process groups, `tcsetpgrp`, `set -m`/`-o monitor`, `Ctrl+P` (`VSUSP`),
+`Ctrl+\` (`VINTR`), `jobs`, `fg`, `bg`, `%n` job IDs in `wait`/`kill`, and
+finished-job prompt notifications, 2026-11-24; development continues on
+branch `dev`).
 
 ## Decided
 

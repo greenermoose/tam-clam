@@ -3,26 +3,20 @@ WHATNOW
 What tam-clam is doing now and what comes next. Read this first; revise
 it at the end of every session (work/README-work).
 
-Updated: 2026-11-24, with W15 (0.2.1)
+Updated: 2026-11-24, with W16 (0.2.2)
 
 
 STATE
 
-  Version 0.2.1, Phase P3 IN PROGRESS (line editor and history complete),
-  on branch dev. 0.2.1 adds:
-  - append-only command history in include/tam-clam/history.h and
-    src/history/history.c: single-write O_APPEND records with timestamp,
-    exit status, and cwd (default via libtam tam_xdg_path, overridable
-    with HISTFILE), damage-tolerant reader, live sync across concurrent
-    shells, `--private` mode, leading-space ignore, and `history`
-    builtin;
-  - line-editor integration in src/edit/edit.c: Up/Down prefix-filtered
-    history navigation, Ctrl+F live incremental search overlay (Ctrl+F /
-    Alt+N next, Alt+Shift+N prev, Enter accepts into buffer, Esc cancels),
-    and Alt+L insert-last-arg with repeat cycling;
-  - tests/test_history.c (round-trip, damaged/truncated recovery,
-    concurrent O_APPEND writers, /dev/full, private mode), extended
-    tests/pty/test_pty.c, and sandbox/demo-0.2.1-history.
+  Version 0.2.2, Phase P3 IN PROGRESS (line editor, history, and job
+  control complete), on branch dev. 0.2.2 adds:
+  - POSIX job control in include/tam-clam/jobs.h and src/jobs.c:
+    process groups, tcsetpgrp handoff/reclaim, set -m / -o monitor,
+    Ctrl+P (VSUSP / SIGTSTP) stop, Ctrl+\ (VINTR / SIGINT) break,
+    jobs [-l|-p], fg, bg, %job_id resolution in fg/bg/wait/kill, and
+    finished-job prompt notifications;
+  - tests/test_jobs.c unit tests, live PTY job-control tests in
+    tests/pty/test_pty.c, and sandbox/demo-0.2.2-jobs.
   readelf -d lists only libc.so.6. make test and make sanitize pass.
 
   Fred's decisions so far are in ROADMAP.md and the plans: POSIX.1-2024
@@ -37,18 +31,17 @@ STATE
 
 NEXT
 
-  1. 0.2.2 (plans/P3-interactive.md):
-     - Job control: process groups, tcsetpgrp, Ctrl+P (VSUSP), Ctrl+\
-       (VINTR), fg, bg, jobs, %n job IDs, and finished-job notifications
-       before the prompt.
-     Bump VERSION to 0.2.2 in the first code commit.
+  1. 0.2.3 (plans/P3-interactive.md):
+     - Completion: commands, files, variables, user names, and a small
+       declarative format for command options (loaded lazily), wired to
+       Tab (`complete-next`) and Shift+Tab (`complete-prev`).
+     Bump VERSION to 0.2.3 in the first code commit.
 
 
 WAITING FOR FRED
 
-  - Trying 0.2.1: ./sandbox/demo-0.2.1-history or ./build/tam-clam
-    (Up/Down prefix search, Ctrl+F search, Alt+L last-arg, history,
-    --private).
+  - Trying 0.2.2: ./sandbox/demo-0.2.2-jobs or ./build/tam-clam
+    (Ctrl+P pause, Ctrl+\ break, jobs/fg/bg, kill %1, wait %1).
   - Optional: installing dash / mksh / busybox for multi-shell spec
     comparisons and clang for a 24-hour libFuzzer run.
 

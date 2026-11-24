@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -15,8 +16,10 @@
 
 #include "tam-clam/bg.h"
 #include "tam-clam/builtins.h"
+#include "tam-clam/edit.h"
 #include "tam-clam/exec.h"
 #include "tam-clam/expand.h"
+#include "tam-clam/jobs.h"
 #include "tam-clam/lex.h"
 #include "tam-clam/parse.h"
 #include "tam-clam/pattern.h"
@@ -923,12 +926,15 @@ static int exec_simple_body(struct tc_shell *sh, const struct tc_node *n)
 		}
 	}
 
+	bool jc = sh->opt_monitor && sh->job_control;
 	pid_t pid = fork();
 	if (pid < 0) {
 		tc_error(sh, n->line, "cannot start %s: %s", argv[0], strerror(errno));
 		return TC_STATUS_USAGE;
 	}
 	if (pid == 0) {
+		if (jc)
+			(void)setpgid(0, 0);
 		tc_signals_child();
 		pid_t *writers = NULL;
 		size_t nwriters = 0;
@@ -936,6 +942,16 @@ static int exec_simple_body(struct tc_shell *sh, const struct tc_node *n)
 				 NULL, &(size_t){0}, &writers, &nwriters) < 0)
 			_exit(1);
 		_exit(run_external(sh, argv, kvs, na, cached_path, false, n->line));
+	}
+	if (jc) {
+		(void)setpgid(pid, pid);
+		const char *lbl = (sh->editor && sh->editor->last_cmd)
+					  ? sh->editor->last_cmd
+					  : argv[0];
+		struct tc_job *job = tc_jobs_add(&sh->jobs, pid, &pid, 1,
+						 lbl, TC_JOB_RUNNING);
+		if (job)
+			return tc_jobs_wait_fg(sh, job, false);
 	}
 	return wait_child(pid);
 }
@@ -986,14 +1002,27 @@ int tc_exec_command_builtin(struct tc_shell *sh, int argc, char **argv,
 		}
 	}
 
+	bool jc = sh->opt_monitor && sh->job_control;
 	pid_t pid = fork();
 	if (pid < 0) {
 		tc_error(sh, line, "cannot start %s: %s", argv[0], strerror(errno));
 		return TC_STATUS_USAGE;
 	}
 	if (pid == 0) {
+		if (jc)
+			(void)setpgid(0, 0);
 		tc_signals_child();
 		_exit(run_external(sh, argv, NULL, 0, cached_path, default_path, line));
+	}
+	if (jc) {
+		(void)setpgid(pid, pid);
+		const char *lbl = (sh->editor && sh->editor->last_cmd)
+					  ? sh->editor->last_cmd
+					  : argv[0];
+		struct tc_job *job = tc_jobs_add(&sh->jobs, pid, &pid, 1,
+						 lbl, TC_JOB_RUNNING);
+		if (job)
+			return tc_jobs_wait_fg(sh, job, false);
 	}
 	return wait_child(pid);
 }
@@ -1019,6 +1048,8 @@ static int exec_pipeline(struct tc_shell *sh, const struct tc_node *n)
 	if (n->u.pipeline.bang)
 		sh->errexit_ignore++;
 
+	bool jc = sh->opt_monitor && sh->job_control;
+	pid_t pgid = 0;
 	int in_fd = -1;
 	size_t forked = 0;
 	for (size_t i = 0; i < ncmds; i++) {
@@ -1049,10 +1080,15 @@ static int exec_pipeline(struct tc_shell *sh, const struct tc_node *n)
 			return TC_STATUS_USAGE;
 		}
 		if (pid == 0) {
+			if (jc)
+				(void)setpgid(0, pgid);
 			tc_signals_child();
 			tc_traps_subshell_reset(&sh->traps);
 			tc_bg_reset_subshell(&sh->bg);
+			tc_jobs_reset_subshell(&sh->jobs);
 			sh->interactive = false;
+			sh->job_control = false;
+			sh->opt_monitor = false;
 			sh->subshell_depth++;
 			sh->loop_depth = 0;
 			sh->func_depth = 0;
@@ -1078,6 +1114,11 @@ static int exec_pipeline(struct tc_shell *sh, const struct tc_node *n)
 			tc_trap_run_exit(sh);
 			_exit(sh->exit_requested ? sh->exit_status : st);
 		}
+		if (jc) {
+			if (pgid == 0)
+				pgid = pid;
+			(void)setpgid(pid, pgid);
+		}
 		if (in_fd >= 0)
 			close(in_fd);
 		if (i + 1 < ncmds) {
@@ -1090,13 +1131,34 @@ static int exec_pipeline(struct tc_shell *sh, const struct tc_node *n)
 	}
 
 	int status = 0;
-	for (size_t i = 0; i < forked; i++) {
-		int st = wait_child(pids[i]);
-		if (sh->opt_pipefail) {
-			if (st != 0)
-				status = st;
+	if (jc && pgid > 0) {
+		const char *lbl = (sh->editor && sh->editor->last_cmd)
+					  ? sh->editor->last_cmd
+					  : "(pipeline)";
+		struct tc_job *job = tc_jobs_add(&sh->jobs, pgid, pids, forked,
+						 lbl, TC_JOB_RUNNING);
+		if (job) {
+			status = tc_jobs_wait_fg(sh, job, sh->opt_pipefail);
 		} else {
-			status = st;
+			for (size_t i = 0; i < forked; i++) {
+				int st = wait_child(pids[i]);
+				if (sh->opt_pipefail) {
+					if (st != 0)
+						status = st;
+				} else {
+					status = st;
+				}
+			}
+		}
+	} else {
+		for (size_t i = 0; i < forked; i++) {
+			int st = wait_child(pids[i]);
+			if (sh->opt_pipefail) {
+				if (st != 0)
+					status = st;
+			} else {
+				status = st;
+			}
 		}
 	}
 	if (n->u.pipeline.bang) {
@@ -1127,16 +1189,22 @@ static int exec_redir(struct tc_shell *sh, const struct tc_node *n)
 
 static int exec_subshell(struct tc_shell *sh, const struct tc_node *n)
 {
+	bool jc = sh->opt_monitor && sh->job_control;
 	pid_t pid = fork();
 	if (pid < 0) {
 		tc_error(sh, n->line, "cannot fork subshell: %s", strerror(errno));
 		return TC_STATUS_USAGE;
 	}
 	if (pid == 0) {
+		if (jc)
+			(void)setpgid(0, 0);
 		tc_signals_child();
 		tc_traps_subshell_reset(&sh->traps);
 		tc_bg_reset_subshell(&sh->bg);
+		tc_jobs_reset_subshell(&sh->jobs);
 		sh->interactive = false;
+		sh->job_control = false;
+		sh->opt_monitor = false;
 		sh->subshell_depth++;
 		sh->loop_depth = 0;
 		sh->func_depth = 0;
@@ -1149,13 +1217,25 @@ static int exec_subshell(struct tc_shell *sh, const struct tc_node *n)
 		tc_trap_run_exit(sh);
 		_exit(sh->exit_requested ? sh->exit_status : st);
 	}
-	int st = wait_child(pid);
+	int st;
+	if (jc) {
+		(void)setpgid(pid, pid);
+		const char *lbl = (sh->editor && sh->editor->last_cmd)
+					  ? sh->editor->last_cmd
+					  : "(subshell)";
+		struct tc_job *job = tc_jobs_add(&sh->jobs, pid, &pid, 1,
+						 lbl, TC_JOB_RUNNING);
+		st = job ? tc_jobs_wait_fg(sh, job, false) : wait_child(pid);
+	} else {
+		st = wait_child(pid);
+	}
 	maybe_errexit(sh, st);
 	return st;
 }
 
 static int exec_bg(struct tc_shell *sh, const struct tc_node *n)
 {
+	bool jc = sh->opt_monitor && sh->job_control;
 	pid_t pid = fork();
 	if (pid < 0) {
 		tc_error(sh, n->line, "cannot fork background command: %s",
@@ -1163,10 +1243,18 @@ static int exec_bg(struct tc_shell *sh, const struct tc_node *n)
 		return TC_STATUS_USAGE;
 	}
 	if (pid == 0) {
-		tc_signals_bg_child();
+		if (jc) {
+			(void)setpgid(0, 0);
+			tc_signals_child();
+		} else {
+			tc_signals_bg_child();
+		}
 		tc_traps_subshell_reset(&sh->traps);
 		tc_bg_reset_subshell(&sh->bg);
+		tc_jobs_reset_subshell(&sh->jobs);
 		sh->interactive = false;
+		sh->job_control = false;
+		sh->opt_monitor = false;
 		sh->subshell_depth++;
 		sh->loop_depth = 0;
 		sh->func_depth = 0;
@@ -1174,11 +1262,13 @@ static int exec_bg(struct tc_shell *sh, const struct tc_node *n)
 		sh->flow = TC_FLOW_NONE;
 		/* POSIX XCU 2.9.3.1: stdin of an async list is /dev/null
 		 * before explicit redirections when job control is off. */
-		int devnull = open("/dev/null", O_RDONLY);
-		if (devnull >= 0) {
-			if (devnull != STDIN_FILENO) {
-				(void)dup2(devnull, STDIN_FILENO);
-				close(devnull);
+		if (!jc) {
+			int devnull = open("/dev/null", O_RDONLY);
+			if (devnull >= 0) {
+				if (devnull != STDIN_FILENO) {
+					(void)dup2(devnull, STDIN_FILENO);
+					close(devnull);
+				}
 			}
 		}
 		int st = tc_exec(sh, n->u.bg.child);
@@ -1190,6 +1280,21 @@ static int exec_bg(struct tc_shell *sh, const struct tc_node *n)
 	}
 	sh->last_bg_pid = pid;
 	(void)tc_bg_add(&sh->bg, pid);
+	if (jc) {
+		(void)setpgid(pid, pid);
+		const char *lbl = (sh->editor && sh->editor->last_cmd)
+					  ? sh->editor->last_cmd
+					  : "(background)";
+		struct tc_job *job = tc_jobs_add(&sh->jobs, pid, &pid, 1,
+						 lbl, TC_JOB_RUNNING);
+		if (job && sh->interactive) {
+			char msg[64];
+			int mn = snprintf(msg, sizeof(msg), "[%d] %ld\n",
+					  job->id, (long)pid);
+			if (mn > 0)
+				(void)tc_write_all(STDERR_FILENO, msg, (size_t)mn);
+		}
+	}
 	return 0;
 }
 
@@ -1457,7 +1562,7 @@ int tc_exec(struct tc_shell *sh, const struct tc_node *n)
 		}
 		sh->status = exec_one(sh, cur);
 		tc_trap_run_pending(sh);
-		tc_bg_reap_nonblock(&sh->bg);
+		tc_jobs_reap_nonblock(sh);
 		if (flow_stop(sh) || (sh->opt_noexec && !sh->interactive))
 			break;
 	}

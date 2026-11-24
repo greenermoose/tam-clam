@@ -13,9 +13,16 @@
 #include <sys/ioctl.h>
 #include <sys/wait.h>
 #include <termios.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "../check.h"
+
+static void sleep_ms(int ms)
+{
+	struct timespec ts = {.tv_sec = ms / 1000, .tv_nsec = (ms % 1000) * 1000000L};
+	(void)nanosleep(&ts, NULL);
+}
 
 struct pty_sess {
 	int master;
@@ -314,11 +321,72 @@ static void test_interactive_history(const char *sh)
 	CHECK(access(hf, F_OK) < 0);
 }
 
+static void test_interactive_jobs(const char *sh)
+{
+	struct pty_sess s;
+	CHECK(pty_start(&s, sh, "xterm-256color") == 0);
+	CHECK(pty_wait_for(&s, "CLAM$ ", 2000));
+
+	/* 1. Ctrl+P (0x10, VSUSP) stops a foreground sleep; prompt returns. */
+	pty_clear_out(&s);
+	CHECK(pty_send(&s, "sleep 30\r", 9) == 0);
+	CHECK(pty_wait_for(&s, "sleep 30", 2000));
+	sleep_ms(120);
+	CHECK(pty_send(&s, "\x10", 1) == 0); /* Ctrl+P -> SIGTSTP */
+	CHECK(pty_wait_after(&s, "[1]+ Stopped", "CLAM$ ", 2000));
+
+	/* 2. jobs lists [1]+ Stopped. */
+	pty_clear_out(&s);
+	CHECK(pty_send(&s, "jobs\r", 5) == 0);
+	CHECK(pty_wait_after(&s, "[1]+ Stopped", "CLAM$ ", 2000));
+
+	/* 3. bg %1 resumes in background, then kill %1 + wait %1 cleans it up. */
+	pty_clear_out(&s);
+	CHECK(pty_send(&s, "bg %1\r", 6) == 0);
+	CHECK(pty_wait_after(&s, "[1]+ sleep 30 &", "CLAM$ ", 2000));
+
+	pty_clear_out(&s);
+	CHECK(pty_send(&s, "kill %1; wait %1; printf 'J1:ok\\n'\r", 35) == 0);
+	CHECK(pty_wait_after(&s, "J1:ok", "CLAM$ ", 2000));
+
+	/* 4. Ctrl+\ (0x1C, VINTR) interrupts foreground sleep cleanly. */
+	pty_clear_out(&s);
+	CHECK(pty_send(&s, "sleep 30\r", 9) == 0);
+	CHECK(pty_wait_for(&s, "sleep 30", 2000));
+	sleep_ms(120);
+	CHECK(pty_send(&s, "\x1c", 1) == 0); /* Ctrl+\ -> SIGINT */
+	CHECK(pty_wait_after(&s, "sleep 30", "CLAM$ ", 2000));
+
+	/* 5. Background job finishes and prints [1]+ Done before next prompt. */
+	pty_clear_out(&s);
+	CHECK(pty_send(&s, "sleep 0.1 &\r", 12) == 0);
+	CHECK(pty_wait_after(&s, "[1] ", "CLAM$ ", 2000));
+	sleep_ms(250);
+	pty_clear_out(&s);
+	CHECK(pty_send(&s, "\r", 1) == 0);
+	CHECK(pty_wait_after(&s, "[1]+ Done", "CLAM$ ", 2000));
+
+	/* 6. fg %1 brings a stopped job to foreground and finishes cleanly. */
+	pty_clear_out(&s);
+	CHECK(pty_send(&s, "sleep 0.4\r", 10) == 0);
+	CHECK(pty_wait_for(&s, "sleep 0.4", 2000));
+	sleep_ms(100);
+	CHECK(pty_send(&s, "\x10", 1) == 0);
+	CHECK(pty_wait_after(&s, "[1]+ Stopped", "CLAM$ ", 2000));
+	pty_clear_out(&s);
+	CHECK(pty_send(&s, "fg %1; printf 'FG:ok\\n'\r", 24) == 0);
+	CHECK(pty_wait_after(&s, "FG:ok", "CLAM$ ", 2000));
+
+	CHECK(pty_send(&s, "\x11", 1) == 0);
+	CHECK(pty_finish(&s) == 0);
+}
+
 int main(int argc, char **argv)
 {
 	const char *sh = argc > 1 ? argv[1] : "build/tam-clam";
 	test_interactive_xterm(sh);
 	test_interactive_linux_vt(sh);
 	test_interactive_history(sh);
+	test_interactive_jobs(sh);
 	CHECK_DONE("test_pty");
 }

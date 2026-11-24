@@ -228,6 +228,8 @@ int tc_input_getc(struct tc_input *in)
 			in->ed_len = in->ed_pos = 0;
 			if (in->eof)
 				return TC_IN_EOF;
+			if (in->want_ps1 && in->sh && in->sh->interactive)
+				tc_jobs_notify(in->sh);
 			const char *p1 = in->sh ? tc_var_get(&in->sh->vars, "PS1") : "$ ";
 			const char *p2 = in->sh ? tc_var_get(&in->sh->vars, "PS2") : "> ";
 			const char *lead = in->want_ps1 ? (p1 ? p1 : "$ ") : (p2 ? p2 : "> ");

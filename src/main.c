@@ -52,6 +52,8 @@ static int run(struct tc_shell *sh, struct tc_input *in)
 	}
 	for (;;) {
 		struct tc_node *node;
+		if (sh->interactive)
+			tc_jobs_notify(sh);
 		tc_sigint_seen = 0;
 		int r = tc_parse_next(&p, &node);
 		if (r == TC_END)
@@ -71,7 +73,7 @@ static int run(struct tc_shell *sh, struct tc_input *in)
 			free(cwd_copy);
 			tc_arena_reset(&sh->arena);
 			tc_trap_run_pending(sh);
-			tc_bg_reap_nonblock(&sh->bg);
+			tc_jobs_reap_nonblock(sh);
 			if (sh->exit_requested)
 				break;
 			continue;
@@ -300,6 +302,7 @@ int main(int argc, char **argv)
 			tc_traps_init(&sh.traps, true);
 			if (tc_signals_interactive() < 0)
 				tc_error(&sh, 0, "cannot set up signals: %s", strerror(errno));
+			tc_jobs_init_terminal(&sh);
 			const char *hf = tc_var_get(&sh.vars, "HISTFILE");
 			char *xdg_hf = NULL;
 			bool priv = sh.private_mode || (hf != NULL && hf[0] == '\0');

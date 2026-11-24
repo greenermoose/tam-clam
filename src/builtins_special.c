@@ -576,10 +576,18 @@ int tc_bi_wait(struct tc_shell *sh, int argc, char **argv, unsigned long line)
 	int status = 0;
 	for (; i < argc; i++) {
 		if (argv[i][0] == '%') {
-			tc_error(sh, line,
-				 "wait: job IDs (`%s') are not supported yet; see ROADMAP.md",
-				 argv[i]);
-			return TC_STATUS_USAGE;
+			const char *err = NULL;
+			struct tc_job *j = tc_jobs_resolve(&sh->jobs, argv[i], &err);
+			if (!j) {
+				tc_error(sh, line, "wait: %s: %s", argv[i], err);
+				status = TC_STATUS_NOTFOUND;
+				continue;
+			}
+			bool interrupted = false;
+			status = tc_jobs_wait_job(sh, j, &interrupted);
+			if (interrupted)
+				return status;
+			continue;
 		}
 		pid_t pid;
 		if (parse_pid_arg(argv[i], &pid) < 0) {

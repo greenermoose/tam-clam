@@ -36,7 +36,10 @@ int tc_signals_interactive(void)
 		return -1;
 #endif
 	if (tc_signals_set_handler(SIGQUIT, TC_SIG_IGN) < 0 ||
-	    tc_signals_set_handler(SIGTERM, TC_SIG_IGN) < 0)
+	    tc_signals_set_handler(SIGTERM, TC_SIG_IGN) < 0 ||
+	    tc_signals_set_handler(SIGTSTP, TC_SIG_IGN) < 0 ||
+	    tc_signals_set_handler(SIGTTIN, TC_SIG_IGN) < 0 ||
+	    tc_signals_set_handler(SIGTTOU, TC_SIG_IGN) < 0)
 		return -1;
 	interactive_ign = 1;
 	return 0;
@@ -102,6 +105,9 @@ void tc_signals_child(void)
 	if (interactive_ign) {
 		sigaction(SIGQUIT, &sa, NULL);
 		sigaction(SIGTERM, &sa, NULL);
+		sigaction(SIGTSTP, &sa, NULL);
+		sigaction(SIGTTIN, &sa, NULL);
+		sigaction(SIGTTOU, &sa, NULL);
 		interactive_ign = 0;
 	}
 	tc_signals_clear_pending();

@@ -637,10 +637,18 @@ int tc_bi_kill(struct tc_shell *sh, int argc, char **argv, unsigned long line)
 	int status = 0;
 	for (; i < argc; i++) {
 		if (argv[i][0] == '%') {
-			tc_error(sh, line,
-				 "kill: job IDs (`%s') are not supported yet; see ROADMAP.md",
-				 argv[i]);
-			return TC_STATUS_USAGE;
+			const char *err = NULL;
+			struct tc_job *j = tc_jobs_resolve(&sh->jobs, argv[i], &err);
+			if (!j) {
+				tc_error(sh, line, "kill: %s: %s", argv[i], err);
+				status = 1;
+				continue;
+			}
+			if (kill(-j->pgid, sig) < 0) {
+				tc_error(sh, line, "kill: (%s): %s", argv[i], strerror(errno));
+				status = 1;
+			}
+			continue;
 		}
 		pid_t pid;
 		if (parse_kill_pid(argv[i], &pid) < 0) {
