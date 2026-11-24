@@ -1,6 +1,7 @@
 # tam-clam command options
 opt --lint       Check scripts for risky code without running
 opt --private    Run without reading or writing history
+opt -v           Print tam-clam version
 opt --version    Print tam-clam version
 opt --help       Print usage summary
 opt -c           Run command string

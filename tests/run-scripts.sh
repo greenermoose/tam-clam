@@ -97,6 +97,7 @@ expect 'a missing script' 127 '' "$shell" "$tmp/no-such-script"
 expect 'a directory as a script' 126 '' "$shell" "$tmp"
 expect 'an unknown option' 2 '' "$shell" -Z
 expect '--version' 0 "tam-clam $(cat "$here/../VERSION")" "$shell" --version
+expect '-v' 0 "tam-clam $(cat "$here/../VERSION")" "$shell" -v
 expect 'a syntax error stops the script' 2 'before' \
 	"$shell" -c 'echo before
 echo a ; ; echo b
@@ -181,8 +182,8 @@ expect 'CLI -n parses valid script without running it' 0 '' \
 	"$shell" -n -c 'echo should_not_run; if true; then echo nope; fi'
 expect 'CLI -n reports syntax error with status 2' 2 '' \
 	"$shell" -n -c 'if true; then echo missing_fi'
-expect 'CLI -v is refused as deferred option' 2 '' \
-	"$shell" -v -c 'echo hi'
+expect 'CLI -b is refused as deferred option' 2 '' \
+	"$shell" -b -c 'echo hi'
 
 # 0.1.5: --lint mode (0 clean, 1 warnings, 2 syntax/usage error).
 printf 'x=ok\n[ "$x" = ok ] && cd /tmp || exit 1\n' >"$tmp/lint_clean.sh"

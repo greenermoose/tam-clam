@@ -37,7 +37,7 @@ static void usage(int fd)
 		"       tam-clam SCRIPT [ARGS...]\n"
 		"       tam-clam [--private] [-s] [ARGS...]\n"
 		"       tam-clam --lint FILE...\n"
-		"       tam-clam --version\n";
+		"       tam-clam -v | --version\n";
 	(void)tc_write_all(fd, text, sizeof(text) - 1);
 }
 
@@ -168,7 +168,7 @@ int main(int argc, char **argv)
 			sh.private_mode = true;
 			continue;
 		}
-		if (strcmp(a, "--version") == 0) {
+		if (strcmp(a, "--version") == 0 || strcmp(a, "-v") == 0) {
 			static const char v[] = "tam-clam " TC_VERSION "\n";
 			int wr = tc_write_all(STDOUT_FILENO, v, sizeof(v) - 1) < 0 ? 1 : 0;
 			tc_shell_finish(&sh);

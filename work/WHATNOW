@@ -3,14 +3,15 @@ WHATNOW
 What tam-clam is doing now and what comes next. Read this first; revise
 it at the end of every session (work/README-work).
 
-Updated: 2026-11-24, with W24 (0.3.4, Phase P4 complete)
+Updated: 2026-11-24, with 0.3.5 (-v synonym for --version)
 
 
 STATE
 
-  Version 0.3.4, Phase P4 complete (arrays, [[ ]]/=~, local/declare,
+  Version 0.3.5, Phase P4 complete (arrays, [[ ]]/=~, local/declare,
   brace expansion, process substitution, ** globstar, strict modes,
-  abbreviations, and man-page completion generator), on branch dev.
+  abbreviations, man-page completion generator, and -v / --version), on
+  branch dev. 0.3.5 adds -v as a CLI synonym for --version.
   0.3.4 adds:
   - fish-style interactive abbreviations in include/tam-clam/abbr.h,
     src/abbr.c, src/edit/edit.c, src/edit/highlight.c, src/builtins.c,
