@@ -131,6 +131,26 @@ struct tc_case_item {
 	struct tc_node *body; /* NULL when the clause body is empty */
 };
 
+enum tc_cond_kind {
+	TC_COND_OR,     /* left || right */
+	TC_COND_AND,    /* left && right */
+	TC_COND_NOT,    /* ! left */
+	TC_COND_UNARY,  /* op word (e.g. -f x, -z x, -v x, -o opt) */
+	TC_COND_BINARY, /* left_word op right_word (==, !=, =~, <, >, -eq, ...) */
+	TC_COND_WORD,   /* bare word (non-empty test) */
+};
+
+struct tc_cond_expr {
+	enum tc_cond_kind kind;
+	const char *op;           /* operator string for UNARY / BINARY */
+	struct tc_cond_expr *lhs; /* OR / AND / NOT */
+	struct tc_cond_expr *rhs; /* OR / AND */
+	struct tc_word w1;        /* UNARY / BINARY lhs / WORD */
+	struct tc_word w2;        /* BINARY rhs */
+	unsigned long line;
+	unsigned long col;
+};
+
 enum tc_node_kind {
 	TC_NODE_SIMPLE,    /* assignments, words, and redirections */
 	TC_NODE_PIPELINE,  /* !? cmd | cmd ... */
@@ -145,6 +165,7 @@ enum tc_node_kind {
 	TC_NODE_CASE,      /* case word in items... esac */
 	TC_NODE_FUNCDEF,   /* name() compound_command */
 	TC_NODE_BG,        /* cmd & */
+	TC_NODE_COND,      /* [[ expr ]] */
 };
 
 struct tc_node {
@@ -209,6 +230,9 @@ struct tc_node {
 		struct {
 			struct tc_node *child;
 		} bg;
+		struct {
+			struct tc_cond_expr *expr;
+		} cond;
 	} u;
 };
 

@@ -94,7 +94,7 @@ static bool is_op_char(char c)
 static bool word_introduces_cmd(const char *w, size_t len)
 {
 	static const char *const kw[] = {
-		"if", "then", "elif", "else", "do", "while", "until", "!", "{"
+		"if", "then", "elif", "else", "do", "while", "until", "!", "{", "[["
 	};
 	for (size_t i = 0; i < sizeof(kw) / sizeof(kw[0]); i++) {
 		if (strlen(kw[i]) == len && memcmp(w, kw[i], len) == 0)

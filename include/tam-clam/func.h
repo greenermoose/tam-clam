@@ -37,6 +37,9 @@ struct tc_func *tc_func_find(const struct tc_funcs *ft, const char *name);
 /* Remove function by name (no-op if absent). */
 void tc_func_unset(struct tc_funcs *ft, const char *name);
 
+/* Return a heap-allocated, sorted array of function names. Caller frees *out. */
+int tc_funcs_list(const struct tc_funcs *ft, const char ***out, size_t *out_n);
+
 void tc_func_ref(struct tc_func *fn);
 void tc_func_unref(struct tc_func *fn);
 

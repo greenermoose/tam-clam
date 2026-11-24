@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Shell variable table: open-addressed hash table with lazy envp cache. */
+#include <ctype.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -7,6 +8,29 @@
 #include "tam-clam/var.h"
 
 #define TC_VAR_INIT_CAP 64
+
+struct tc_var_scope {
+	struct tc_var_save *saves;
+	size_t count;
+	size_t cap;
+};
+
+static char *xstrdup_flags(const char *s, unsigned flags)
+{
+	size_t len = strlen(s);
+	char *p = malloc(len + 1);
+	if (!p)
+		return NULL;
+	memcpy(p, s, len + 1);
+	if (flags & TC_VAR_LOWER) {
+		for (size_t i = 0; i < len; i++)
+			p[i] = (char)tolower((unsigned char)p[i]);
+	} else if (flags & TC_VAR_UPPER) {
+		for (size_t i = 0; i < len; i++)
+			p[i] = (char)toupper((unsigned char)p[i]);
+	}
+	return p;
+}
 
 static char *xstrdup(const char *s)
 {
@@ -71,10 +95,18 @@ void tc_var_init(struct tc_vars *v)
 	v->envp = NULL;
 	v->env_dirty = true;
 	v->path_gen = 0;
+	v->scopes = NULL;
+	v->scope_depth = 0;
+	v->scope_cap = 0;
 }
 
 void tc_var_finish(struct tc_vars *v)
 {
+	while (v->scope_depth > 0)
+		tc_var_pop_scope(v);
+	free(v->scopes);
+	v->scopes = NULL;
+	v->scope_cap = 0;
 	free_envp(v);
 	if (v->slots) {
 		for (size_t i = 0; i < v->cap; i++) {
@@ -277,41 +309,54 @@ int tc_var_set(struct tc_vars *v, const char *name, const char *val,
 	if (e->name) {
 		if (val != NULL && (e->flags & TC_VAR_READONLY))
 			return TC_VAR_ERR_READONLY;
+		unsigned eff_flags = e->flags | add_flags;
+		if (add_flags & TC_VAR_LOWER)
+			eff_flags &= ~TC_VAR_UPPER;
+		else if (add_flags & TC_VAR_UPPER)
+			eff_flags &= ~TC_VAR_LOWER;
 		if (val != NULL) {
+			char *tval = xstrdup_flags(val, eff_flags);
+			if (!tval)
+				return TC_VAR_ERR_NOMEM;
 			if (e->flags & TC_VAR_ARRAY) {
 				if (!e->arr) {
 					e->arr = tc_array_new();
-					if (!e->arr)
+					if (!e->arr) {
+						free(tval);
 						return TC_VAR_ERR_NOMEM;
+					}
 				}
-				if (tc_array_set(e->arr, 0, val) != TC_ARR_OK)
+				int ar = tc_array_set(e->arr, 0, tval);
+				free(tval);
+				if (ar != TC_ARR_OK)
 					return TC_VAR_ERR_NOMEM;
 			} else if (e->flags & TC_VAR_ASSOC) {
 				if (!e->assoc) {
 					e->assoc = tc_assoc_new();
-					if (!e->assoc)
+					if (!e->assoc) {
+						free(tval);
 						return TC_VAR_ERR_NOMEM;
+					}
 				}
-				if (tc_assoc_set(e->assoc, "0", val) != TC_ARR_OK)
+				int ar = tc_assoc_set(e->assoc, "0", tval);
+				free(tval);
+				if (ar != TC_ARR_OK)
 					return TC_VAR_ERR_NOMEM;
 			} else {
-				char *copy = xstrdup(val);
-				if (!copy)
-					return TC_VAR_ERR_NOMEM;
 				free(e->value);
-				e->value = copy;
+				e->value = tval;
 			}
 			if (strcmp(name, "PATH") == 0)
 				v->path_gen++;
 		}
-		e->flags |= add_flags;
+		e->flags = eff_flags;
 		if (e->flags & TC_VAR_EXPORT)
 			v->env_dirty = true;
 		return TC_VAR_OK;
 	}
 
 	char *ncopy = xstrdup(name);
-	char *vcopy = val ? xstrdup(val) : NULL;
+	char *vcopy = val ? xstrdup_flags(val, add_flags) : NULL;
 	if (!ncopy || (val && !vcopy)) {
 		free(ncopy);
 		free(vcopy);
@@ -363,6 +408,10 @@ int tc_var_declare(struct tc_vars *v, const char *name, unsigned add_flags,
 			return cr;
 	}
 	unsigned old_flags = e->flags;
+	if (add_flags & TC_VAR_LOWER)
+		clear_flags |= TC_VAR_UPPER;
+	if (add_flags & TC_VAR_UPPER)
+		clear_flags |= TC_VAR_LOWER;
 	e->flags = (e->flags | (add_flags & ~(TC_VAR_ARRAY | TC_VAR_ASSOC))) &
 		   ~(clear_flags & ~(TC_VAR_ARRAY | TC_VAR_ASSOC));
 	if ((old_flags ^ e->flags) & TC_VAR_EXPORT)
@@ -438,16 +487,25 @@ int tc_var_set_elem_idx(struct tc_vars *v, const char *name, int64_t idx,
 	if (tc_array_resolve_idx(e->arr, idx, &ridx) != TC_ARR_OK)
 		return TC_VAR_ERR_BADSUB;
 	int ar;
+	unsigned eff_flags = e->flags | add_flags;
 	if (append) {
 		const char *cur = NULL;
 		(void)tc_array_get(e->arr, ridx, &cur);
 		char *joined = xstrcat(cur, val);
 		if (!joined)
 			return TC_VAR_ERR_NOMEM;
-		ar = tc_array_set(e->arr, ridx, joined);
+		char *tval = xstrdup_flags(joined, eff_flags);
 		free(joined);
+		if (!tval)
+			return TC_VAR_ERR_NOMEM;
+		ar = tc_array_set(e->arr, ridx, tval);
+		free(tval);
 	} else {
-		ar = tc_array_set(e->arr, ridx, val);
+		char *tval = xstrdup_flags(val, eff_flags);
+		if (!tval)
+			return TC_VAR_ERR_NOMEM;
+		ar = tc_array_set(e->arr, ridx, tval);
+		free(tval);
 	}
 	if (ar == TC_ARR_BADSUB)
 		return TC_VAR_ERR_BADSUB;
@@ -471,7 +529,11 @@ int tc_var_append_elem(struct tc_vars *v, const char *name, const char *val,
 	int cr = convert_to_array(e);
 	if (cr != TC_VAR_OK)
 		return cr;
-	int ar = tc_array_append(e->arr, val);
+	char *tval = xstrdup_flags(val, e->flags | add_flags);
+	if (!tval)
+		return TC_VAR_ERR_NOMEM;
+	int ar = tc_array_append(e->arr, tval);
+	free(tval);
 	if (ar == TC_ARR_BADSUB)
 		return TC_VAR_ERR_BADSUB;
 	if (ar != TC_ARR_OK)
@@ -499,15 +561,24 @@ int tc_var_set_elem_key(struct tc_vars *v, const char *name, const char *key,
 			return TC_VAR_ERR_NOMEM;
 	}
 	int ar;
+	unsigned eff_flags = e->flags | add_flags;
 	if (append) {
 		const char *cur = tc_assoc_get(e->assoc, key);
 		char *joined = xstrcat(cur, val);
 		if (!joined)
 			return TC_VAR_ERR_NOMEM;
-		ar = tc_assoc_set(e->assoc, key, joined);
+		char *tval = xstrdup_flags(joined, eff_flags);
 		free(joined);
+		if (!tval)
+			return TC_VAR_ERR_NOMEM;
+		ar = tc_assoc_set(e->assoc, key, tval);
+		free(tval);
 	} else {
-		ar = tc_assoc_set(e->assoc, key, val);
+		char *tval = xstrdup_flags(val, eff_flags);
+		if (!tval)
+			return TC_VAR_ERR_NOMEM;
+		ar = tc_assoc_set(e->assoc, key, tval);
+		free(tval);
 	}
 	if (ar != TC_ARR_OK)
 		return TC_VAR_ERR_NOMEM;
@@ -848,6 +919,170 @@ void tc_var_pop_overrides(struct tc_vars *v, struct tc_var_save *saves,
 		tc_array_free(sv->arr);
 		tc_assoc_free(sv->assoc);
 	}
+}
+
+/* Remove name from the live table regardless of readonly (used by scope pop/local). */
+static void force_remove_slot(struct tc_vars *v, const char *name, bool free_payload)
+{
+	if (v->cap == 0)
+		return;
+	size_t mask = v->cap - 1;
+	size_t idx = (size_t)hash_str(name) & mask;
+	for (;;) {
+		struct tc_var_entry *e = &v->slots[idx];
+		if (!e->name)
+			return;
+		if (strcmp(e->name, name) == 0) {
+			if (e->flags & TC_VAR_EXPORT)
+				v->env_dirty = true;
+			if (strcmp(name, "PATH") == 0)
+				v->path_gen++;
+			free(e->name);
+			if (free_payload) {
+				free(e->value);
+				tc_array_free(e->arr);
+				tc_assoc_free(e->assoc);
+			}
+			memset(e, 0, sizeof(*e));
+			v->count--;
+			size_t next = (idx + 1) & mask;
+			while (v->slots[next].name) {
+				struct tc_var_entry tmp = v->slots[next];
+				memset(&v->slots[next], 0, sizeof(v->slots[next]));
+				struct tc_var_entry *dst =
+					find_slot(v->slots, v->cap, tmp.name);
+				*dst = tmp;
+				next = (next + 1) & mask;
+			}
+			return;
+		}
+		idx = (idx + 1) & mask;
+	}
+}
+
+int tc_var_push_scope(struct tc_vars *v)
+{
+	if (v->scope_depth == v->scope_cap) {
+		size_t ncap = v->scope_cap ? v->scope_cap * 2 : 8;
+		struct tc_var_scope *ns = realloc(v->scopes, ncap * sizeof(*ns));
+		if (!ns)
+			return TC_VAR_ERR_NOMEM;
+		v->scopes = ns;
+		v->scope_cap = ncap;
+	}
+	v->scopes[v->scope_depth].saves = NULL;
+	v->scopes[v->scope_depth].count = 0;
+	v->scopes[v->scope_depth].cap = 0;
+	v->scope_depth++;
+	return TC_VAR_OK;
+}
+
+void tc_var_pop_scope(struct tc_vars *v)
+{
+	if (v->scope_depth == 0)
+		return;
+	struct tc_var_scope *sc = &v->scopes[--v->scope_depth];
+	while (sc->count > 0) {
+		struct tc_var_save *sv = &sc->saves[--sc->count];
+		if (!sv->existed) {
+			force_remove_slot(v, sv->name, true);
+		} else {
+			if (ensure_cap(v) == TC_VAR_OK) {
+				struct tc_var_entry *e =
+					find_slot(v->slots, v->cap, sv->name);
+				if (e->name) {
+					free(e->value);
+					tc_array_free(e->arr);
+					tc_assoc_free(e->assoc);
+				} else {
+					e->name = xstrdup(sv->name);
+					if (e->name)
+						v->count++;
+				}
+				if (e->name) {
+					e->value = sv->value;
+					e->arr = sv->arr;
+					e->assoc = sv->assoc;
+					sv->value = NULL;
+					sv->arr = NULL;
+					sv->assoc = NULL;
+					e->flags = sv->flags;
+					v->env_dirty = true;
+					if (strcmp(sv->name, "PATH") == 0)
+						v->path_gen++;
+				}
+			}
+		}
+		free(sv->name);
+		free(sv->value);
+		tc_array_free(sv->arr);
+		tc_assoc_free(sv->assoc);
+	}
+	free(sc->saves);
+	sc->saves = NULL;
+	sc->cap = 0;
+}
+
+bool tc_var_is_local(const struct tc_vars *v, const char *name)
+{
+	if (v->scope_depth == 0)
+		return false;
+	const struct tc_var_scope *sc = &v->scopes[v->scope_depth - 1];
+	for (size_t i = 0; i < sc->count; i++) {
+		if (strcmp(sc->saves[i].name, name) == 0)
+			return true;
+	}
+	return false;
+}
+
+int tc_var_make_local(struct tc_vars *v, const char *name)
+{
+	if (!tc_var_valid_name(name, strlen(name)))
+		return TC_VAR_ERR_NAME;
+	if (v->scope_depth == 0)
+		return TC_VAR_OK;
+	struct tc_var_scope *sc = &v->scopes[v->scope_depth - 1];
+	for (size_t i = 0; i < sc->count; i++) {
+		if (strcmp(sc->saves[i].name, name) == 0)
+			return TC_VAR_OK;
+	}
+
+	if (sc->count == sc->cap) {
+		size_t ncap = sc->cap ? sc->cap * 2 : 8;
+		struct tc_var_save *ns = realloc(sc->saves, ncap * sizeof(*ns));
+		if (!ns)
+			return TC_VAR_ERR_NOMEM;
+		sc->saves = ns;
+		sc->cap = ncap;
+	}
+
+	char *ncopy = xstrdup(name);
+	if (!ncopy)
+		return TC_VAR_ERR_NOMEM;
+
+	struct tc_var_save *sv = &sc->saves[sc->count];
+	memset(sv, 0, sizeof(*sv));
+	sv->name = ncopy;
+	if (v->cap > 0) {
+		struct tc_var_entry *e = find_slot(v->slots, v->cap, name);
+		if (e->name) {
+			if (e->flags & TC_VAR_READONLY) {
+				free(ncopy);
+				return TC_VAR_ERR_READONLY;
+			}
+			sv->existed = true;
+			sv->flags = e->flags;
+			sv->value = e->value;
+			sv->arr = e->arr;
+			sv->assoc = e->assoc;
+			e->value = NULL;
+			e->arr = NULL;
+			e->assoc = NULL;
+			force_remove_slot(v, name, false);
+		}
+	}
+	sc->count++;
+	return TC_VAR_OK;
 }
 
 static int cmp_var_entry(const void *a, const void *b)

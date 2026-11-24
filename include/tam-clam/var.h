@@ -17,6 +17,9 @@ enum {
 	TC_VAR_READONLY = 1 << 1,
 	TC_VAR_ARRAY    = 1 << 2,
 	TC_VAR_ASSOC    = 1 << 3,
+	TC_VAR_INTEGER  = 1 << 4,
+	TC_VAR_LOWER    = 1 << 5,
+	TC_VAR_UPPER    = 1 << 6,
 };
 
 enum tc_var_err {
@@ -36,6 +39,8 @@ struct tc_var_entry {
 	unsigned flags;
 };
 
+struct tc_var_scope;
+
 struct tc_vars {
 	struct tc_var_entry *slots;
 	size_t cap;
@@ -43,6 +48,9 @@ struct tc_vars {
 	char **envp;       /* cached NULL-terminated NAME=VALUE array */
 	bool env_dirty;
 	uint64_t path_gen; /* bumped whenever PATH is set or unset */
+	struct tc_var_scope *scopes; /* dynamic local scope stack */
+	size_t scope_depth;
+	size_t scope_cap;
 };
 
 struct tc_var_kv {
@@ -122,6 +130,13 @@ int tc_var_push_overrides(struct tc_vars *v, const struct tc_var_kv *kvs,
 			  size_t *out_saved);
 void tc_var_pop_overrides(struct tc_vars *v, struct tc_var_save *saves,
 			  size_t nsaved);
+
+/* Dynamic function-local variable scopes (0.3.1). */
+int tc_var_push_scope(struct tc_vars *v);
+void tc_var_pop_scope(struct tc_vars *v);
+/* Make name local to the top scope frame (no-op if already local in top frame). */
+int tc_var_make_local(struct tc_vars *v, const char *name);
+bool tc_var_is_local(const struct tc_vars *v, const char *name);
 
 /* Return a heap-allocated, name-sorted array of pointers to entries matching
  * filter_flag (0 = all entries with non-NULL value, TC_VAR_EXPORT or

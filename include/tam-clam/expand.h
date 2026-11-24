@@ -32,9 +32,15 @@ int tc_expand_single(struct tc_shell *sh, const struct tc_word *w,
 		     bool is_assign, char **out);
 
 /* Expand a single word into a tc_pat in sh->arena preserving per-byte quoting
- * (for case patterns). */
+ * (for case patterns and [[ == ]] RHS). */
 int tc_expand_pat(struct tc_shell *sh, const struct tc_word *w,
 		  struct tc_pat *out);
+
+/* Expand a single word into a POSIX ERE string in sh->arena for [[ =~ ]]:
+ * quoted segments have ERE metacharacters backslash-escaped, unquoted
+ * segments are preserved as raw ERE syntax. */
+int tc_expand_regex(struct tc_shell *sh, const struct tc_word *w,
+		    char **out, size_t *out_len);
 
 /* Expand an unquoted here-document's parts into sh->arena. */
 int tc_expand_heredoc(struct tc_shell *sh, const struct tc_wpart *parts,

@@ -1971,6 +1971,137 @@ int tc_lex_next(struct tc_lexer *lx, struct tc_token *tok)
 	}
 }
 
+int tc_lex_next_regex_word(struct tc_lexer *lx, struct tc_token *tok)
+{
+	tc_input_pop_done_aliases(lx->in);
+	tok->text = NULL;
+	tok->len = 0;
+	tok->parts = NULL;
+	tok->flags = 0;
+	tok->col = 0;
+
+	int c;
+	for (;;) {
+		c = getch_cont(lx);
+		tok->line = lx->last_line;
+		tok->col = lx->last_col;
+		if (c == ' ' || c == '\t')
+			continue;
+		break;
+	}
+	if (c == TC_IN_EOF) {
+		tok->kind = TC_TOK_END;
+		return TC_OK;
+	}
+	if (c < TC_IN_EOF)
+		return input_failure(lx, c);
+	if (c == '\n') {
+		tok->kind = TC_TOK_NEWLINE;
+		tok->line--;
+		return TC_OK;
+	}
+	if (c == ';' || c == ')')
+		return lex_operator(lx, c, tok);
+
+	unsigned flags = 0;
+	tam_str_clear(lx->word);
+	struct wpart_buf wb;
+	int r = wb_init(&wb, lx);
+	if (r != TC_OK)
+		return r;
+
+	int pdepth = 0;
+
+	for (;; c = getch_cont(lx)) {
+		if (c < TC_IN_EOF) {
+			r = input_failure(lx, c);
+			goto out;
+		}
+		if (c == TC_IN_EOF)
+			break;
+		if (c == ' ' || c == '\t' || c == '\n' || c == ';' ||
+		    (pdepth == 0 && c == ')')) {
+			ungetch(lx, c);
+			break;
+		}
+		if (c == 0) {
+			r = nul_byte(lx);
+			goto out;
+		}
+		if ((r = raw_add(lx, c)) != TC_OK)
+			goto out;
+
+		switch (c) {
+		case '\'':
+			flags |= TC_WORD_QUOTED;
+			r = lex_single(lx, &wb, true, lx->in->line);
+			break;
+		case '"':
+			flags |= TC_WORD_QUOTED;
+			r = lex_double(lx, &wb, true, &flags, 0, lx->in->line);
+			break;
+		case '\\': {
+			flags |= TC_WORD_QUOTED;
+			int d = getch(lx);
+			if (d < TC_IN_EOF) {
+				r = input_failure(lx, d);
+				goto out;
+			}
+			if (d == 0) {
+				r = nul_byte(lx);
+				goto out;
+			}
+			if (d != TC_IN_EOF) {
+				if ((r = raw_add(lx, d)) != TC_OK)
+					goto out;
+				r = wb_add_char(&wb, TC_WPART_QUOTED, d);
+			}
+			break;
+		}
+		case '$':
+			r = lex_dollar(lx, &wb, false, true, &flags, 0, lx->in->line);
+			break;
+		case '`':
+			r = lex_backquote(lx, &wb, false, true, &flags, lx->in->line);
+			break;
+		case '(':
+			pdepth++;
+			r = wb_add_char(&wb, TC_WPART_LITERAL, c);
+			break;
+		case ')':
+			if (pdepth > 0)
+				pdepth--;
+			r = wb_add_char(&wb, TC_WPART_LITERAL, c);
+			break;
+		default:
+			r = wb_add_char(&wb, TC_WPART_LITERAL, c);
+			break;
+		}
+		if (r != TC_OK)
+			goto out;
+	}
+
+	if ((r = wb_flush(&wb)) != TC_OK)
+		goto out;
+
+	size_t len = tam_str_len(lx->word);
+	tok->kind = TC_TOK_WORD;
+	tok->flags = flags;
+	tok->len = len;
+	tok->parts = wb.head;
+	tok->text = tc_arena_strndup(&lx->sh->arena, lx->word, len);
+	if (!tok->text) {
+		tc_error(lx->sh, tok->line, "out of memory");
+		r = TC_ERR_NOMEM;
+		goto out;
+	}
+	r = TC_OK;
+
+out:
+	wb_finish(&wb);
+	return r;
+}
+
 void tc_lex_skip_line(struct tc_lexer *lx)
 {
 	int c;

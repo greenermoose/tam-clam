@@ -80,6 +80,24 @@ enum tc_opt_res tc_opt_set_name(struct tc_shell *sh, const char *name,
 	return is_deferred_name(name) ? TC_OPT_DEFERRED : TC_OPT_INVALID;
 }
 
+bool tc_opt_get_name(const struct tc_shell *sh, const char *name, bool *valid)
+{
+	if (valid)
+		*valid = true;
+	if (strcmp(name, "allexport") == 0) return sh->opt_allexport;
+	if (strcmp(name, "errexit") == 0)   return sh->opt_errexit;
+	if (strcmp(name, "monitor") == 0)   return sh->opt_monitor;
+	if (strcmp(name, "noclobber") == 0) return sh->opt_noclobber;
+	if (strcmp(name, "noexec") == 0)    return sh->opt_noexec;
+	if (strcmp(name, "noglob") == 0)    return sh->opt_noglob;
+	if (strcmp(name, "nounset") == 0)   return sh->opt_nounset;
+	if (strcmp(name, "pipefail") == 0)  return sh->opt_pipefail;
+	if (strcmp(name, "xtrace") == 0)    return sh->opt_xtrace;
+	if (valid)
+		*valid = false;
+	return false;
+}
+
 int tc_opt_print(const struct tc_shell *sh, bool reusable, unsigned long line)
 {
 	static const char *const names[] = {

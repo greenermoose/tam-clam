@@ -1,0 +1,54 @@
+W21 CONDITIONAL [[ ]], LOCAL/DECLARE, AND BRACE EXPANSION (0.3.1)
+
+Date: 2026-11-24
+AI harness: agy 1.5.16
+AI model: Gemini 4 Neon (Medium)
+Continues: W20
+
+GUIDANCE
+
+  Fred: "/plan Do the next work slice for tam-clam"
+  Fred: "Approved. Proceed."
+
+DONE
+
+  - Implemented our own linear-time POSIX ERE compiler and Thompson NFA /
+    PikeVM executor in include/tam-clam/regex.h and src/regex.c (anchors,
+    character classes with POSIX [:class:], captures up to 32 groups,
+    bounded {m,n} repeats, strict limits, immune to ReDoS).
+  - Implemented [[ ... ]] conditional compound command across
+    include/tam-clam/ast.h, include/tam-clam/cond.h, src/cond.c,
+    src/parse.c, src/lex.c (tc_lex_next_regex_word), src/expand.c
+    (tc_expand_regex), src/func.c, src/lint.c, src/exec.c, src/options.c,
+    and src/edit/highlight.c: &&, ||, !, (), == / != glob matching,
+    =~ with BASH_REMATCH, < / >, arithmetic -eq..-ge, -v, -o, and
+    file/string tests.
+  - Implemented dynamic function-local variable scopes (tc_var_push_scope,
+    tc_var_pop_scope, tc_var_make_local) and full declare/local support
+    (-i integer arithmetic and +=, -l lowercase, -u uppercase, -g global,
+    -F function names, compound local array assignments) in src/var.c,
+    src/bi_declare.c, src/builtins.c, src/exec.c, src/parse.c, and
+    src/func.c.
+  - Implemented brace expansion ({a,b}, nested braces, Cartesian
+    products, and {start..end[..incr]} integer/char/zero-padded sequences
+    with depth and word-count caps) in include/tam-clam/brace.h,
+    src/brace.c, and src/expand.c.
+  - Added tests/test_regex.c (48 checks), tests/test_brace.c (42 checks),
+    tests/test_cond.c (24 checks), tests/spec/cond.test.sh (10 cases),
+    tests/spec/local-declare.test.sh (9 cases), tests/spec/brace.test.sh
+    (7 cases, verified against bash --posix), fuzz corpus seeds, and
+    sandbox/demo-0.3.1-cond-local-brace; bumped VERSION to 0.3.1 and
+    updated ROADMAP.md, plans/P4-extras.md, and work/WHATNOW.
+  - Verified make test, make sanitize (ASan+UBSan), make fuzz
+    FUZZ_ITERS=5000 (0 crashes), demo output, and readelf -d (only
+    libc.so.6).
+
+FAILED
+
+  - Nothing.
+
+HANDOFF
+
+  - Phase P4 continues: 0.3.1 landed on dev.
+  - Next: 0.3.2 (process substitution <(...) and >(...) through /dev/fd,
+    and ** recursive globbing).

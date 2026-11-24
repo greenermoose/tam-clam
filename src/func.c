@@ -156,6 +156,46 @@ static int clone_redirs(struct tc_arena *a, const struct tc_redir *src,
 	return 0;
 }
 
+static int clone_word(struct tc_arena *a, const struct tc_word *src,
+		      struct tc_word *dst);
+
+static struct tc_cond_expr *clone_cond_expr(struct tc_arena *a,
+					    const struct tc_cond_expr *src,
+					    unsigned depth)
+{
+	if (!src || depth > TC_CLONE_DEPTH_MAX)
+		return NULL;
+	struct tc_cond_expr *dst = tc_arena_alloc(a, sizeof(*dst));
+	if (!dst)
+		return NULL;
+	*dst = *src;
+	if (src->op) {
+		dst->op = tc_arena_strndup(a, src->op, strlen(src->op));
+		if (!dst->op)
+			return NULL;
+	}
+	if (src->lhs) {
+		dst->lhs = clone_cond_expr(a, src->lhs, depth + 1);
+		if (!dst->lhs)
+			return NULL;
+	}
+	if (src->rhs) {
+		dst->rhs = clone_cond_expr(a, src->rhs, depth + 1);
+		if (!dst->rhs)
+			return NULL;
+	}
+	if (src->kind == TC_COND_UNARY || src->kind == TC_COND_BINARY ||
+	    src->kind == TC_COND_WORD) {
+		if (clone_word(a, &src->w1, &dst->w1) < 0)
+			return NULL;
+	}
+	if (src->kind == TC_COND_BINARY) {
+		if (clone_word(a, &src->w2, &dst->w2) < 0)
+			return NULL;
+	}
+	return dst;
+}
+
 static struct tc_node *clone_node(struct tc_arena *a,
 				  const struct tc_node *src, unsigned depth)
 {
@@ -372,6 +412,9 @@ static struct tc_node *clone_node(struct tc_arena *a,
 	case TC_NODE_BG:
 		dst->u.bg.child = clone_node(a, src->u.bg.child, depth + 1);
 		return dst->u.bg.child ? dst : NULL;
+	case TC_NODE_COND:
+		dst->u.cond.expr = clone_cond_expr(a, src->u.cond.expr, depth + 1);
+		return dst->u.cond.expr ? dst : NULL;
 	case TC_NODE_SEQ:
 		return NULL;
 	}
@@ -523,4 +566,29 @@ void tc_func_unset(struct tc_funcs *ft, const char *name)
 		}
 		idx = (idx + 1) & mask;
 	}
+}
+
+static int cmp_str_ptr(const void *a, const void *b)
+{
+	return strcmp(*(const char *const *)a, *(const char *const *)b);
+}
+
+int tc_funcs_list(const struct tc_funcs *ft, const char ***out, size_t *out_n)
+{
+	*out = NULL;
+	*out_n = 0;
+	if (ft->count == 0)
+		return 0;
+	const char **names = malloc(ft->count * sizeof(*names));
+	if (!names)
+		return -1;
+	size_t pos = 0;
+	for (size_t i = 0; i < ft->cap; i++) {
+		if (ft->slots[i])
+			names[pos++] = ft->slots[i]->name;
+	}
+	qsort(names, pos, sizeof(*names), cmp_str_ptr);
+	*out = names;
+	*out_n = pos;
+	return 0;
 }

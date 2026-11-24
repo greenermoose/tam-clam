@@ -361,7 +361,8 @@ static void collect_defs_simple(struct lint_ctx *ctx, const struct tc_node *n)
 	size_t nw = n->u.simple.nwords;
 
 	if (word_is_literal(cmd, "export") || word_is_literal(cmd, "readonly") ||
-	    word_is_literal(cmd, "declare") || word_is_literal(cmd, "typeset")) {
+	    word_is_literal(cmd, "declare") || word_is_literal(cmd, "typeset") ||
+	    word_is_literal(cmd, "local")) {
 		for (size_t i = 1; i < nw; i++) {
 			if (n->u.simple.words[i].decl_assign)
 				continue;
@@ -401,6 +402,25 @@ static void collect_defs_simple(struct lint_ctx *ctx, const struct tc_node *n)
 			add_def(ctx, "OPTARG", 6);
 			add_def(ctx, "OPTIND", 6);
 		}
+	}
+}
+
+static void collect_defs_cond(struct lint_ctx *ctx, const struct tc_cond_expr *e,
+			      unsigned depth)
+{
+	if (!e || depth > TC_LINT_DEPTH_MAX)
+		return;
+	if (e->lhs)
+		collect_defs_cond(ctx, e->lhs, depth + 1);
+	if (e->rhs)
+		collect_defs_cond(ctx, e->rhs, depth + 1);
+	if (e->kind == TC_COND_UNARY || e->kind == TC_COND_BINARY ||
+	    e->kind == TC_COND_WORD)
+		collect_defs_parts(ctx, e->w1.parts, 0);
+	if (e->kind == TC_COND_BINARY) {
+		collect_defs_parts(ctx, e->w2.parts, 0);
+		if (e->op && strcmp(e->op, "=~") == 0)
+			add_def(ctx, "BASH_REMATCH", 12);
 	}
 }
 
@@ -468,6 +488,9 @@ static void collect_defs_node(struct lint_ctx *ctx, const struct tc_node *n)
 			break;
 		case TC_NODE_BG:
 			collect_defs_node(ctx, cur->u.bg.child);
+			break;
+		case TC_NODE_COND:
+			collect_defs_cond(ctx, cur->u.cond.expr, 0);
 			break;
 		default:
 			break;
@@ -690,6 +713,22 @@ static void check_simple(struct lint_ctx *ctx, const struct tc_node *n,
 	}
 }
 
+static void check_cond(struct lint_ctx *ctx, const struct tc_cond_expr *e,
+		       unsigned depth)
+{
+	if (!e || depth > TC_LINT_DEPTH_MAX)
+		return;
+	if (e->lhs)
+		check_cond(ctx, e->lhs, depth + 1);
+	if (e->rhs)
+		check_cond(ctx, e->rhs, depth + 1);
+	if (e->kind == TC_COND_UNARY || e->kind == TC_COND_BINARY ||
+	    e->kind == TC_COND_WORD)
+		check_parts(ctx, e->w1.parts, e->w1.line, e->w1.col, false, 0);
+	if (e->kind == TC_COND_BINARY)
+		check_parts(ctx, e->w2.parts, e->w2.line, e->w2.col, false, 0);
+}
+
 static void check_node(struct lint_ctx *ctx, const struct tc_node *n,
 		       bool cond_checked, bool next_checks_status)
 {
@@ -785,6 +824,9 @@ static void check_node(struct lint_ctx *ctx, const struct tc_node *n,
 			break;
 		case TC_NODE_BG:
 			check_node(ctx, cur->u.bg.child, false, false);
+			break;
+		case TC_NODE_COND:
+			check_cond(ctx, cur->u.cond.expr, 0);
 			break;
 		default:
 			break;

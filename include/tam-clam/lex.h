@@ -83,6 +83,9 @@ int tc_lexer_init(struct tc_lexer *lx, struct tc_shell *sh, struct tc_input *in)
 void tc_lexer_finish(struct tc_lexer *lx);
 /* Read the next token. TC_OK, or an error result from shell.h. */
 int tc_lex_next(struct tc_lexer *lx, struct tc_token *tok);
+/* Read the RHS word of `=~` inside `[[ ... ]]`, keeping balanced (...) and
+ * [...] together as part of the regex word. */
+int tc_lex_next_regex_word(struct tc_lexer *lx, struct tc_token *tok);
 /* Forget the lookahead byte, after an interrupt. */
 void tc_lexer_reset(struct tc_lexer *lx);
 /* Throw away the rest of the current line, after an error. */

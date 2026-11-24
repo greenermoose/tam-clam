@@ -22,6 +22,9 @@ enum tc_opt_res tc_opt_set_char(struct tc_shell *sh, char c, bool enable);
 enum tc_opt_res tc_opt_set_name(struct tc_shell *sh, const char *name,
 				bool enable);
 
+/* Query a named option for `[[ -o name ]]`. Sets *valid = true if known. */
+bool tc_opt_get_name(const struct tc_shell *sh, const char *name, bool *valid);
+
 /* Print all options to stdout: reusable == false for `set -o`,
  * reusable == true for `set +o`. Returns 0 or 1 on write error. */
 int tc_opt_print(const struct tc_shell *sh, bool reusable, unsigned long line);

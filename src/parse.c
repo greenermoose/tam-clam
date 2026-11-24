@@ -141,8 +141,8 @@ static bool is_word_eq(const struct tc_token *t, const char *kw)
 bool tc_is_reserved_word(const char *s)
 {
 	static const char *const words[] = {
-		"!", "{", "}", "case", "do", "done", "elif", "else", "esac",
-		"fi", "for", "if", "in", "then", "until", "while",
+		"!", "[[", "]]", "{", "}", "case", "do", "done", "elif", "else",
+		"esac", "fi", "for", "if", "in", "then", "until", "while",
 	};
 	for (size_t i = 0; i < sizeof(words) / sizeof(words[0]); i++)
 		if (strcmp(s, words[i]) == 0)
@@ -624,6 +624,7 @@ static bool is_decl_builtin_word(const struct tc_word *w)
 		return false;
 	return strcmp(w->text, "declare") == 0 ||
 	       strcmp(w->text, "typeset") == 0 ||
+	       strcmp(w->text, "local") == 0 ||
 	       strcmp(w->text, "readonly") == 0 ||
 	       strcmp(w->text, "export") == 0;
 }
@@ -1265,13 +1266,326 @@ err:
 	return r;
 }
 
+static bool is_cond_unary_op(const struct tc_token *t)
+{
+	if (t->kind != TC_TOK_WORD || (t->flags & TC_WORD_QUOTED) ||
+	    t->len != 2 || t->text[0] != '-')
+		return false;
+	switch (t->text[1]) {
+	case 'a': case 'b': case 'c': case 'd': case 'e': case 'f': case 'g':
+	case 'h': case 'k': case 'L': case 'n': case 'o': case 'O': case 'G':
+	case 'p': case 'r': case 'S': case 's': case 't': case 'u': case 'v':
+	case 'w': case 'x': case 'z':
+		return true;
+	default:
+		return false;
+	}
+}
+
+static const char *cond_binary_op(const struct tc_token *t)
+{
+	if (t->kind == TC_TOK_LESS)
+		return "<";
+	if (t->kind == TC_TOK_GREAT)
+		return ">";
+	if (t->kind != TC_TOK_WORD || (t->flags & TC_WORD_QUOTED))
+		return NULL;
+	const char *s = t->text;
+	if (strcmp(s, "==") == 0 || strcmp(s, "=") == 0 ||
+	    strcmp(s, "!=") == 0 || strcmp(s, "=~") == 0 ||
+	    strcmp(s, "-eq") == 0 || strcmp(s, "-ne") == 0 ||
+	    strcmp(s, "-lt") == 0 || strcmp(s, "-le") == 0 ||
+	    strcmp(s, "-gt") == 0 || strcmp(s, "-ge") == 0 ||
+	    strcmp(s, "-ef") == 0 || strcmp(s, "-nt") == 0 ||
+	    strcmp(s, "-ot") == 0)
+		return s;
+	return NULL;
+}
+
+static int parse_cond_or(struct tc_parser *p, struct tc_cond_expr **out);
+
+static int parse_cond_primary(struct tc_parser *p, struct tc_cond_expr **out)
+{
+	int r;
+	if ((r = parse_linebreak(p)) != TC_OK)
+		return r;
+
+	if (p->tok.kind == TC_TOK_LPAREN) {
+		unsigned long line = p->tok.line;
+		if ((r = enter_depth(p, line)) != TC_OK)
+			return r;
+		if ((r = advance(p)) != TC_OK) {
+			leave_depth(p);
+			return r;
+		}
+		if ((r = parse_cond_or(p, out)) != TC_OK) {
+			leave_depth(p);
+			return r;
+		}
+		if ((r = parse_linebreak(p)) != TC_OK) {
+			leave_depth(p);
+			return r;
+		}
+		if (p->tok.kind != TC_TOK_RPAREN) {
+			leave_depth(p);
+			return unexpected(p);
+		}
+		leave_depth(p);
+		return advance(p);
+	}
+
+	if (p->tok.kind != TC_TOK_WORD || is_word_eq(&p->tok, "]]"))
+		return unexpected(p);
+
+	struct tc_arena *a = &p->sh->arena;
+	unsigned long line = p->tok.line;
+	unsigned long col = p->tok.col;
+
+	/* Check if this is a unary operator (unless followed by a binary operator
+	 * like `-f == -f`, in which case `-f` is the LHS word). */
+	if (is_cond_unary_op(&p->tok)) {
+		if ((r = peek_next(p)) != TC_OK)
+			return r;
+		if (!cond_binary_op(&p->peek_tok) &&
+		    p->peek_tok.kind == TC_TOK_WORD &&
+		    !is_word_eq(&p->peek_tok, "]]")) {
+			const char *op = p->tok.text;
+			if ((r = advance(p)) != TC_OK)
+				return r;
+			struct tc_cond_expr *e = tc_arena_alloc(a, sizeof(*e));
+			if (!e) {
+				tc_error(p->sh, line, "out of memory");
+				return TC_ERR_NOMEM;
+			}
+			memset(e, 0, sizeof(*e));
+			e->kind = TC_COND_UNARY;
+			e->op = op;
+			tok_to_word(&p->tok, &e->w1);
+			e->line = line;
+			e->col = col;
+			if ((r = advance(p)) != TC_OK)
+				return r;
+			*out = e;
+			return TC_OK;
+		}
+	}
+
+	struct tc_word lhs;
+	tok_to_word(&p->tok, &lhs);
+	if ((r = advance(p)) != TC_OK)
+		return r;
+
+	const char *bop = cond_binary_op(&p->tok);
+	if (bop) {
+		bool is_regex = (strcmp(bop, "=~") == 0);
+		if (is_regex) {
+			p->have_peek = 0;
+			r = tc_lex_next_regex_word(&p->lx, &p->tok);
+			p->have_tok = (r == TC_OK);
+		} else {
+			r = advance(p);
+		}
+		if (r != TC_OK)
+			return r;
+		if (p->tok.kind != TC_TOK_WORD || is_word_eq(&p->tok, "]]"))
+			return unexpected(p);
+		struct tc_cond_expr *e = tc_arena_alloc(a, sizeof(*e));
+		if (!e) {
+			tc_error(p->sh, line, "out of memory");
+			return TC_ERR_NOMEM;
+		}
+		memset(e, 0, sizeof(*e));
+		e->kind = TC_COND_BINARY;
+		e->op = bop;
+		e->w1 = lhs;
+		tok_to_word(&p->tok, &e->w2);
+		e->line = line;
+		e->col = col;
+		if ((r = advance(p)) != TC_OK)
+			return r;
+		*out = e;
+		return TC_OK;
+	}
+
+	struct tc_cond_expr *e = tc_arena_alloc(a, sizeof(*e));
+	if (!e) {
+		tc_error(p->sh, line, "out of memory");
+		return TC_ERR_NOMEM;
+	}
+	memset(e, 0, sizeof(*e));
+	e->kind = TC_COND_WORD;
+	e->w1 = lhs;
+	e->line = line;
+	e->col = col;
+	*out = e;
+	return TC_OK;
+}
+
+static int parse_cond_not(struct tc_parser *p, struct tc_cond_expr **out)
+{
+	int r;
+	if ((r = parse_linebreak(p)) != TC_OK)
+		return r;
+	if (is_word_eq(&p->tok, "!")) {
+		/* If '!' is followed by a binary operator (e.g. ! == x), treat '!' as LHS word. */
+		if ((r = peek_next(p)) != TC_OK)
+			return r;
+		if (!cond_binary_op(&p->peek_tok)) {
+			unsigned long line = p->tok.line;
+			unsigned long col = p->tok.col;
+			if ((r = enter_depth(p, line)) != TC_OK)
+				return r;
+			if ((r = advance(p)) != TC_OK) {
+				leave_depth(p);
+				return r;
+			}
+			struct tc_cond_expr *inner = NULL;
+			r = parse_cond_not(p, &inner);
+			leave_depth(p);
+			if (r != TC_OK)
+				return r;
+			struct tc_cond_expr *e = tc_arena_alloc(&p->sh->arena, sizeof(*e));
+			if (!e) {
+				tc_error(p->sh, line, "out of memory");
+				return TC_ERR_NOMEM;
+			}
+			memset(e, 0, sizeof(*e));
+			e->kind = TC_COND_NOT;
+			e->lhs = inner;
+			e->line = line;
+			e->col = col;
+			*out = e;
+			return TC_OK;
+		}
+	}
+	return parse_cond_primary(p, out);
+}
+
+static int parse_cond_and(struct tc_parser *p, struct tc_cond_expr **out)
+{
+	struct tc_cond_expr *lhs = NULL;
+	int r = parse_cond_not(p, &lhs);
+	if (r != TC_OK)
+		return r;
+	for (;;) {
+		if ((r = parse_linebreak(p)) != TC_OK)
+			return r;
+		if (p->tok.kind != TC_TOK_AND_IF)
+			break;
+		unsigned long line = p->tok.line;
+		unsigned long col = p->tok.col;
+		if ((r = advance(p)) != TC_OK)
+			return r;
+		struct tc_cond_expr *rhs = NULL;
+		if ((r = parse_cond_not(p, &rhs)) != TC_OK)
+			return r;
+		struct tc_cond_expr *e = tc_arena_alloc(&p->sh->arena, sizeof(*e));
+		if (!e) {
+			tc_error(p->sh, line, "out of memory");
+			return TC_ERR_NOMEM;
+		}
+		memset(e, 0, sizeof(*e));
+		e->kind = TC_COND_AND;
+		e->lhs = lhs;
+		e->rhs = rhs;
+		e->line = line;
+		e->col = col;
+		lhs = e;
+	}
+	*out = lhs;
+	return TC_OK;
+}
+
+static int parse_cond_or(struct tc_parser *p, struct tc_cond_expr **out)
+{
+	struct tc_cond_expr *lhs = NULL;
+	int r = parse_cond_and(p, &lhs);
+	if (r != TC_OK)
+		return r;
+	for (;;) {
+		if ((r = parse_linebreak(p)) != TC_OK)
+			return r;
+		if (p->tok.kind != TC_TOK_OR_IF)
+			break;
+		unsigned long line = p->tok.line;
+		unsigned long col = p->tok.col;
+		if ((r = advance(p)) != TC_OK)
+			return r;
+		struct tc_cond_expr *rhs = NULL;
+		if ((r = parse_cond_and(p, &rhs)) != TC_OK)
+			return r;
+		struct tc_cond_expr *e = tc_arena_alloc(&p->sh->arena, sizeof(*e));
+		if (!e) {
+			tc_error(p->sh, line, "out of memory");
+			return TC_ERR_NOMEM;
+		}
+		memset(e, 0, sizeof(*e));
+		e->kind = TC_COND_OR;
+		e->lhs = lhs;
+		e->rhs = rhs;
+		e->line = line;
+		e->col = col;
+		lhs = e;
+	}
+	*out = lhs;
+	return TC_OK;
+}
+
+static int parse_cond(struct tc_parser *p, struct tc_node **out)
+{
+	unsigned long line = p->tok.line;
+	unsigned long col = p->tok.col;
+	int r;
+	if ((r = enter_depth(p, line)) != TC_OK)
+		return r;
+	if ((r = advance(p)) != TC_OK) { /* consume '[[' */
+		leave_depth(p);
+		return r;
+	}
+	struct tc_cond_expr *expr = NULL;
+	if ((r = parse_cond_or(p, &expr)) != TC_OK) {
+		leave_depth(p);
+		return r;
+	}
+	if ((r = parse_linebreak(p)) != TC_OK) {
+		leave_depth(p);
+		return r;
+	}
+	if (!is_word_eq(&p->tok, "]]")) {
+		leave_depth(p);
+		if (p->tok.kind == TC_TOK_END) {
+			tc_error(p->sh, line, "syntax error: missing `]]'");
+			return TC_ERR_SYNTAX;
+		}
+		return unexpected(p);
+	}
+	if ((r = advance(p)) != TC_OK) { /* consume ']]' */
+		leave_depth(p);
+		return r;
+	}
+	leave_depth(p);
+
+	struct tc_node *node = tc_arena_alloc(&p->sh->arena, sizeof(*node));
+	if (!node) {
+		tc_error(p->sh, line, "out of memory");
+		return TC_ERR_NOMEM;
+	}
+	node->kind = TC_NODE_COND;
+	node->line = line;
+	node->col = col;
+	node->u.cond.expr = expr;
+	*out = node;
+	return TC_OK;
+}
+
 static bool starts_compound(const struct tc_token *t)
 {
 	if (t->kind == TC_TOK_LPAREN)
 		return true;
-	return is_word_eq(t, "{") || is_word_eq(t, "if") ||
-	       is_word_eq(t, "while") || is_word_eq(t, "until") ||
-	       is_word_eq(t, "for") || is_word_eq(t, "case");
+	return is_word_eq(t, "{") || is_word_eq(t, "[[") ||
+	       is_word_eq(t, "if") || is_word_eq(t, "while") ||
+	       is_word_eq(t, "until") || is_word_eq(t, "for") ||
+	       is_word_eq(t, "case");
 }
 
 static int parse_compound_with_redirs(struct tc_parser *p, struct tc_node **out)
@@ -1282,6 +1596,8 @@ static int parse_compound_with_redirs(struct tc_parser *p, struct tc_node **out)
 		r = parse_subshell(p, &cmd);
 	else if (is_word_eq(&p->tok, "{"))
 		r = parse_group(p, &cmd);
+	else if (is_word_eq(&p->tok, "[["))
+		r = parse_cond(p, &cmd);
 	else if (is_word_eq(&p->tok, "if"))
 		r = parse_if(p, &cmd);
 	else if (is_word_eq(&p->tok, "while"))

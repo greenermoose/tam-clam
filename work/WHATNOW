@@ -3,28 +3,34 @@ WHATNOW
 What tam-clam is doing now and what comes next. Read this first; revise
 it at the end of every session (work/README-work).
 
-Updated: 2026-11-24, with W20 (0.3.0)
+Updated: 2026-11-24, with W21 (0.3.1)
 
 
 STATE
 
-  Version 0.3.0, Phase P4 in progress (indexed and associative arrays),
-  on branch dev. 0.3.0 adds:
-  - sparse indexed arrays and hashed associative arrays in
-    include/tam-clam/array.h, src/array.c, and src/var.c (never exported
-    to envp, readonly-protected, scalar-to-array conversion);
-  - bash array syntax in src/lex.c, src/parse.c, src/func.c, src/lint.c,
-    src/exec.c: a=(...), a+=(...), a[sub]=v, a[sub]+=v, scalar +=, and
-    compound args to declare/typeset/readonly/export;
-  - parameter expansions in src/expand.c: ${a[sub]}, ${a[@]}, ${a[*]},
-    ${#a[@]}, ${#a[sub]}, ${!a[@]}, ${!a[*]}, POSIX ops on elements, and
-    element-wise pattern trimming (${a[@]#pat}, ${a[@]%pat});
-  - arithmetic indexing in src/arith.c ($((a[i])), a[i]+=1, ++a[i]);
-  - declare/typeset (-a/-A/-p/-r/-x/-g/+x) in src/bi_declare.c, unset
-    'a[sub]' and array printing in src/builtins_special.c, and read -a
-    in src/builtins_io.c;
-  - tests/test_array.c (123 checks), tests/spec/arrays.test.sh (22 cases
-    against bash --posix), fuzz seeds, and sandbox/demo-0.3.0-arrays.
+  Version 0.3.1, Phase P4 in progress ([[ ]], local/declare, brace
+  expansion), on branch dev. 0.3.1 adds:
+  - linear-time POSIX ERE engine (Thompson NFA / PikeVM, submatch
+    captures, bounded compile/exec, immune to ReDoS) in
+    include/tam-clam/regex.h and src/regex.c (no PCRE or libc regcomp);
+  - [[ ... ]] conditional compound command in include/tam-clam/cond.h,
+    src/cond.c, src/parse.c, src/lex.c, src/func.c, src/lint.c,
+    src/exec.c, and src/edit/highlight.c: &&, ||, !, (), == / != glob
+    patterns, =~ with BASH_REMATCH, < / >, arithmetic -eq..-ge, -v, -o,
+    and file/string tests;
+  - dynamic function-local variable scopes (local, declare local by
+    default inside functions, declare -g) and full declare attributes
+    (-i integer arithmetic/+=, -l lowercase, -u uppercase, -F function
+    names) in src/var.c, src/bi_declare.c, src/exec.c, and src/builtins.c;
+  - brace expansion ({a,b}, nested braces, Cartesian products, and
+    {start..end[..incr]} integer/char/zero-padded sequences with depth
+    and word-count limits) in include/tam-clam/brace.h, src/brace.c,
+    and src/expand.c;
+  - tests/test_regex.c (48 checks), tests/test_brace.c (42 checks),
+    tests/test_cond.c (24 checks), tests/spec/cond.test.sh (10 cases),
+    tests/spec/local-declare.test.sh (9 cases), tests/spec/brace.test.sh
+    (7 cases, all verified against bash --posix), fuzz seeds, and
+    sandbox/demo-0.3.1-cond-local-brace.
   readelf -d lists only libc.so.6. make test, make sanitize, and make
   fuzz pass.
 
@@ -40,17 +46,15 @@ STATE
 
 NEXT
 
-  1. Phase P4 -- 0.3.1 (plans/P4-extras.md):
-     - [[ ]] with == patterns and =~ using our own linear-time POSIX ERE
-       engine (no pcre or libc regcomp);
-     - local and full declare;
-     - brace expansion {a,b} and {1..9}.
-     Bump VERSION to 0.3.1 in the first code commit.
+  1. Phase P4 -- 0.3.2 (plans/P4-extras.md):
+     - Process substitution <(...) and >(...) through /dev/fd;
+     - ** recursive globbing.
+     Bump VERSION to 0.3.2 in the first code commit.
 
 
 WAITING FOR FRED
 
-  - Trying 0.3.0 arrays: ./sandbox/demo-0.3.0-arrays or ./build/tam-clam.
+  - Trying 0.3.1: ./sandbox/demo-0.3.1-cond-local-brace or ./build/tam-clam.
   - Optional: installing dash / mksh / busybox for multi-shell spec
     comparisons and clang for a 24-hour libFuzzer run.
 

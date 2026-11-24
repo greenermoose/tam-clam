@@ -13,6 +13,7 @@
 #include <tam.h>
 
 #include "tam-clam/arith.h"
+#include "tam-clam/brace.h"
 #include "tam-clam/exec.h"
 #include "tam-clam/expand.h"
 #include "tam-clam/glob.h"
@@ -1026,6 +1027,44 @@ int tc_expand_pat(struct tc_shell *sh, const struct tc_word *w,
 	return expand_parts_pat(sh, w->parts, w->line, true, 0, out);
 }
 
+static bool is_ere_meta(char c)
+{
+	return c == '.' || c == '[' || c == '\\' || c == '(' || c == ')' ||
+	       c == '*' || c == '+' || c == '?' || c == '{' || c == '|' ||
+	       c == '^' || c == '$';
+}
+
+int tc_expand_regex(struct tc_shell *sh, const struct tc_word *w,
+		    char **out, size_t *out_len)
+{
+	struct tc_pat pat;
+	int r = expand_parts_pat(sh, w->parts, w->line, true, 0, &pat);
+	if (r != TC_EXP_OK)
+		return r;
+
+	size_t need = pat.len;
+	for (size_t i = 0; i < pat.len; i++) {
+		if (pat.quoted && pat.quoted[i] && is_ere_meta(pat.text[i]))
+			need++;
+	}
+	char *buf = tc_arena_alloc(&sh->arena, need + 1);
+	if (!buf) {
+		tc_error(sh, w->line, "out of memory");
+		return TC_EXP_NOMEM;
+	}
+	size_t pos = 0;
+	for (size_t i = 0; i < pat.len; i++) {
+		if (pat.quoted && pat.quoted[i] && is_ere_meta(pat.text[i]))
+			buf[pos++] = '\\';
+		buf[pos++] = pat.text[i];
+	}
+	buf[pos] = '\0';
+	*out = buf;
+	if (out_len)
+		*out_len = pos;
+	return TC_EXP_OK;
+}
+
 int tc_expand_single(struct tc_shell *sh, const struct tc_word *w,
 		     bool is_assign, char **out)
 {
@@ -1342,10 +1381,11 @@ static int expand_parts_fields(struct field_state *fs,
 	return TC_EXP_OK;
 }
 
-/* Expand one word into 0 or more arguments (tilde, param, cmdsub, arith,
- * IFS field splitting, pathname expansion, quote removal). */
-static int expand_one_word(struct tc_shell *sh, const struct tc_word *w,
-			   struct arg_link ***tail, size_t *count)
+/* Expand one word into 0 or more arguments (brace, tilde, param, cmdsub,
+ * arith, IFS field splitting, pathname expansion, quote removal). */
+static int expand_one_parts(struct tc_shell *sh, const struct tc_wpart *parts,
+			    unsigned long line,
+			    struct arg_link ***tail, size_t *count)
 {
 	const char *ifs = tc_var_get(&sh->vars, "IFS");
 	if (!ifs)
@@ -1353,7 +1393,7 @@ static int expand_one_word(struct tc_shell *sh, const struct tc_word *w,
 
 	struct field_state fs;
 	fs.sh = sh;
-	fs.line = w->line;
+	fs.line = line;
 	fs.ifs = ifs;
 	pb_init(&fs.cur);
 	fs.has_quoted = false;
@@ -1361,7 +1401,7 @@ static int expand_one_word(struct tc_shell *sh, const struct tc_word *w,
 	fs.head = NULL;
 	fs.tail = &fs.head;
 
-	int r = expand_parts_fields(&fs, w->parts, true, false, 0);
+	int r = expand_parts_fields(&fs, parts, true, false, 0);
 	if (r != TC_EXP_OK) {
 		pb_finish(&fs.cur);
 		return r;
@@ -1378,13 +1418,13 @@ static int expand_one_word(struct tc_shell *sh, const struct tc_word *w,
 		if (!sh->opt_noglob && tc_pat_has_meta(&fl->pat)) {
 			char **matches = NULL;
 			size_t nmatches = 0;
-			int gr = tc_glob_expand(sh, &fl->pat, w->line,
+			int gr = tc_glob_expand(sh, &fl->pat, line,
 						&matches, &nmatches);
 			if (gr != TC_OK)
 				return TC_EXP_NOMEM;
 			if (nmatches > 0) {
 				for (size_t i = 0; i < nmatches; i++) {
-					r = push_arg(sh, w->line, tail, count,
+					r = push_arg(sh, line, tail, count,
 						     matches[i], strlen(matches[i]));
 					if (r != TC_EXP_OK)
 						return r;
@@ -1392,7 +1432,22 @@ static int expand_one_word(struct tc_shell *sh, const struct tc_word *w,
 				continue;
 			}
 		}
-		r = push_arg(sh, w->line, tail, count, fl->pat.text, fl->pat.len);
+		r = push_arg(sh, line, tail, count, fl->pat.text, fl->pat.len);
+		if (r != TC_EXP_OK)
+			return r;
+	}
+	return TC_EXP_OK;
+}
+
+static int expand_one_word(struct tc_shell *sh, const struct tc_word *w,
+			   struct arg_link ***tail, size_t *count)
+{
+	struct tc_wpart **bwords = NULL;
+	size_t nbwords = 0;
+	if (tc_brace_expand(sh, w->parts, w->line, &bwords, &nbwords) != TC_OK)
+		return TC_EXP_NOMEM;
+	for (size_t i = 0; i < nbwords; i++) {
+		int r = expand_one_parts(sh, bwords[i], w->line, tail, count);
 		if (r != TC_EXP_OK)
 			return r;
 	}

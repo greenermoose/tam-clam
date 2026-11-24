@@ -5,6 +5,7 @@
  * with execve, so there is no window between checking a file and running it. */
 #include <errno.h>
 #include <fcntl.h>
+#include <inttypes.h>
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -17,6 +18,7 @@
 #include "tam-clam/arith.h"
 #include "tam-clam/bg.h"
 #include "tam-clam/builtins.h"
+#include "tam-clam/cond.h"
 #include "tam-clam/edit.h"
 #include "tam-clam/exec.h"
 #include "tam-clam/expand.h"
@@ -784,7 +786,38 @@ int tc_exec_apply_assign(struct tc_shell *sh, const struct tc_assign *a,
 	int er = tc_expand_single(sh, &a->value, true, &val);
 	if (er != TC_EXP_OK)
 		return er == TC_EXP_ERR ? fatal_exp_error(sh) : TC_STATUS_USAGE;
-	int sr = a->append ? tc_var_append_scalar(&sh->vars, a->name, val, fl)
+
+	const struct tc_var_entry *cur_e = tc_var_find(&sh->vars, a->name);
+	bool is_int = (cur_e && (cur_e->flags & TC_VAR_INTEGER)) ||
+		      ((fl & TC_VAR_INTEGER) != 0);
+	bool do_append = a->append;
+	char numbuf[32];
+	if (is_int) {
+		int64_t rhs = 0;
+		int ar = tc_arith_eval(sh, val, a->line, &rhs);
+		if (ar != TC_ARITH_OK)
+			return ar == TC_ARITH_NOMEM ? TC_STATUS_USAGE : 1;
+		if (do_append) {
+			int64_t lhs = 0;
+			const char *old = tc_var_get(&sh->vars, a->name);
+			if (old && old[0] != '\0') {
+				ar = tc_arith_eval(sh, old, a->line, &lhs);
+				if (ar != TC_ARITH_OK)
+					return ar == TC_ARITH_NOMEM ? TC_STATUS_USAGE : 1;
+			}
+			if ((rhs > 0 && lhs > INT64_MAX - rhs) ||
+			    (rhs < 0 && lhs < INT64_MIN - rhs)) {
+				tc_error(sh, a->line, "%s: integer overflow", a->name);
+				return 1;
+			}
+			rhs = lhs + rhs;
+			do_append = false;
+		}
+		snprintf(numbuf, sizeof(numbuf), "%" PRId64, rhs);
+		val = numbuf;
+	}
+
+	int sr = do_append ? tc_var_append_scalar(&sh->vars, a->name, val, fl)
 			   : tc_var_set(&sh->vars, a->name, val, fl);
 	if (sr != TC_VAR_OK)
 		return report_var_err(sh, a->line, a->name, sr);
@@ -924,6 +957,19 @@ static int exec_func(struct tc_shell *sh, struct tc_func *fn,
 
 	unsigned old_loop_depth = sh->loop_depth;
 	sh->loop_depth = 0;
+	if (tc_var_push_scope(&sh->vars) != TC_VAR_OK) {
+		tc_error(sh, line, "out of memory");
+		sh->loop_depth = old_loop_depth;
+		(void)tc_shell_set_params(sh, 0, NULL);
+		sh->params = old_params;
+		sh->nparams = old_nparams;
+		if (vsaves)
+			tc_var_pop_overrides(&sh->vars, vsaves, nvsaves);
+		restore_fds(saves, nsaves);
+		for (size_t j = 0; j < nwriters; j++)
+			wait_child(writers[j]);
+		return TC_STATUS_USAGE;
+	}
 	sh->func_depth++;
 	tc_func_ref(fn);
 
@@ -937,6 +983,7 @@ static int exec_func(struct tc_shell *sh, struct tc_func *fn,
 
 	tc_func_unref(fn);
 	sh->func_depth--;
+	tc_var_pop_scope(&sh->vars);
 	sh->loop_depth = old_loop_depth;
 
 	(void)tc_shell_set_params(sh, 0, NULL);
@@ -1789,6 +1836,9 @@ static int exec_one(struct tc_shell *sh, const struct tc_node *n)
 		break;
 	case TC_NODE_BG:
 		status = exec_bg(sh, n);
+		break;
+	case TC_NODE_COND:
+		status = tc_exec_cond(sh, n);
 		break;
 	default:
 		status = TC_STATUS_USAGE;

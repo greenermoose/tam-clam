@@ -463,6 +463,7 @@ static const struct tc_builtin builtins[] = {
 	{"history", tc_bi_history, false},
 	{"jobs", tc_bi_jobs, false},
 	{"kill", tc_bi_kill, false},
+	{"local", tc_bi_local, false},
 	{"printf", tc_bi_printf, false},
 	{"pwd", tc_bi_pwd, false},
 	{"read", tc_bi_read, false},

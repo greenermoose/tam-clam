@@ -51,6 +51,7 @@ int tc_bi_jobs(struct tc_shell *sh, int argc, char **argv, unsigned long line);
 int tc_bi_fg(struct tc_shell *sh, int argc, char **argv, unsigned long line);
 int tc_bi_bg(struct tc_shell *sh, int argc, char **argv, unsigned long line);
 int tc_bi_declare(struct tc_shell *sh, int argc, char **argv, unsigned long line);
+int tc_bi_local(struct tc_shell *sh, int argc, char **argv, unsigned long line);
 
 /* Execute a declaration builtin (declare/typeset/readonly/export) that has
  * compound array assignment arguments (decl_assign). */
