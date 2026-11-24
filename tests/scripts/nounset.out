@@ -1,0 +1,18 @@
+unset_var=fail
+empty=<>
+def=fallback
+cdef=cfallback
+alt=<>
+calt=<>
+asg=assigned
+after=assigned
+at=<> star=<> hash=0 q=0
+onlyone
+unset_pos=fail
+unset_len=fail
+unset_trim=fail
+sc=0
+assign=7
+read=8
+unset_arith=fail
+off=<>

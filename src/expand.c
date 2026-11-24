@@ -17,6 +17,7 @@
 #include "tam-clam/expand.h"
 #include "tam-clam/glob.h"
 #include "tam-clam/lex.h"
+#include "tam-clam/options.h"
 #include "tam-clam/pattern.h"
 
 /* Quote-removal only, used for here-document delimiters (XCU 2.7.4). */
@@ -173,15 +174,8 @@ static int lookup_param(struct tc_shell *sh, const char *name,
 			*out_val = tc_arena_strndup(&sh->arena, num, strlen(num));
 			return *out_val ? TC_EXP_OK : (tc_error(sh, line, "out of memory"), TC_EXP_NOMEM);
 		case '-': {
-			char flags[16];
-			size_t fn = 0;
-			if (sh->opt_allexport)
-				flags[fn++] = 'a';
-			if (sh->opt_noglob)
-				flags[fn++] = 'f';
-			if (sh->interactive)
-				flags[fn++] = 'i';
-			flags[fn] = '\0';
+			char flags[32];
+			size_t fn = tc_opt_format_flags(sh, flags, sizeof(flags));
 			*out_val = tc_arena_strndup(&sh->arena, flags, fn);
 			return *out_val ? TC_EXP_OK : (tc_error(sh, line, "out of memory"), TC_EXP_NOMEM);
 		}
@@ -225,6 +219,13 @@ static int lookup_param(struct tc_shell *sh, const char *name,
 	}
 
 	*out_val = tc_var_get(&sh->vars, name);
+	if (!*out_val && !sh->lineno_disabled && strcmp(name, "LINENO") == 0) {
+		unsigned long ln = line ? line : (sh->lineno ? sh->lineno : 1);
+		char num[32];
+		snprintf(num, sizeof(num), "%lu", ln);
+		*out_val = tc_arena_strndup(&sh->arena, num, strlen(num));
+		return *out_val ? TC_EXP_OK : (tc_error(sh, line, "out of memory"), TC_EXP_NOMEM);
+	}
 	return TC_EXP_OK;
 }
 
@@ -324,6 +325,15 @@ static int eval_arith_part(struct tc_shell *sh, const struct tc_wpart *wp,
 	return TC_EXP_OK;
 }
 
+static bool is_nounset_exempt(const char *name)
+{
+	if (!name || name[0] == '\0' || name[1] != '\0')
+		return false;
+	char c = name[0];
+	return c == '@' || c == '*' || c == '#' || c == '?' ||
+	       c == '-' || c == '$' || c == '!' || c == '0';
+}
+
 static int eval_param_single(struct tc_shell *sh, const struct tc_wpart *wp,
 			     unsigned long line, int depth, char **out)
 {
@@ -338,6 +348,10 @@ static int eval_param_single(struct tc_shell *sh, const struct tc_wpart *wp,
 		return r;
 
 	if (wp->op == TC_PARAM_LEN) {
+		if (!val && sh->opt_nounset && !is_nounset_exempt(wp->text)) {
+			tc_error(sh, line, "%s: unbound variable", wp->text);
+			return TC_EXP_ERR;
+		}
 		size_t n;
 		if (strcmp(wp->text, "@") == 0 || strcmp(wp->text, "*") == 0)
 			n = sh->nparams;
@@ -354,6 +368,10 @@ static int eval_param_single(struct tc_shell *sh, const struct tc_wpart *wp,
 	}
 
 	if (wp->op == TC_PARAM_PLAIN) {
+		if (!val && sh->opt_nounset && !is_nounset_exempt(wp->text)) {
+			tc_error(sh, line, "%s: unbound variable", wp->text);
+			return TC_EXP_ERR;
+		}
 		const char *s = val ? val : "";
 		*out = tc_arena_strndup(&sh->arena, s, strlen(s));
 		if (!*out) {
@@ -433,6 +451,10 @@ static int eval_param_single(struct tc_shell *sh, const struct tc_wpart *wp,
 	case TC_PARAM_TRIM_PREFIX_S:
 	case TC_PARAM_TRIM_PREFIX_L: {
 		if (!val) {
+			if (sh->opt_nounset && !is_nounset_exempt(wp->text)) {
+				tc_error(sh, line, "%s: unbound variable", wp->text);
+				return TC_EXP_ERR;
+			}
 			*out = tc_arena_strndup(&sh->arena, "", 0);
 			return *out ? TC_EXP_OK : (tc_error(sh, line, "out of memory"), TC_EXP_NOMEM);
 		}

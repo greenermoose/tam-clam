@@ -149,10 +149,6 @@ expect 'shift past $# exits non-interactive shell' 1 '' \
 	"$shell" -c 'set -- a; shift 2; echo after'
 expect 'readonly reassignment exits non-interactive shell' 1 '' \
 	"$shell" -c 'readonly R=1; R=2; echo after'
-expect 'set -e is refused until 0.1.3' 2 '' \
-	"$shell" -c 'set -e; echo after'
-expect 'set -o pipefail is refused until 0.1.3' 2 '' \
-	"$shell" -c 'set -o pipefail; echo after'
 expect 'exec missing command exits 127' 127 '' \
 	"$shell" -c 'exec nosuchcmd_011; echo after'
 expect 'eval recursion depth limit stops runaway eval' 1 '' \
@@ -171,6 +167,22 @@ expect 'read -d reads up to custom delimiter' 0 'one|two' \
 	"$shell" -c 'printf "one:two:" | { read -d : a; read -d : b; echo "$a|$b"; }'
 expect 'kill %1 is refused until 0.2.2' 2 '' \
 	"$shell" -c 'kill %1'
+
+# 0.1.3: CLI flags (-e, -u, -o pipefail, -n, -C, -x, clustered flags).
+expect 'CLI -e exits on failure' 1 '' \
+	"$shell" -e -c 'false; echo after'
+expect 'CLI -u fails on unset variable' 1 '' \
+	"$shell" -u -c 'echo "$NO_SUCH_VAR_013"; echo after'
+expect 'CLI -eu clustered with -c' 1 '' \
+	"$shell" -euc 'false; echo after'
+expect 'CLI -o pipefail catches earlier pipe failure' 7 '' \
+	"$shell" -o pipefail -c '(exit 7) | true'
+expect 'CLI -n parses valid script without running it' 0 '' \
+	"$shell" -n -c 'echo should_not_run; if true; then echo nope; fi'
+expect 'CLI -n reports syntax error with status 2' 2 '' \
+	"$shell" -n -c 'if true; then echo missing_fi'
+expect 'CLI -v is refused as deferred option' 2 '' \
+	"$shell" -v -c 'echo hi'
 
 echo "run-scripts: $pass passed, $fail failed (reference shell: $ref)"
 [ "$fail" -eq 0 ]

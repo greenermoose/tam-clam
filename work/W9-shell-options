@@ -1,0 +1,53 @@
+W9 POSIX SHELL OPTIONS (0.1.3)
+
+Date: 2026-11-23
+AI harness: agy 1.5.15
+AI model: Gemini 4 Neon (Medium)
+
+GUIDANCE
+
+  Fred: "/plan Do the next work slice of tam-clam"
+  Fred: "Approve. Proceed."
+
+DONE
+
+  - Added shared option handling (include/tam-clam/options.h,
+    src/options.c) for -a/allexport, -C/noclobber, -e/errexit, -f/noglob,
+    -n/noexec, -u/nounset, -x/xtrace, and -o pipefail, plus set -o/+o
+    formatting and $- flag formatting; deferred options (-v/-m/-b/-h,
+    verbose/monitor/notify/ignoreeof/vi/emacs) remain explicitly refused.
+  - Added CLI option parsing in src/main.c (-/+ flags, clustered flags
+    including -euc/-es, -o/+o named options, and -n parse-only loop).
+  - Updated src/builtins_special.c to use options.h and track unset
+    LINENO; initialized PS4 to "+ " in src/shell.c.
+  - Exposed tc_lex_expand_parts in lex.h/lex.c for both unquoted
+    here-documents and PS4 expansion.
+  - Added LINENO expansion, updated $-, and implemented set -u (nounset)
+    in src/expand.c (exempting @/*/#/?/-/$/!/0 and default/alt/assign
+    forms) and src/arith.c (with short-circuit and assignment LHS safe).
+  - Implemented set -e (errexit with exact POSIX.1-2024 ignore contexts
+    for if/elif/while/until conditions, non-last &&/||, negated !, and
+    non-subshell compound commands), set -o pipefail, race-safe set -C
+    (noclobber with O_EXCL, >| override, and non-regular file check),
+    set -x (xtrace with PS4 expansion, LINENO, and shell-quoted args),
+    and set -n (noexec) in src/exec.c.
+  - Added tests/test_options.c, 6 reference-compared script tests
+    (errexit, nounset, pipefail, noclobber, xtrace, noexec), and 0.1.3
+    CLI checks in tests/run-scripts.sh.
+  - Added sandbox/demo-0.1.3-options and updated sandbox/play and
+    sandbox/README-sandbox.
+  - Bumped VERSION to 0.1.3 and updated ROADMAP.md,
+    plans/P2-posix-language.md, and work/WHATNOW.
+  - Verified make test, make sanitize (ASan + UBSan), readelf -d (only
+    libc.so.6), and ./sandbox/demo-0.1.3-options.
+
+FAILED
+
+  - Nothing.
+
+HANDOFF
+
+  - 0.1.3 is complete. Next is 0.1.4 (plans/P2-posix-language.md):
+    POSIX spec suite (tests/spec/) run against dash, bash --posix,
+    mksh and busybox ash, plus fuzzing campaign on the lexer, parser,
+    and expander.

@@ -3,33 +3,35 @@ WHATNOW
 What tam-clam is doing now and what comes next. Read this first; revise
 it at the end of every session (work/README-work).
 
-Updated: 2026-11-23, with W8 (0.1.2)
+Updated: 2026-11-23, with W9 (0.1.3)
 
 
 STATE
 
-  Version 0.1.2, Phase P2 (regular POSIX builtins), on branch dev.
+  Version 0.1.3, Phase P2 (POSIX shell options), on branch dev.
   It adds:
-  - command hash table (src/hash.c) with automatic invalidation on PATH
-    changes (var.c path_gen), integrated with external command lookup in
-    src/exec.c, plus the hash builtin (-r, list, lookup);
-  - alias table (src/alias.c) with alias and unalias (-a), plus POSIX
-    command-position alias expansion in input.c/lex.c/parse.c with
-    bounded recursion prevention (TC_ALIAS_DEPTH_MAX) and trailing-blank
-    chaining;
-  - test and [ (src/bi_test.c) with exact POSIX 0..4-arg disambiguation,
-    bounded recursive-descent for 5+ args (-o, -a, !, parens), file,
-    string, and checked 64-bit integer primaries;
-  - printf (src/bi_printf.c) with format reuse, width/precision/*,
-    %b/\c/\0ddd, 'c char constants, numeric/float conversions, and %q;
-  - echo (-n only, no backslash escapes by default), pwd (-L/-P),
-    umask (octal and symbolic -S), read (-r, -d, bytewise stdin, IFS
-    splitting, default REPLY), kill (-l, -s, -SIG, refusing %job), and
-    ulimit (-H/-S/-a and resource flags) in src/builtins_io.c;
-  - getopts (OPTIND/OPTARG, silent mode, explicit args), command
-    (-p/-v/-V, function bypass, suppressing special-builtin fatal exit),
-    and type in src/builtins_cmd.c;
-  - sandbox/demo-0.1.2-builtins added to sandbox/play.
+  - shared option module (include/tam-clam/options.h, src/options.c)
+    supporting -a/allexport, -C/noclobber, -e/errexit, -f/noglob,
+    -n/noexec, -u/nounset, -x/xtrace, and -o pipefail (POSIX.1-2024),
+    with set -o / set +o output and $- flags;
+  - CLI option parsing in src/main.c (-/+ flags, clustered flags like
+    -euc and -es, -o/+o named options, and -n parse-only mode);
+  - set -e (errexit) in src/exec.c following POSIX.1-2024 rules
+    (ignored in if/elif/while/until conditions, non-last &&/||, negated
+    ! pipelines, and non-subshell compound commands; active in
+    subshells, functions, pipelines, and assignment command subs; EXIT
+    traps still run with the failing status);
+  - set -u (nounset) in src/expand.c and src/arith.c (exempting
+    @/*/#/?/-/$/!/0, default/alt/assign forms, and short-circuited
+    arithmetic branches);
+  - set -o pipefail in src/exec.c (rightmost non-zero pipeline status);
+  - set -x (xtrace) in src/exec.c with PS4 expansion (reusing
+    tc_lex_expand_parts), LINENO tracking, and shell-quoted arguments;
+  - set -C (noclobber) in src/exec.c with O_EXCL, >| override, and
+    non-regular file allowance (/dev/null, FIFOs);
+  - set -n (noexec) parse-only syntax checking in main.c and exec.c
+    (ignored when interactive);
+  - sandbox/demo-0.1.3-options added to sandbox/play.
   readelf -d lists only libc.so.6. make test and make sanitize pass.
 
   Fred's decisions so far are in ROADMAP.md and the plans: POSIX.1-2024
@@ -42,25 +44,25 @@ STATE
 
 NEXT
 
-  1. 0.1.3 (plans/P2-posix-language.md):
-     - shell options: set -e (errexit, exact POSIX rules), set -u
-       (nounset), set -o pipefail (POSIX.1-2024), set -x (xtrace with
-       PS4 and line numbers), set -C (noclobber), set -n (noexec, parse
-       only).
-     Bump VERSION to 0.1.3 in the first code commit.
+  1. 0.1.4 (plans/P2-posix-language.md):
+     - POSIX spec suite (tests/spec/) run against installed reference
+       shells (dash, bash --posix, mksh, busybox ash);
+     - fuzzing targets (tests/fuzz/) for lexer, parser, and expander
+       with libFuzzer (when clang is installed) and a plain C corpus
+       replay driver for make test / make sanitize.
+     Bump VERSION to 0.1.4 in the first code commit.
 
-  2. 0.1.4, POSIX spec suite (tests/spec/) run against dash,
-     bash --posix, mksh and busybox ash, plus fuzzing campaign on the
-     lexer, parser, and expander.
+  2. 0.1.5, lint mode: tam-clam --lint FILE...
 
 
 WAITING FOR FRED
 
-  - Trying 0.1.2: ./sandbox/demo-0.1.2-builtins, ./sandbox/play, or
-    build/tam-clam -c '...'. It is not installed and is nobody's login
-    shell.
-  - Whether to install dash, so the script tests compare against it as
-    well as bash --posix.
+  - Trying 0.1.3: ./sandbox/demo-0.1.3-options, ./sandbox/play, or
+    build/tam-clam -eu -o pipefail -c '...'. It is not installed and is
+    nobody's login shell.
+  - Whether to install dash (and optionally mksh / busybox) so 0.1.4's
+    spec suite compares against multiple reference shells as well as
+    bash --posix.
 
 
 WATCH OUT

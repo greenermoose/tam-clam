@@ -1,0 +1,9 @@
++ echo hello
+hello
++ set +x
++dbg:16: x=42
++dbg:17: echo 'two words' 'it'\''s'
+two words it's
++dbg:18: set +x
+ln1=22
+ln2=23

@@ -1,0 +1,5 @@
+new=0 content=first
+clobber_blocked=1 content=first
+force=0 content=forced
+devnull=0
+plus_C=0 content=overwritten

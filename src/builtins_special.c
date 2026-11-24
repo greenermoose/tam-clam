@@ -16,6 +16,7 @@
 #include "tam-clam/builtins.h"
 #include "tam-clam/exec.h"
 #include "tam-clam/input.h"
+#include "tam-clam/options.h"
 #include "tam-clam/shell.h"
 #include "tam-clam/trap.h"
 #include "tam-clam/var.h"
@@ -74,50 +75,6 @@ static int print_all_vars(struct tc_shell *sh, unsigned long line)
 	return status;
 }
 
-static int print_options(const struct tc_shell *sh, bool reusable,
-			 unsigned long line)
-{
-	static const char *const names[] = {"allexport", "noglob"};
-	const bool vals[] = {sh->opt_allexport, sh->opt_noglob};
-	char buf[128];
-	for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
-		int n;
-		if (reusable)
-			n = snprintf(buf, sizeof(buf), "set %co %s\n",
-				     vals[i] ? '-' : '+', names[i]);
-		else
-			n = snprintf(buf, sizeof(buf), "%-16s%s\n",
-				     names[i], vals[i] ? "on" : "off");
-		if (n < 0 || tc_write_all(STDOUT_FILENO, buf, (size_t)n) < 0) {
-			tc_error(sh, line, "set: write error: %s", strerror(errno));
-			return 1;
-		}
-	}
-	return 0;
-}
-
-static bool is_deferred_opt_char(char c)
-{
-	return c == 'e' || c == 'u' || c == 'x' || c == 'C' || c == 'n' ||
-	       c == 'v' || c == 'm' || c == 'b' || c == 'h';
-}
-
-static bool is_deferred_opt_name(const char *name)
-{
-	return strcmp(name, "errexit") == 0 ||
-	       strcmp(name, "nounset") == 0 ||
-	       strcmp(name, "pipefail") == 0 ||
-	       strcmp(name, "xtrace") == 0 ||
-	       strcmp(name, "noclobber") == 0 ||
-	       strcmp(name, "noexec") == 0 ||
-	       strcmp(name, "verbose") == 0 ||
-	       strcmp(name, "monitor") == 0 ||
-	       strcmp(name, "notify") == 0 ||
-	       strcmp(name, "ignoreeof") == 0 ||
-	       strcmp(name, "vi") == 0 ||
-	       strcmp(name, "emacs") == 0;
-}
-
 int tc_bi_set(struct tc_shell *sh, int argc, char **argv, unsigned long line)
 {
 	if (argc == 1)
@@ -145,41 +102,38 @@ int tc_bi_set(struct tc_shell *sh, int argc, char **argv, unsigned long line)
 		}
 		bool enable = (a[0] == '-');
 		for (const char *p = a + 1; *p; p++) {
-			if (*p == 'a') {
-				sh->opt_allexport = enable;
-			} else if (*p == 'f') {
-				sh->opt_noglob = enable;
-			} else if (*p == 'o') {
+			if (*p == 'o') {
 				const char *optname = p[1] ? p + 1 : NULL;
 				if (!optname && i + 1 < argc)
 					optname = argv[++i];
 				if (!optname) {
-					if (print_options(sh, !enable, line) != 0)
+					if (tc_opt_print(sh, !enable, line) != 0)
 						return 1;
 					break;
 				}
-				if (strcmp(optname, "allexport") == 0) {
-					sh->opt_allexport = enable;
-				} else if (strcmp(optname, "noglob") == 0) {
-					sh->opt_noglob = enable;
-				} else if (is_deferred_opt_name(optname)) {
+				enum tc_opt_res or = tc_opt_set_name(sh, optname, enable);
+				if (or == TC_OPT_DEFERRED) {
 					tc_error(sh, line,
 						 "set: %co %s: option not supported yet; see ROADMAP.md",
 						 enable ? '-' : '+', optname);
 					return special_fail(sh, TC_STATUS_USAGE);
-				} else {
+				}
+				if (or == TC_OPT_INVALID) {
 					tc_error(sh, line,
 						 "set: %co %s: invalid option name",
 						 enable ? '-' : '+', optname);
 					return special_fail(sh, TC_STATUS_USAGE);
 				}
 				break;
-			} else if (is_deferred_opt_char(*p)) {
+			}
+			enum tc_opt_res or = tc_opt_set_char(sh, *p, enable);
+			if (or == TC_OPT_DEFERRED) {
 				tc_error(sh, line,
 					 "set: %c%c: option not supported yet; see ROADMAP.md",
 					 enable ? '-' : '+', *p);
 				return special_fail(sh, TC_STATUS_USAGE);
-			} else {
+			}
+			if (or == TC_OPT_INVALID) {
 				tc_error(sh, line, "set: %c%c: invalid option",
 					 enable ? '-' : '+', *p);
 				return special_fail(sh, TC_STATUS_USAGE);
@@ -531,6 +485,8 @@ int tc_bi_unset(struct tc_shell *sh, int argc, char **argv, unsigned long line)
 		if (do_funcs) {
 			tc_func_unset(&sh->funcs, name);
 		} else {
+			if (strcmp(name, "LINENO") == 0)
+				sh->lineno_disabled = true;
 			int r = tc_var_unset(&sh->vars, name);
 			if (r == TC_VAR_ERR_READONLY) {
 				tc_error(sh, line, "unset: %s: readonly variable", name);

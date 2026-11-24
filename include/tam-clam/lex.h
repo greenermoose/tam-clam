@@ -89,4 +89,10 @@ int tc_lex_read_heredoc(struct tc_lexer *lx, const char *delim, bool strip_tabs,
 			const char **out_body, size_t *out_len,
 			struct tc_wpart **out_parts);
 
+/* Parse a raw string (unquoted here-document body or PS4 prompt) into a
+ * tc_wpart list supporting $, ${...}, $(...), $((...)), `...`, and
+ * \$, \`, \\ escapes. */
+int tc_lex_expand_parts(struct tc_shell *sh, const char *body, size_t blen,
+			unsigned long start_line, struct tc_wpart **out);
+
 #endif

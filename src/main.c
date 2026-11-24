@@ -14,6 +14,7 @@
 
 #include "tam-clam/exec.h"
 #include "tam-clam/input.h"
+#include "tam-clam/options.h"
 #include "tam-clam/parse.h"
 #include "tam-clam/shell.h"
 #include "tam-clam/signals.h"
@@ -49,7 +50,7 @@ static int run(struct tc_shell *sh, struct tc_input *in)
 		if (r == TC_END)
 			break;
 		if (r == TC_OK) {
-			if (node)
+			if (node && !(sh->opt_noexec && !sh->interactive))
 				tc_exec(sh, node);
 			tc_arena_reset(&sh->arena);
 			tc_trap_run_pending(sh);
@@ -110,42 +111,90 @@ int main(int argc, char **argv)
 
 	int i = 1;
 	const char *command = NULL;
+	bool want_c = false;
 	int read_stdin = 0;
-	for (; i < argc && argv[i][0] == '-' && argv[i][1] != '\0'; i++) {
+	for (; i < argc && (argv[i][0] == '-' || argv[i][0] == '+') &&
+	       argv[i][1] != '\0';
+	     i++) {
 		const char *a = argv[i];
 		if (strcmp(a, "--") == 0) {
 			i++;
 			break;
-		} else if (strcmp(a, "--version") == 0) {
+		}
+		if (strcmp(a, "--version") == 0) {
 			static const char v[] = "tam-clam " TC_VERSION "\n";
 			int wr = tc_write_all(STDOUT_FILENO, v, sizeof(v) - 1) < 0 ? 1 : 0;
 			tc_shell_finish(&sh);
 			return wr;
-		} else if (strcmp(a, "--help") == 0) {
+		}
+		if (strcmp(a, "--help") == 0) {
 			usage(STDOUT_FILENO);
 			tc_shell_finish(&sh);
 			return 0;
-		} else if (strcmp(a, "-c") == 0) {
-			if (++i >= argc) {
-				tc_error(&sh, 0, "-c: a command string is needed");
-				tc_shell_finish(&sh);
-				return TC_STATUS_USAGE;
+		}
+		bool enable = (a[0] == '-');
+		bool stop_opts = false;
+		for (const char *p = a + 1; *p; p++) {
+			if (enable && *p == 'c') {
+				want_c = true;
+				stop_opts = true;
+			} else if (enable && *p == 's') {
+				read_stdin = 1;
+			} else if (*p == 'o') {
+				const char *optname = p[1] ? p + 1 : NULL;
+				if (!optname && i + 1 < argc)
+					optname = argv[++i];
+				if (!optname) {
+					if (tc_opt_print(&sh, !enable, 0) != 0) {
+						tc_shell_finish(&sh);
+						return 1;
+					}
+					break;
+				}
+				enum tc_opt_res or = tc_opt_set_name(&sh, optname, enable);
+				if (or == TC_OPT_DEFERRED) {
+					tc_error(&sh, 0, "%co %s: option not supported yet; see ROADMAP.md",
+						 enable ? '-' : '+', optname);
+					tc_shell_finish(&sh);
+					return TC_STATUS_USAGE;
+				}
+				if (or == TC_OPT_INVALID) {
+					tc_error(&sh, 0, "%co %s: invalid option name",
+						 enable ? '-' : '+', optname);
+					usage(STDERR_FILENO);
+					tc_shell_finish(&sh);
+					return TC_STATUS_USAGE;
+				}
+				break;
+			} else {
+				enum tc_opt_res or = tc_opt_set_char(&sh, *p, enable);
+				if (or == TC_OPT_DEFERRED) {
+					tc_error(&sh, 0, "%c%c: option not supported yet; see ROADMAP.md",
+						 enable ? '-' : '+', *p);
+					tc_shell_finish(&sh);
+					return TC_STATUS_USAGE;
+				}
+				if (or == TC_OPT_INVALID) {
+					tc_error(&sh, 0, "%c%c: invalid option",
+						 enable ? '-' : '+', *p);
+					usage(STDERR_FILENO);
+					tc_shell_finish(&sh);
+					return TC_STATUS_USAGE;
+				}
 			}
-			command = argv[i];
+		}
+		if (stop_opts) {
 			i++;
 			break;
-		} else if (strcmp(a, "-s") == 0) {
-			read_stdin = 1;
-			i++;
-			if (i < argc && strcmp(argv[i], "--") == 0)
-				i++;
-			break;
-		} else {
-			tc_error(&sh, 0, "%s: option not supported yet", a);
-			usage(STDERR_FILENO);
+		}
+	}
+	if (want_c) {
+		if (i >= argc) {
+			tc_error(&sh, 0, "-c: a command string is needed");
 			tc_shell_finish(&sh);
 			return TC_STATUS_USAGE;
 		}
+		command = argv[i++];
 	}
 
 	struct tc_input in;

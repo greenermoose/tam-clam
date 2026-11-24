@@ -73,7 +73,17 @@ struct tc_shell {
 	bool in_exit_trap;         /* true while running EXIT trap */
 	bool in_command_builtin;   /* true while `command` runs a special builtin */
 	bool opt_allexport;        /* set -a */
+	bool opt_noclobber;        /* set -C */
+	bool opt_errexit;          /* set -e */
 	bool opt_noglob;           /* set -f */
+	bool opt_noexec;           /* set -n */
+	bool opt_nounset;          /* set -u */
+	bool opt_xtrace;           /* set -x */
+	bool opt_pipefail;         /* set -o pipefail */
+	unsigned errexit_ignore;   /* >0 while POSIX set -e is ignored */
+	unsigned subshell_depth;   /* nesting depth for PS4 indirection */
+	unsigned long lineno;      /* current executing command line */
+	bool lineno_disabled;      /* true after unset LINENO */
 	pid_t root_pid;            /* $$: main shell PID */
 	pid_t last_bg_pid;         /* $!: last background PID */
 	bool cmdsub_ran;           /* true if a command sub ran in current simple cmd */

@@ -78,6 +78,8 @@ void tc_shell_init(struct tc_shell *sh, const char *name)
 		(void)tc_var_set(&sh->vars, "PS1", geteuid() == 0 ? "# " : "$ ", 0);
 	if (!tc_var_get(&sh->vars, "PS2"))
 		(void)tc_var_set(&sh->vars, "PS2", "> ", 0);
+	if (!tc_var_get(&sh->vars, "PS4"))
+		(void)tc_var_set(&sh->vars, "PS4", "+ ", 0);
 	(void)tc_var_set(&sh->vars, "OPTIND", "1", 0);
 
 	const char *pwd = tc_var_get(&sh->vars, "PWD");

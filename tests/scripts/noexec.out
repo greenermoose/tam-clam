@@ -1,0 +1,8 @@
+has_e=yes
+has_u=yes
+has_C=yes
+has_f=yes
+pipefail:on
+errexit:on
+before_n
+after_n_rc=0

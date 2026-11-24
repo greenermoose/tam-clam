@@ -308,6 +308,11 @@ static int read_var(struct arith_ctx *c, const char *name, size_t len, int64_t *
 	}
 	const char *val = tc_var_get(&c->sh->vars, n);
 	if (!val) {
+		if (c->sh->opt_nounset) {
+			tc_error(c->sh, c->line, "%s: unbound variable", n);
+			c->err = TC_ARITH_ERR;
+			return TC_ARITH_ERR;
+		}
 		*out = 0;
 		return TC_ARITH_OK;
 	}

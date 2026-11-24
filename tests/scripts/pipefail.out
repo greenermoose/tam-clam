@@ -1,0 +1,8 @@
+default=0
+fail_true=1
+rightmost=42
+all_ok=0
+bang_fail=0
+bang_ok=1
+pipefail_e=6
+off=0

@@ -1737,9 +1737,9 @@ static int hd_append(struct tc_lexer *lx, tam_str_t *buf, char ch)
 	return TC_OK;
 }
 
-/* Parse an unquoted here-document body into tc_wpart list. */
-static int lex_heredoc_parts(struct tc_shell *sh, const char *body, size_t blen,
-			     unsigned long start_line, struct tc_wpart **out)
+/* Parse an unquoted here-document body or PS4 prompt into tc_wpart list. */
+int tc_lex_expand_parts(struct tc_shell *sh, const char *body, size_t blen,
+			unsigned long start_line, struct tc_wpart **out)
 {
 	struct tc_input hin;
 	tc_input_from_string(&hin, body, blen);
@@ -1897,7 +1897,7 @@ int tc_lex_read_heredoc(struct tc_lexer *lx, const char *delim, bool strip_tabs,
 
 	size_t blen = tam_str_len(body);
 	if (!quoted && out_parts) {
-		r = lex_heredoc_parts(lx->sh, body, blen, start_line, out_parts);
+		r = tc_lex_expand_parts(lx->sh, body, blen, start_line, out_parts);
 		if (r != TC_OK)
 			goto out;
 	} else {

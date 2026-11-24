@@ -34,6 +34,112 @@ static bool flow_stop(const struct tc_shell *sh)
 	return sh->exit_requested || sh->flow != TC_FLOW_NONE;
 }
 
+static void maybe_errexit(struct tc_shell *sh, int status)
+{
+	if (status != 0 && sh->opt_errexit && sh->errexit_ignore == 0 &&
+	    !sh->exit_requested && sh->flow == TC_FLOW_NONE) {
+		sh->exit_requested = true;
+		sh->exit_status = status;
+	}
+}
+
+static bool xtrace_needs_quote(const char *s)
+{
+	if (!s || *s == '\0')
+		return true;
+	for (const unsigned char *p = (const unsigned char *)s; *p; p++) {
+		unsigned char c = *p;
+		bool safe = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+			    (c >= '0' && c <= '9') || c == '_' || c == '/' ||
+			    c == '.' || c == '-' || c == '+' || c == ':' ||
+			    c == '@' || c == ',' || c == '=' || c == '%';
+		if (!safe)
+			return true;
+	}
+	return false;
+}
+
+static void write_xtrace_word(int fd, const char *s)
+{
+	if (xtrace_needs_quote(s))
+		(void)tc_write_shell_quoted(fd, s ? s : "");
+	else
+		(void)tc_write_all(fd, s, strlen(s));
+}
+
+static void trace_command(struct tc_shell *sh, const struct tc_var_kv *kvs,
+			  size_t na, char *const *argv, size_t argc,
+			  unsigned long line)
+{
+	if (!sh->opt_xtrace || (na == 0 && argc == 0))
+		return;
+
+	bool saved_xtrace = sh->opt_xtrace;
+	bool saved_nounset = sh->opt_nounset;
+	bool saved_errexit = sh->opt_errexit;
+	bool saved_cmdsub_ran = sh->cmdsub_ran;
+	int saved_cmdsub_status = sh->cmdsub_status;
+	unsigned long saved_lineno = sh->lineno;
+	struct tc_arena_mark mark = tc_arena_mark(&sh->arena);
+
+	sh->opt_xtrace = false;
+	sh->opt_nounset = false;
+	sh->opt_errexit = false;
+	if (line > 0)
+		sh->lineno = line;
+
+	const char *ps4 = tc_var_get(&sh->vars, "PS4");
+	const char *prefix = "";
+	size_t plen = 0;
+	if (ps4 && *ps4) {
+		struct tc_wpart *parts = NULL;
+		char *exp = NULL;
+		size_t elen = 0;
+		if (tc_lex_expand_parts(sh, ps4, strlen(ps4), line, &parts) == TC_OK &&
+		    tc_expand_heredoc(sh, parts, line, &exp, &elen) == TC_EXP_OK) {
+			prefix = exp;
+			plen = elen;
+		} else {
+			prefix = ps4;
+			plen = strlen(ps4);
+		}
+	}
+
+	if (plen > 0) {
+		unsigned depth = sh->eval_depth + sh->dot_depth;
+		if (depth > 64)
+			depth = 64;
+		for (unsigned d = 0; d < depth; d++)
+			(void)tc_write_all(STDERR_FILENO, prefix, 1);
+		(void)tc_write_all(STDERR_FILENO, prefix, plen);
+	}
+
+	bool first = true;
+	for (size_t i = 0; i < na; i++) {
+		if (!first)
+			(void)tc_write_all(STDERR_FILENO, " ", 1);
+		first = false;
+		(void)tc_write_all(STDERR_FILENO, kvs[i].name, strlen(kvs[i].name));
+		(void)tc_write_all(STDERR_FILENO, "=", 1);
+		write_xtrace_word(STDERR_FILENO, kvs[i].value);
+	}
+	for (size_t i = 0; i < argc; i++) {
+		if (!first)
+			(void)tc_write_all(STDERR_FILENO, " ", 1);
+		first = false;
+		write_xtrace_word(STDERR_FILENO, argv[i]);
+	}
+	(void)tc_write_all(STDERR_FILENO, "\n", 1);
+
+	tc_arena_rewind(&sh->arena, mark);
+	sh->lineno = saved_lineno;
+	sh->cmdsub_ran = saved_cmdsub_ran;
+	sh->cmdsub_status = saved_cmdsub_status;
+	sh->opt_errexit = saved_errexit;
+	sh->opt_nounset = saved_nounset;
+	sh->opt_xtrace = saved_xtrace;
+}
+
 static int fatal_exp_error(struct tc_shell *sh)
 {
 	if (!sh->interactive) {
@@ -372,20 +478,46 @@ static int apply_one_redir(struct tc_shell *sh, const struct tc_redir *r,
 		return 0;
 	}
 
-	int flags;
-	switch (r->kind) {
-	case TC_REDIR_IN:      flags = O_RDONLY; break;
-	case TC_REDIR_OUT:
-	case TC_REDIR_CLOBBER: flags = O_WRONLY | O_CREAT | O_TRUNC; break;
-	case TC_REDIR_APPEND:  flags = O_WRONLY | O_CREAT | O_APPEND; break;
-	case TC_REDIR_RDWR:    flags = O_RDWR | O_CREAT; break;
-	default:               return -1;
-	}
+	int fd;
+	if (r->kind == TC_REDIR_OUT && sh->opt_noclobber) {
+		fd = open(word, O_WRONLY | O_CREAT | O_EXCL, 0666);
+		if (fd < 0 && errno == EEXIST) {
+			struct stat st;
+			if (stat(word, &st) == 0 && !S_ISREG(st.st_mode)) {
+				fd = open(word, O_WRONLY | O_TRUNC);
+				if (fd >= 0 &&
+				    (fstat(fd, &st) < 0 || S_ISREG(st.st_mode))) {
+					close(fd);
+					tc_error(sh, r->line,
+						 "%s: cannot overwrite existing file", word);
+					return -1;
+				}
+			} else {
+				tc_error(sh, r->line,
+					 "%s: cannot overwrite existing file", word);
+				return -1;
+			}
+		}
+		if (fd < 0) {
+			tc_error(sh, r->line, "%s: %s", word, strerror(errno));
+			return -1;
+		}
+	} else {
+		int flags;
+		switch (r->kind) {
+		case TC_REDIR_IN:      flags = O_RDONLY; break;
+		case TC_REDIR_OUT:
+		case TC_REDIR_CLOBBER: flags = O_WRONLY | O_CREAT | O_TRUNC; break;
+		case TC_REDIR_APPEND:  flags = O_WRONLY | O_CREAT | O_APPEND; break;
+		case TC_REDIR_RDWR:    flags = O_RDWR | O_CREAT; break;
+		default:               return -1;
+		}
 
-	int fd = open(word, flags, 0666);
-	if (fd < 0) {
-		tc_error(sh, r->line, "%s: %s", word, strerror(errno));
-		return -1;
+		fd = open(word, flags, 0666);
+		if (fd < 0) {
+			tc_error(sh, r->line, "%s: %s", word, strerror(errno));
+			return -1;
+		}
 	}
 	if (fd != target_fd) {
 		if (dup2(fd, target_fd) < 0) {
@@ -478,11 +610,19 @@ static int apply_redirs(struct tc_shell *sh, const struct tc_redir *redirs,
 static int apply_assigns_persist(struct tc_shell *sh,
 				 const struct tc_assign *assigns, size_t n)
 {
+	struct tc_var_kv *traced = NULL;
+	if (sh->opt_xtrace && n > 0)
+		traced = tc_arena_alloc(&sh->arena, n * sizeof(*traced));
+
 	for (size_t i = 0; i < n; i++) {
 		char *val = NULL;
 		int er = tc_expand_single(sh, &assigns[i].value, true, &val);
 		if (er != TC_EXP_OK)
 			return er == TC_EXP_ERR ? fatal_exp_error(sh) : TC_STATUS_USAGE;
+		if (traced) {
+			traced[i].name = assigns[i].name;
+			traced[i].value = val;
+		}
 		int sr = tc_var_set(&sh->vars, assigns[i].name, val,
 				    sh->opt_allexport ? TC_VAR_EXPORT : 0);
 		if (sr == TC_VAR_ERR_READONLY) {
@@ -495,6 +635,8 @@ static int apply_assigns_persist(struct tc_shell *sh,
 			return TC_STATUS_USAGE;
 		}
 	}
+	if (traced)
+		trace_command(sh, traced, n, NULL, 0, assigns[0].line);
 	return 0;
 }
 
@@ -658,7 +800,7 @@ static int exec_builtin(struct tc_shell *sh, const struct tc_builtin *bi,
 	return status;
 }
 
-static int exec_simple(struct tc_shell *sh, const struct tc_node *n)
+static int exec_simple_body(struct tc_shell *sh, const struct tc_node *n)
 {
 	size_t na = n->u.simple.nassigns;
 	size_t nw = n->u.simple.nwords;
@@ -702,6 +844,9 @@ static int exec_simple(struct tc_shell *sh, const struct tc_node *n)
 		if (ar != 0)
 			return ar;
 	}
+
+	if (sh->opt_xtrace)
+		trace_command(sh, kvs, na, argv, argc, n->line);
 
 	/* POSIX command search order (XCU 2.9.1.1):
 	 * 1. Special builtins
@@ -795,6 +940,13 @@ static int exec_simple(struct tc_shell *sh, const struct tc_node *n)
 	return wait_child(pid);
 }
 
+static int exec_simple(struct tc_shell *sh, const struct tc_node *n)
+{
+	int status = exec_simple_body(sh, n);
+	maybe_errexit(sh, status);
+	return status;
+}
+
 int tc_exec_command_builtin(struct tc_shell *sh, int argc, char **argv,
 			    bool default_path, unsigned long line)
 {
@@ -850,7 +1002,11 @@ static int exec_pipeline(struct tc_shell *sh, const struct tc_node *n)
 {
 	size_t ncmds = n->u.pipeline.ncmds;
 	if (ncmds == 1) {
+		if (n->u.pipeline.bang)
+			sh->errexit_ignore++;
 		int status = exec_one(sh, n->u.pipeline.cmds[0]);
+		if (n->u.pipeline.bang)
+			sh->errexit_ignore--;
 		return n->u.pipeline.bang ? (status == 0 ? 1 : 0) : status;
 	}
 
@@ -859,6 +1015,9 @@ static int exec_pipeline(struct tc_shell *sh, const struct tc_node *n)
 		tc_error(sh, n->line, "out of memory");
 		return TC_STATUS_USAGE;
 	}
+
+	if (n->u.pipeline.bang)
+		sh->errexit_ignore++;
 
 	int in_fd = -1;
 	size_t forked = 0;
@@ -870,6 +1029,8 @@ static int exec_pipeline(struct tc_shell *sh, const struct tc_node *n)
 				close(in_fd);
 			for (size_t j = 0; j < forked; j++)
 				wait_child(pids[j]);
+			if (n->u.pipeline.bang)
+				sh->errexit_ignore--;
 			return TC_STATUS_USAGE;
 		}
 		pid_t pid = fork();
@@ -883,6 +1044,8 @@ static int exec_pipeline(struct tc_shell *sh, const struct tc_node *n)
 				close(pfd[1]);
 			for (size_t j = 0; j < forked; j++)
 				wait_child(pids[j]);
+			if (n->u.pipeline.bang)
+				sh->errexit_ignore--;
 			return TC_STATUS_USAGE;
 		}
 		if (pid == 0) {
@@ -890,6 +1053,7 @@ static int exec_pipeline(struct tc_shell *sh, const struct tc_node *n)
 			tc_traps_subshell_reset(&sh->traps);
 			tc_bg_reset_subshell(&sh->bg);
 			sh->interactive = false;
+			sh->subshell_depth++;
 			sh->loop_depth = 0;
 			sh->func_depth = 0;
 			sh->dot_depth = 0;
@@ -926,9 +1090,21 @@ static int exec_pipeline(struct tc_shell *sh, const struct tc_node *n)
 	}
 
 	int status = 0;
-	for (size_t i = 0; i < forked; i++)
-		status = wait_child(pids[i]);
-	return n->u.pipeline.bang ? (status == 0 ? 1 : 0) : status;
+	for (size_t i = 0; i < forked; i++) {
+		int st = wait_child(pids[i]);
+		if (sh->opt_pipefail) {
+			if (st != 0)
+				status = st;
+		} else {
+			status = st;
+		}
+	}
+	if (n->u.pipeline.bang) {
+		sh->errexit_ignore--;
+		return status == 0 ? 1 : 0;
+	}
+	maybe_errexit(sh, status);
+	return status;
 }
 
 static int exec_redir(struct tc_shell *sh, const struct tc_node *n)
@@ -938,8 +1114,10 @@ static int exec_redir(struct tc_shell *sh, const struct tc_node *n)
 	pid_t *writers = NULL;
 	size_t nwriters = 0;
 	if (apply_redirs(sh, n->u.redir.redirs, n->u.redir.nredirs,
-			 &saves, &nsaves, &writers, &nwriters) < 0)
+			 &saves, &nsaves, &writers, &nwriters) < 0) {
+		maybe_errexit(sh, 1);
 		return 1;
+	}
 	int status = exec_one(sh, n->u.redir.child);
 	restore_fds(saves, nsaves);
 	for (size_t i = 0; i < nwriters; i++)
@@ -959,6 +1137,7 @@ static int exec_subshell(struct tc_shell *sh, const struct tc_node *n)
 		tc_traps_subshell_reset(&sh->traps);
 		tc_bg_reset_subshell(&sh->bg);
 		sh->interactive = false;
+		sh->subshell_depth++;
 		sh->loop_depth = 0;
 		sh->func_depth = 0;
 		sh->dot_depth = 0;
@@ -970,7 +1149,9 @@ static int exec_subshell(struct tc_shell *sh, const struct tc_node *n)
 		tc_trap_run_exit(sh);
 		_exit(sh->exit_requested ? sh->exit_status : st);
 	}
-	return wait_child(pid);
+	int st = wait_child(pid);
+	maybe_errexit(sh, st);
+	return st;
 }
 
 static int exec_bg(struct tc_shell *sh, const struct tc_node *n)
@@ -986,6 +1167,7 @@ static int exec_bg(struct tc_shell *sh, const struct tc_node *n)
 		tc_traps_subshell_reset(&sh->traps);
 		tc_bg_reset_subshell(&sh->bg);
 		sh->interactive = false;
+		sh->subshell_depth++;
 		sh->loop_depth = 0;
 		sh->func_depth = 0;
 		sh->dot_depth = 0;
@@ -1014,7 +1196,9 @@ static int exec_bg(struct tc_shell *sh, const struct tc_node *n)
 static int exec_if(struct tc_shell *sh, const struct tc_node *n)
 {
 	for (size_t i = 0; i < n->u.if_cmd.nbranches; i++) {
+		sh->errexit_ignore++;
 		int cstat = tc_exec(sh, n->u.if_cmd.branches[i].cond);
+		sh->errexit_ignore--;
 		if (flow_stop(sh))
 			return cstat;
 		if (cstat == 0)
@@ -1058,7 +1242,9 @@ static int exec_loop(struct tc_shell *sh, const struct tc_node *n)
 
 	for (;;) {
 		tc_arena_rewind(&sh->arena, mark);
+		sh->errexit_ignore++;
 		int cstat = tc_exec(sh, n->u.loop.cond);
+		sh->errexit_ignore--;
 		int fl = handle_loop_flow(sh, &last_status, cstat);
 		if (fl == 1)
 			break;
@@ -1194,6 +1380,8 @@ static int exec_one(struct tc_shell *sh, const struct tc_node *n)
 		return 1;
 	}
 	sh->exec_depth++;
+	if (n->line > 0)
+		sh->lineno = n->line;
 	int status;
 
 	switch (n->kind) {
@@ -1210,7 +1398,12 @@ static int exec_one(struct tc_shell *sh, const struct tc_node *n)
 				continue;
 			if (it->op == TC_ANDOR_OR && sh->status == 0)
 				continue;
+			bool not_last = (i + 1 < n->u.and_or.nitems);
+			if (not_last)
+				sh->errexit_ignore++;
 			sh->status = exec_one(sh, it->cmd);
+			if (not_last)
+				sh->errexit_ignore--;
 			if (flow_stop(sh))
 				break;
 		}
@@ -1265,7 +1458,7 @@ int tc_exec(struct tc_shell *sh, const struct tc_node *n)
 		sh->status = exec_one(sh, cur);
 		tc_trap_run_pending(sh);
 		tc_bg_reap_nonblock(&sh->bg);
-		if (flow_stop(sh))
+		if (flow_stop(sh) || (sh->opt_noexec && !sh->interactive))
 			break;
 	}
 	return sh->status;
@@ -1298,7 +1491,7 @@ int tc_exec_input(struct tc_shell *sh, struct tc_input *in,
 			break;
 		}
 		if (r == TC_OK) {
-			if (node) {
+			if (node && !(sh->opt_noexec && !sh->interactive)) {
 				if (ran_any)
 					*ran_any = true;
 				status = tc_exec(sh, node);
@@ -1367,6 +1560,7 @@ int tc_exec_cmdsub(struct tc_shell *sh, const struct tc_node *cmd,
 		tc_traps_subshell_reset(&sh->traps);
 		tc_bg_reset_subshell(&sh->bg);
 		sh->interactive = false;
+		sh->subshell_depth++;
 		sh->loop_depth = 0;
 		sh->func_depth = 0;
 		sh->dot_depth = 0;
