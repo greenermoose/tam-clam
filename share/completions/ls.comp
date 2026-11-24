@@ -1,0 +1,10 @@
+# ls common options
+opt -a           Include entries starting with .
+opt -A           Do not list . and ..
+opt -l           Use a long listing format
+opt -h           Human-readable file sizes
+opt -t           Sort by modification time
+opt -r           Reverse sort order
+opt -R           List subdirectories recursively
+opt -d           List directories themselves
+opt --color=auto Colorize output when on a terminal

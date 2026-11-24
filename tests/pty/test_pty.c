@@ -381,6 +381,43 @@ static void test_interactive_jobs(const char *sh)
 	CHECK(pty_finish(&s) == 0);
 }
 
+static void test_interactive_complete(const char *sh)
+{
+	struct pty_sess s;
+	CHECK(pty_start(&s, sh, "xterm-256color") == 0);
+	CHECK(pty_wait_for(&s, "CLAM$ ", 2000));
+
+	/* 1. Command Tab completion: "pri<Tab>'C1:ok\n'\r" -> printf. */
+	pty_clear_out(&s);
+	const char *c1 = "pri\t'C1:ok\\n'\r";
+	CHECK(pty_send(&s, c1, strlen(c1)) == 0);
+	CHECK(pty_wait_after(&s, "C1:ok", "CLAM$ ", 2000));
+
+	/* 2. Variable Tab completion. */
+	pty_clear_out(&s);
+	CHECK(pty_send(&s, "TAM_COMP_UNI=yes\r", 17) == 0);
+	CHECK(pty_wait_for(&s, "CLAM$ ", 2000));
+	pty_clear_out(&s);
+	const char *c2 = "printf 'C2:%s\\n' $TAM_COMP_U\t\r";
+	CHECK(pty_send(&s, c2, strlen(c2)) == 0);
+	CHECK(pty_wait_after(&s, "C2:yes", "CLAM$ ", 2000));
+
+	/* 3. Declarative option completion (share/completions/tam-clam.comp). */
+	pty_clear_out(&s);
+	const char *c3 = "echo tam-clam --li\t\r";
+	CHECK(pty_send(&s, c3, strlen(c3)) == 0);
+	/* First word is "echo", so test with "tam-clam --li\t" echoed via Ctrl+K or directly: */
+	CHECK(pty_wait_for(&s, "CLAM$ ", 2000));
+
+	pty_clear_out(&s);
+	const char *c4 = "tam-clam --ver\t\r";
+	CHECK(pty_send(&s, c4, strlen(c4)) == 0);
+	CHECK(pty_wait_after(&s, "--version", "CLAM$ ", 2000));
+
+	CHECK(pty_send(&s, "\x11", 1) == 0);
+	CHECK(pty_finish(&s) == 0);
+}
+
 int main(int argc, char **argv)
 {
 	const char *sh = argc > 1 ? argv[1] : "build/tam-clam";
@@ -388,5 +425,6 @@ int main(int argc, char **argv)
 	test_interactive_linux_vt(sh);
 	test_interactive_history(sh);
 	test_interactive_jobs(sh);
+	test_interactive_complete(sh);
 	CHECK_DONE("test_pty");
 }

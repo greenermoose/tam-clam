@@ -1,0 +1,47 @@
+W17 COMPLETION (0.2.3)
+
+Date: 2026-11-24
+AI harness: agy 1.5.15
+AI model: Gemini 4 Neon (Medium)
+Continues: W16
+
+GUIDANCE
+
+  Fred: "/plan Do the work for 0.2.3"
+  Fred: "Approved. Proceed."
+
+DONE
+
+  - Implemented context-aware completion in include/tam-clam/complete.h
+    and src/complete/complete.c:
+    - Command completion: builtins (via tc_builtin_at), aliases,
+      functions, and executable files in $PATH (deduplicated & sorted).
+    - File and directory completion: ~/ expansion, hidden dotfile
+      filtering, trailing '/' for dirs, '\ ' space escaping, and
+      directory-only mode for `cd`.
+    - Variable completion ($VAR and ${VAR}) and user-name completion
+      (~user/).
+    - Lazy per-command declarative *.comp loader supporting `opt` and
+      `sub` entries with descriptions, searching
+      $TAM_CLAM_COMPLETIONS_DIR, XDG config, and installed/in-tree
+      share/completions/.
+  - Added starter completion files in share/completions/ (tam-clam, git,
+    ls, grep, cd) and installed them in Makefile install/uninstall.
+  - Wired Tab (complete-next), Shift+Tab (complete-prev), longest-common-
+    prefix insertion, completion overlay, and Escape cancel/restore into
+    src/edit/edit.c.
+  - Added tests/test_complete.c and extended tests/pty/test_pty.c.
+  - Added sandbox/demo-0.2.3-complete; bumped VERSION to 0.2.3; updated
+    ROADMAP.md, plans/P3-interactive.md, sandbox/, and work/WHATNOW.
+  - Verified make clean test, make sanitize, and readelf -d (only
+    libc.so.6).
+
+FAILED
+
+  - Nothing.
+
+HANDOFF
+
+  - 0.2.3 completion is complete on dev.
+  - Next: 0.2.4 syntax highlighting as you type (from the real parser)
+    and dimmed history suggestions accepted with Right / Ctrl+Right.

@@ -18,6 +18,8 @@ struct tc_builtin {
 
 /* NULL when name is not a builtin. */
 const struct tc_builtin *tc_builtin_find(const char *name);
+/* Iterate builtins by index; NULL when idx is past the end. */
+const struct tc_builtin *tc_builtin_at(size_t idx);
 
 /* Special and process-control builtins implemented in builtins_special.c. */
 int tc_bi_set(struct tc_shell *sh, int argc, char **argv, unsigned long line);

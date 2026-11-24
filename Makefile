@@ -33,15 +33,15 @@ CORE_SRCS = src/arena.c src/var.c src/func.c src/alias.c src/hash.c \
 	src/signals.c src/trap.c src/bg.c src/jobs.c src/input.c src/lex.c src/parse.c \
 	src/expand.c src/lint.c src/builtins.c src/builtins_special.c \
 	src/bi_test.c src/bi_printf.c src/builtins_io.c src/builtins_cmd.c \
-	src/exec.c src/history/history.c src/edit/buf.c src/edit/keymap.c \
-	src/edit/render.c src/edit/edit.c
+	src/exec.c src/history/history.c src/complete/complete.c \
+	src/edit/buf.c src/edit/keymap.c src/edit/render.c src/edit/edit.c
 CORE_OBJS = $(patsubst src/%.c,$(B)/%.o,$(CORE_SRCS))
 TESTS = $(B)/tests/test_var $(B)/tests/test_func $(B)/tests/test_alias \
 	$(B)/tests/test_hash $(B)/tests/test_options $(B)/tests/test_test \
 	$(B)/tests/test_pattern $(B)/tests/test_arith $(B)/tests/test_glob \
 	$(B)/tests/test_trap $(B)/tests/test_lex $(B)/tests/test_parse \
 	$(B)/tests/test_expand $(B)/tests/test_lint $(B)/tests/test_edit \
-	$(B)/tests/test_history $(B)/tests/test_jobs
+	$(B)/tests/test_history $(B)/tests/test_jobs $(B)/tests/test_complete
 PTY_TESTS = $(B)/tests/pty/test_pty
 
 FUZZ_BINS = $(B)/fuzz/fuzz_parse $(B)/fuzz/fuzz_expand
@@ -104,9 +104,13 @@ fuzz:
 
 install: $(B)/tam-clam
 	install -Dm755 $(B)/tam-clam $(DESTDIR)$(BINDIR)/tam-clam
+	@for f in share/completions/*.comp; do \
+		install -Dm644 "$$f" "$(DESTDIR)$(PREFIX)/share/tam-clam/completions/$$(basename "$$f")"; \
+	done
 
 uninstall:
 	rm -f $(DESTDIR)$(BINDIR)/tam-clam
+	rm -rf $(DESTDIR)$(PREFIX)/share/tam-clam/completions
 
 clean:
 	rm -rf build

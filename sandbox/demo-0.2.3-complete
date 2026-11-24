@@ -1,0 +1,23 @@
+#!/bin/sh
+# 0.2.3 demo: Tab/Shift+Tab completion for commands, files, vars, users, options.
+set -eu
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+SH="$ROOT/build/tam-clam"
+[ -x "$SH" ] || make -C "$ROOT"
+
+cat <<EOF
+=== tam-clam $(cat "$ROOT/VERSION") completion demo ===
+Uses Tab (complete-next), Shift+Tab (complete-prev), and Escape (cancel).
+
+Things to try at the live prompt:
+  pri<Tab>             complete command name (builtins, aliases, functions, PATH)
+  ls src/<Tab>         complete files & directories (appends / to dirs)
+  echo \$HO<Tab>        complete shell variables (\$VAR and \${VAR})
+  ls ~ro<Tab>          complete user names (~user/)
+  tam-clam --<Tab>     declarative option completion (share/completions/tam-clam.comp)
+  git <Tab>            declarative subcommand completion (share/completions/git.comp)
+  Tab / Shift+Tab      cycle candidates in the overlay; Escape restores original word
+  Ctrl+Q               exit on empty prompt
+
+EOF
+exec env HISTFILE="" PS1='tam-clam$ ' PS2='tam-clam> ' "$SH"

@@ -11,6 +11,7 @@
 #include <unistd.h>
 
 #include "tam-clam/builtins.h"
+#include "tam-clam/complete.h"
 #include "tam-clam/edit.h"
 #include "tam-clam/history.h"
 #include "tam-clam/shell.h"
@@ -148,7 +149,7 @@ static const char guidance_text[] =
 	"Ctrl+X Cut   Ctrl+C Copy    Ctrl+V Paste (Alt+V prev)    Ctrl+Z Undo    Ctrl+Y Redo\n"
 	"Ctrl+A All   Ctrl+F History Ctrl+K Clear   Ctrl+L Redraw Ctrl+E Run     Ctrl+Q Quit\n"
 	"Ctrl+Left/Right (Alt+,/.) Word   Ctrl+Home/End (Alt+</>) Buffer   Alt+M Mark\n"
-	"Alt+Enter Newline  Alt+E $EDITOR  Alt+L Last-arg  Alt+Q Verbatim  Alt+# Comment";
+	"Alt+Enter Newline  Alt+E $EDITOR  Alt+L Last-arg  Tab Complete  Alt+# Comment";
 
 /* Build filtered widget palette text for Ctrl+E. */
 static enum tc_widget build_palette_overlay(const char *query, char *out, size_t cap)
@@ -323,6 +324,7 @@ enum overlay_mode {
 	OV_GUIDANCE,
 	OV_PALETTE,
 	OV_SEARCH,
+	OV_COMPLETE,
 };
 
 struct edit_ctx {
@@ -350,7 +352,136 @@ struct edit_ctx {
 	char *srch_saved;
 	size_t srch_saved_len;
 	ssize_t srch_idx;
+	/* Tab/Shift+Tab completion cycling state. */
+	struct tc_comp_list comp;
+	bool comp_active;
+	ssize_t comp_idx;
+	size_t comp_span_end;
+	char *comp_orig;
+	size_t comp_orig_len;
 };
+
+static void ctx_reset_comp(struct edit_ctx *ctx, bool restore)
+{
+	if (restore && ctx->comp_active && ctx->comp_orig) {
+		if (ctx->comp_span_end <= ctx->buf->len &&
+		    ctx->comp.tok_start <= ctx->comp_span_end) {
+			(void)tc_ebuf_delete_range(ctx->buf, ctx->comp.tok_start,
+						   ctx->comp_span_end, true);
+			(void)tc_ebuf_insert(ctx->buf, ctx->comp_orig,
+					     ctx->comp_orig_len, false);
+		}
+	}
+	tc_comp_list_finish(&ctx->comp);
+	free(ctx->comp_orig);
+	ctx->comp_orig = NULL;
+	ctx->comp_orig_len = 0;
+	ctx->comp_active = false;
+	ctx->comp_idx = -1;
+	ctx->comp_span_end = 0;
+	if (ctx->ov_mode == OV_COMPLETE)
+		ctx->ov_mode = OV_NONE;
+}
+
+static void build_comp_overlay(const struct edit_ctx *ctx, char *out, size_t cap)
+{
+	if (!ctx->comp_active || ctx->comp.count == 0) {
+		out[0] = '\0';
+		return;
+	}
+	size_t pos = 0;
+	pos += (size_t)snprintf(out + pos, cap - pos,
+				"--- completions (%zu; Tab/Shift+Tab cycle, Esc cancel) ---",
+				ctx->comp.count);
+	size_t max_show = 8;
+	size_t start = 0;
+	if (ctx->comp_idx >= 0 && (size_t)ctx->comp_idx >= max_show)
+		start = (size_t)ctx->comp_idx - max_show + 1;
+	for (size_t i = start; i < ctx->comp.count && i < start + max_show; i++) {
+		const struct tc_comp_item *it = &ctx->comp.items[i];
+		const char *mark = ((ssize_t)i == ctx->comp_idx) ? "> " : "  ";
+		if (it->desc) {
+			pos += (size_t)snprintf(out + pos, cap - pos, "\n%s%-22s %s",
+						mark, it->text, it->desc);
+		} else {
+			pos += (size_t)snprintf(out + pos, cap - pos, "\n%s%s",
+						mark, it->text);
+		}
+		if (pos + 4 >= cap)
+			break;
+	}
+}
+
+static void apply_comp_choice(struct edit_ctx *ctx, const char *rep, size_t rlen,
+			      bool add_space)
+{
+	struct tc_edit_buf *b = ctx->buf;
+	if (ctx->comp_span_end > b->len || ctx->comp.tok_start > ctx->comp_span_end)
+		return;
+	(void)tc_ebuf_delete_range(b, ctx->comp.tok_start, ctx->comp_span_end, true);
+	(void)tc_ebuf_insert(b, rep, rlen, false);
+	if (add_space)
+		(void)tc_ebuf_insert(b, " ", 1, false);
+	ctx->comp_span_end = b->cursor;
+}
+
+static void run_complete(struct edit_ctx *ctx, int step)
+{
+	if (!ctx->sh)
+		return;
+	struct tc_edit_buf *b = ctx->buf;
+
+	if (!ctx->comp_active) {
+		if (tc_complete(ctx->sh, b->data ? b->data : "", b->len,
+				b->cursor, &ctx->comp) < 0 ||
+		    ctx->comp.count == 0) {
+			tc_comp_list_finish(&ctx->comp);
+			return;
+		}
+		size_t olen = ctx->comp.tok_end - ctx->comp.tok_start;
+		ctx->comp_orig = malloc(olen + 1);
+		if (!ctx->comp_orig) {
+			tc_comp_list_finish(&ctx->comp);
+			return;
+		}
+		if (olen > 0)
+			memcpy(ctx->comp_orig, b->data + ctx->comp.tok_start, olen);
+		ctx->comp_orig[olen] = '\0';
+		ctx->comp_orig_len = olen;
+		ctx->comp_span_end = ctx->comp.tok_end;
+		ctx->comp_active = true;
+
+		if (ctx->comp.count == 1) {
+			const struct tc_comp_item *it = &ctx->comp.items[0];
+			apply_comp_choice(ctx, it->text, strlen(it->text), it->append_sp);
+			ctx_reset_comp(ctx, false);
+			return;
+		}
+
+		size_t lcp = tc_comp_common_prefix(&ctx->comp);
+		if (lcp > olen) {
+			apply_comp_choice(ctx, ctx->comp.items[0].text, lcp, false);
+			ctx->comp_idx = -1;
+			ctx->ov_mode = OV_COMPLETE;
+			return;
+		}
+		ctx->comp_idx = (step > 0) ? 0 : (ssize_t)ctx->comp.count - 1;
+		const struct tc_comp_item *it = &ctx->comp.items[ctx->comp_idx];
+		apply_comp_choice(ctx, it->text, strlen(it->text), false);
+		ctx->ov_mode = OV_COMPLETE;
+		return;
+	}
+
+	if (ctx->comp_idx < 0) {
+		ctx->comp_idx = (step > 0) ? 0 : (ssize_t)ctx->comp.count - 1;
+	} else {
+		ssize_t n = (ssize_t)ctx->comp.count;
+		ctx->comp_idx = (ctx->comp_idx + step + n) % n;
+	}
+	const struct tc_comp_item *it = &ctx->comp.items[ctx->comp_idx];
+	apply_comp_choice(ctx, it->text, strlen(it->text), false);
+	ctx->ov_mode = OV_COMPLETE;
+}
 
 static void ctx_reset_hist_browse(struct edit_ctx *ctx)
 {
@@ -516,6 +647,8 @@ static void dispatch_widget(struct edit_ctx *ctx, enum tc_widget w)
 		ctx_reset_hist_browse(ctx);
 	if (w != TC_W_INSERT_LAST_ARG)
 		ctx_reset_last_arg(ctx);
+	if (w != TC_W_COMPLETE_NEXT && w != TC_W_COMPLETE_PREV && w != TC_W_CANCEL_MODE)
+		ctx_reset_comp(ctx, false);
 
 	switch (w) {
 	case TC_W_CHAR_LEFT:
@@ -655,7 +788,9 @@ static void dispatch_widget(struct edit_ctx *ctx, enum tc_widget w)
 		ctx->ov_mode = (ctx->ov_mode == OV_PALETTE) ? OV_NONE : OV_PALETTE;
 		break;
 	case TC_W_CANCEL_MODE:
-		if (ctx->ov_mode != OV_NONE)
+		if (ctx->ov_mode == OV_COMPLETE)
+			ctx_reset_comp(ctx, true);
+		else if (ctx->ov_mode != OV_NONE)
 			ctx->ov_mode = OV_NONE;
 		else
 			tc_ebuf_sel_clear(b);
@@ -690,8 +825,13 @@ static void dispatch_widget(struct edit_ctx *ctx, enum tc_widget w)
 	case TC_W_INSERT_LAST_ARG:
 		insert_last_arg(ctx);
 		break;
+	case TC_W_COMPLETE_NEXT:
+		run_complete(ctx, 1);
+		break;
+	case TC_W_COMPLETE_PREV:
+		run_complete(ctx, -1);
+		break;
 	default:
-		/* Future 0.2.3 widgets and TC_W_NOOP are clean no-ops. */
 		break;
 	}
 }
@@ -735,6 +875,7 @@ enum tc_edit_status tc_editor_readline(struct tc_editor *ed,
 		.hist_idx = -1,
 		.last_arg_idx = -1,
 		.srch_idx = -1,
+		.comp_idx = -1,
 	};
 
 	char pal_query[64] = {0};
@@ -743,6 +884,7 @@ enum tc_edit_status tc_editor_readline(struct tc_editor *ed,
 	char srch_query[128] = {0};
 	size_t srch_len = 0;
 	char srch_overlay[256] = {0};
+	char comp_overlay[1024] = {0};
 	tam_key_event_t chord[TC_EDIT_CHORD_MAX];
 	size_t chord_len = 0;
 
@@ -786,7 +928,9 @@ enum tc_edit_status tc_editor_readline(struct tc_editor *ed,
 			}
 			tam_key_event_t tev;
 			if (tam_key_timeout(&kp, &tev) == 1) {
-				if (ctx.ov_mode == OV_SEARCH) {
+				if (ctx.ov_mode == OV_COMPLETE) {
+					ctx_reset_comp(&ctx, true);
+				} else if (ctx.ov_mode == OV_SEARCH) {
 					if (ctx.srch_saved)
 						(void)tc_ebuf_set(&buf, ctx.srch_saved,
 								  ctx.srch_saved_len);
@@ -908,6 +1052,7 @@ enum tc_edit_status tc_editor_readline(struct tc_editor *ed,
 			if (chord_len == 0 && ev.type == TAM_KEY_CHAR && ev.mods == 0) {
 				ctx_reset_hist_browse(&ctx);
 				ctx_reset_last_arg(&ctx);
+				ctx_reset_comp(&ctx, false);
 				if (ctx.ov_mode == OV_GUIDANCE)
 					ctx.ov_mode = OV_NONE;
 				(void)tc_ebuf_insert_cp(&buf, ev.codepoint, true);
@@ -937,6 +1082,9 @@ enum tc_edit_status tc_editor_readline(struct tc_editor *ed,
 		} else if (ctx.ov_mode == OV_SEARCH) {
 			build_search_overlay(&ctx, srch_query, srch_overlay, sizeof(srch_overlay));
 			ov = srch_overlay;
+		} else if (ctx.ov_mode == OV_COMPLETE) {
+			build_comp_overlay(&ctx, comp_overlay, sizeof(comp_overlay));
+			ov = comp_overlay;
 		} else {
 			ov = NULL;
 		}
@@ -964,6 +1112,7 @@ enum tc_edit_status tc_editor_readline(struct tc_editor *ed,
 
 	ctx_reset_hist_browse(&ctx);
 	ctx_free_search_saved(&ctx);
+	ctx_reset_comp(&ctx, false);
 	tc_ebuf_finish(&buf);
 	tam_tty_close(&tty);
 	return ctx.status;

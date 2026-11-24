@@ -1,0 +1,3 @@
+# cd POSIX options
+opt -L           Follow symbolic links logically (default)
+opt -P           Use physical directory structure

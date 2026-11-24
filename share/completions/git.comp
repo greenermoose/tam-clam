@@ -1,0 +1,20 @@
+# git common subcommands and options
+sub status       Show working tree status
+sub diff         Show changes between commits or tree
+sub log          Show commit logs
+sub add          Add file contents to the index
+sub commit       Record changes to the repository
+sub branch       List, create, or delete branches
+sub checkout     Switch branches or restore files
+sub switch       Switch branches
+sub restore      Restore working tree files
+sub pull         Fetch and integrate from remote
+sub push         Update remote refs
+sub fetch        Download objects from remote
+sub merge        Join development histories
+sub rebase       Reapply commits on another base
+sub show         Show objects and commits
+sub stash        Stash local changes
+opt --version    Print git version
+opt --help       Show git help
+opt -C           Run as if git was started in path

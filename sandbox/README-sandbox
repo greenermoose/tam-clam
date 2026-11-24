@@ -50,5 +50,7 @@ IN THIS REPOSITORY
                                      incremental search, Alt+L, history
     ./sandbox/demo-0.2.2-jobs        0.2.2: Ctrl+P pause, Ctrl+\ break,
                                      jobs/fg/bg, %n job IDs, notifications
+    ./sandbox/demo-0.2.3-complete    0.2.3: Tab/Shift+Tab completion for
+                                     commands, files, vars, users, .comp
     ./sandbox/demo-interactive       start an interactive tam-clam
                                      prompt with ideas to try live

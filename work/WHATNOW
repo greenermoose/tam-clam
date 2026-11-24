@@ -3,20 +3,24 @@ WHATNOW
 What tam-clam is doing now and what comes next. Read this first; revise
 it at the end of every session (work/README-work).
 
-Updated: 2026-11-24, with W16 (0.2.2)
+Updated: 2026-11-24, with W17 (0.2.3)
 
 
 STATE
 
-  Version 0.2.2, Phase P3 IN PROGRESS (line editor, history, and job
-  control complete), on branch dev. 0.2.2 adds:
-  - POSIX job control in include/tam-clam/jobs.h and src/jobs.c:
-    process groups, tcsetpgrp handoff/reclaim, set -m / -o monitor,
-    Ctrl+P (VSUSP / SIGTSTP) stop, Ctrl+\ (VINTR / SIGINT) break,
-    jobs [-l|-p], fg, bg, %job_id resolution in fg/bg/wait/kill, and
-    finished-job prompt notifications;
-  - tests/test_jobs.c unit tests, live PTY job-control tests in
-    tests/pty/test_pty.c, and sandbox/demo-0.2.2-jobs.
+  Version 0.2.3, Phase P3 IN PROGRESS (line editor, history, job
+  control, and completion complete), on branch dev. 0.2.3 adds:
+  - context-aware completion in include/tam-clam/complete.h and
+    src/complete/complete.c: commands (builtins, aliases, functions,
+    PATH), files/directories, variables ($VAR/${VAR}), user names
+    (~user/), and lazy declarative *.comp files for options/subcommands;
+  - starter share/completions/{tam-clam,git,ls,grep,cd}.comp installed
+    by make install;
+  - Tab (complete-next), Shift+Tab (complete-prev), longest-common-
+    prefix expansion, candidate overlay, and Escape restore in
+    src/edit/edit.c;
+  - tests/test_complete.c unit tests, live PTY completion tests in
+    tests/pty/test_pty.c, and sandbox/demo-0.2.3-complete.
   readelf -d lists only libc.so.6. make test and make sanitize pass.
 
   Fred's decisions so far are in ROADMAP.md and the plans: POSIX.1-2024
@@ -31,17 +35,19 @@ STATE
 
 NEXT
 
-  1. 0.2.3 (plans/P3-interactive.md):
-     - Completion: commands, files, variables, user names, and a small
-       declarative format for command options (loaded lazily), wired to
-       Tab (`complete-next`) and Shift+Tab (`complete-prev`).
-     Bump VERSION to 0.2.3 in the first code commit.
+  1. 0.2.4 (plans/P3-interactive.md):
+     - Syntax highlighting as you type (from the real lexer/parser,
+       showing unknown commands, unterminated quotes, and syntax errors
+       before Enter, with per-prompt command-existence caching) and
+       dimmed history suggestions accepted with Right / Ctrl+Right.
+     Bump VERSION to 0.2.4 in the first code commit.
 
 
 WAITING FOR FRED
 
-  - Trying 0.2.2: ./sandbox/demo-0.2.2-jobs or ./build/tam-clam
-    (Ctrl+P pause, Ctrl+\ break, jobs/fg/bg, kill %1, wait %1).
+  - Trying 0.2.3: ./sandbox/demo-0.2.3-complete or ./build/tam-clam
+    (Tab/Shift+Tab on commands, files, $vars, ~users, tam-clam --<Tab>,
+    git <Tab>).
   - Optional: installing dash / mksh / busybox for multi-shell spec
     comparisons and clang for a 24-hour libFuzzer run.
 

@@ -1,0 +1,10 @@
+# grep common options
+opt -i           Ignore case distinctions
+opt -n           Prefix each line with line number
+opt -r           Search directories recursively
+opt -l           Print only names of matching files
+opt -v           Invert match (select non-matching lines)
+opt -E           Extended regular expressions
+opt -F           Fixed strings (literal match)
+opt -w           Match whole words only
+opt -c           Print only count of matching lines

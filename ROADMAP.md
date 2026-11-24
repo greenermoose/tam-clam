@@ -5,11 +5,10 @@ of versions. Versions follow semantic versioning: during 0.x, the minor
 number marks a phase's big step and the patch number marks each
 milestone inside it.
 
-**Current version:** 0.2.2 (Phase P3 in progress: POSIX job control with
-process groups, `tcsetpgrp`, `set -m`/`-o monitor`, `Ctrl+P` (`VSUSP`),
-`Ctrl+\` (`VINTR`), `jobs`, `fg`, `bg`, `%n` job IDs in `wait`/`kill`, and
-finished-job prompt notifications, 2026-11-24; development continues on
-branch `dev`).
+**Current version:** 0.2.3 (Phase P3 in progress: context-aware `Tab` /
+`Shift+Tab` completion for commands, files/directories, `$VAR`/`${VAR}`,
+`~user`, and lazy declarative `.comp` option/subcommand files in
+`share/completions/`, 2026-11-24; development continues on branch `dev`).
 
 ## Decided
 

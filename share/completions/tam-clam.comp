@@ -1,0 +1,13 @@
+# tam-clam command options
+opt --lint       Check scripts for risky code without running
+opt --private    Run without reading or writing history
+opt --version    Print tam-clam version
+opt --help       Print usage summary
+opt -c           Run command string
+opt -s           Read commands from standard input
+opt -e           Exit on command failure (errexit)
+opt -u           Treat unset variables as errors (nounset)
+opt -x           Print commands before execution (xtrace)
+opt -m           Enable job control (monitor)
+opt -n           Parse without executing (noexec)
+opt -o           Set named option (e.g. pipefail)

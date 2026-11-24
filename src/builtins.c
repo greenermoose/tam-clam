@@ -488,3 +488,10 @@ const struct tc_builtin *tc_builtin_find(const char *name)
 			return &builtins[i];
 	return NULL;
 }
+
+const struct tc_builtin *tc_builtin_at(size_t idx)
+{
+	if (idx >= sizeof(builtins) / sizeof(builtins[0]))
+		return NULL;
+	return &builtins[idx];
+}
