@@ -40,5 +40,7 @@ IN THIS REPOSITORY
                                      umask, pwd, kill, ulimit
     ./sandbox/demo-0.1.3-options     0.1.3: set -e, -u, -o pipefail,
                                      -x with PS4/LINENO, -C vs >|, -n
+    ./sandbox/demo-0.1.4-spec-fuzz   0.1.4: POSIX spec table, fuzz
+                                     mutations, and self-dogfooding
     ./sandbox/demo-interactive       start an interactive tam-clam
                                      prompt with ideas to try live

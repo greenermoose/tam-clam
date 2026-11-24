@@ -1,0 +1,23 @@
+#!/bin/sh
+# Demo 0.1.4: POSIX spec suite (tests/spec/) and fuzzing targets (tests/fuzz/).
+set -eu
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+SH="$ROOT/build/tam-clam"
+[ -x "$SH" ] || make -C "$ROOT"
+
+echo "--- 0.1.4: POSIX spec suite, fuzzing & dogfooding ---"
+
+echo "=== 1. POSIX.1-2024 Spec Suite (side-by-side comparison table) ==="
+python3 "$ROOT/tests/spec/run-spec.py" "$SH"
+
+echo ""
+echo "=== 2. Fuzz Corpus Replay + Live Mutation Burst (1,000 mutations each) ==="
+if [ ! -x "$ROOT/build/fuzz/fuzz_parse" ] || [ ! -x "$ROOT/build/fuzz/fuzz_expand" ]; then
+	make -C "$ROOT" build/fuzz/fuzz_parse build/fuzz/fuzz_expand
+fi
+"$ROOT/build/fuzz/fuzz_parse" --mutate 1000 "$ROOT/tests/fuzz/corpus/parse"
+"$ROOT/build/fuzz/fuzz_expand" --mutate 1000 "$ROOT/tests/fuzz/corpus/expand"
+
+echo ""
+echo "=== 3. Dogfooding: tam-clam running its own test runner (run-scripts.sh) ==="
+"$SH" "$ROOT/tests/run-scripts.sh" "$SH"

@@ -20,9 +20,10 @@ while :; do
 	printf '  7) 0.1.1 jobs/traps  (&, wait, $!, trap, set/shift/eval/./exec/times)\n'
 	printf '  8) 0.1.2 builtins    (printf, echo, read, test/[, getopts, alias, type, ...)\n'
 	printf '  9) 0.1.3 options     (set -e, -u, -o pipefail, -x/PS4/LINENO, -C, -n)\n'
-	printf ' 10) interactive shell (try tam-clam live at a prompt)\n'
+	printf ' 10) 0.1.4 spec/fuzz   (POSIX spec table, fuzz mutations, self-dogfood)\n'
+	printf ' 11) interactive shell (try tam-clam live at a prompt)\n'
 	printf '  q) quit\n'
-	printf 'Choose [1-10, q]: '
+	printf 'Choose [1-11, q]: '
 	IFS= read -r choice || break
 	printf '\n'
 	case "$choice" in
@@ -35,7 +36,8 @@ while :; do
 	7) "$ROOT/sandbox/demo-0.1.1-jobs-traps" ;;
 	8) "$ROOT/sandbox/demo-0.1.2-builtins" ;;
 	9) "$ROOT/sandbox/demo-0.1.3-options" ;;
-	10) "$ROOT/sandbox/demo-interactive" ;;
+	10) "$ROOT/sandbox/demo-0.1.4-spec-fuzz" ;;
+	11) "$ROOT/sandbox/demo-interactive" ;;
 	q|Q) break ;;
 	*) echo "Unknown choice: $choice" ;;
 	esac

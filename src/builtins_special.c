@@ -491,6 +491,8 @@ int tc_bi_unset(struct tc_shell *sh, int argc, char **argv, unsigned long line)
 			if (r == TC_VAR_ERR_READONLY) {
 				tc_error(sh, line, "unset: %s: readonly variable", name);
 				status = 1;
+				if (!sh->interactive)
+					return special_fail(sh, status);
 			}
 		}
 	}

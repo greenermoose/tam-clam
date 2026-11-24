@@ -1,0 +1,46 @@
+W10 POSIX SPEC SUITE AND FUZZING (0.1.4)
+
+Date: 2026-11-23
+AI harness: agy 1.5.15
+AI model: Gemini 4 Neon (Medium)
+
+GUIDANCE
+
+  Fred: "/plan Do 0.1.4"
+  Fred: "Approved. Proceed."
+
+DONE
+
+  - Added Oils-style POSIX.1-2024 spec runner (tests/spec/run-spec.py)
+    auto-detecting installed reference shells (dash, bash --posix, mksh,
+    busybox ash) and printing a side-by-side comparison table.
+  - Added 10 topic spec files (92 cases total) in tests/spec/:
+    quoting, word-split, param-expand, arith, glob-case, redir-pipe,
+    control-func, errexit-nounset, builtins-special, builtins-regular.
+  - Fixed two real POSIX conformance bugs caught by the spec suite:
+    (1) src/expand.c: unquoted literal segments inside ${x:-word} and
+    ${x:+word} now undergo IFS field splitting (XCU 2.6.5);
+    (2) src/builtins_special.c: unset on a readonly variable in a
+    non-interactive shell now triggers special_fail (XCU 2.8.1).
+  - Added fuzzing targets in tests/fuzz/ (fuzz_parse.c for lexer/parser,
+    fuzz_expand.c for expansion/pattern/arithmetic without forking, and
+    fuzz_main.c for plain C corpus replay + deterministic mutation) with
+    24 seed corpus files across tests/fuzz/corpus/{parse,expand}/.
+  - Wired spec suite and fuzz corpus replay into Makefile make test and
+    make sanitize, and added make fuzz (clang libFuzzer when clang is
+    installed, gcc ASan+UBSan mutation fuzzer otherwise).
+  - Ran 10,000 ASan+UBSan mutations on each target (0 crashes, 0 leaks,
+    0 UB) and dogfooded build/tam-clam on tests/run-scripts.sh (143/143).
+  - Added sandbox/demo-0.1.4-spec-fuzz and updated sandbox/play and
+    sandbox/README-sandbox.
+  - Bumped VERSION to 0.1.4 and updated ROADMAP.md,
+    plans/P2-posix-language.md, and work/WHATNOW.
+
+FAILED
+
+  - Nothing.
+
+HANDOFF
+
+  - 0.1.4 is complete. Next is 0.1.5 (plans/P2-posix-language.md):
+    lint mode (tam-clam --lint FILE...), finishing Phase P2.

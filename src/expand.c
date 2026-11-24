@@ -822,10 +822,12 @@ static int fs_feed_splittable(struct field_state *fs, const char *s, size_t len)
 }
 
 /* Expand word parts directly into fs, preserving quoting and IFS splitting
- * through unquoted ${x:-word} and ${x:+word}. */
+ * through unquoted ${x:-word} and ${x:+word}. When split_literals is true
+ * (inside the word of an unquoted ${x:-...}/${x:+...}), unquoted literal
+ * segments also undergo IFS field splitting (XCU 2.6.5). */
 static int expand_parts_fields(struct field_state *fs,
 			       const struct tc_wpart *parts,
-			       bool allow_tilde, int depth)
+			       bool allow_tilde, bool split_literals, int depth)
 {
 	struct tc_shell *sh = fs->sh;
 	unsigned long line = fs->line;
@@ -838,11 +840,33 @@ static int expand_parts_fields(struct field_state *fs,
 
 	for (const struct tc_wpart *wp = parts; wp; wp = wp->next) {
 		if (wp->kind == TC_WPART_LITERAL) {
-			fs->seen_delim_ws = false;
-			if (allow_tilde)
-				r = pb_append_literal_tilde(sh, line, wp, at_start, &fs->cur);
-			else
-				r = pb_append(sh, line, &fs->cur, wp->text, wp->len, 0);
+			if (split_literals) {
+				if (allow_tilde && at_start && wp->len > 0 && wp->text[0] == '~') {
+					size_t j = 1;
+					while (j < wp->len && wp->text[j] != '/')
+						j++;
+					bool blocked = (j == wp->len && wp->next != NULL &&
+							wp->next->kind != TC_WPART_LITERAL);
+					const char *dir = blocked ? NULL
+								  : tilde_lookup(sh, wp->text + 1, j - 1);
+					if (dir) {
+						fs->seen_delim_ws = false;
+						r = pb_append(sh, line, &fs->cur, dir, strlen(dir), 1);
+						if (r == TC_EXP_OK)
+							r = fs_feed_splittable(fs, wp->text + j, wp->len - j);
+					} else {
+						r = fs_feed_splittable(fs, wp->text, wp->len);
+					}
+				} else {
+					r = fs_feed_splittable(fs, wp->text, wp->len);
+				}
+			} else {
+				fs->seen_delim_ws = false;
+				if (allow_tilde)
+					r = pb_append_literal_tilde(sh, line, wp, at_start, &fs->cur);
+				else
+					r = pb_append(sh, line, &fs->cur, wp->text, wp->len, 0);
+			}
 		} else if (wp->kind == TC_WPART_QUOTED) {
 			fs->seen_delim_ws = false;
 			fs->has_quoted = true;
@@ -899,10 +923,10 @@ static int expand_parts_fields(struct field_state *fs,
 						if (active)
 							r = fs_feed_splittable(fs, val, strlen(val));
 						else
-							r = expand_parts_fields(fs, wp->arg, true, depth + 1);
+							r = expand_parts_fields(fs, wp->arg, true, true, depth + 1);
 					} else {
 						if (active)
-							r = expand_parts_fields(fs, wp->arg, true, depth + 1);
+							r = expand_parts_fields(fs, wp->arg, true, true, depth + 1);
 					}
 				}
 			} else {
@@ -972,7 +996,7 @@ static int expand_one_word(struct tc_shell *sh, const struct tc_word *w,
 	fs.head = NULL;
 	fs.tail = &fs.head;
 
-	int r = expand_parts_fields(&fs, w->parts, true, 0);
+	int r = expand_parts_fields(&fs, w->parts, true, false, 0);
 	if (r != TC_EXP_OK) {
 		pb_finish(&fs.cur);
 		return r;

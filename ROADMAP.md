@@ -5,9 +5,8 @@ of versions. Versions follow semantic versioning: during 0.x, the minor
 number marks a phase's big step and the patch number marks each
 milestone inside it.
 
-**Current version:** 0.1.3 (POSIX shell options: `set -e`, `set -u`,
-`set -o pipefail`, `set -x` with `PS4` and `LINENO`, `set -C`, `set -n`,
-and CLI flags, 2026-11-23; development continues on branch `dev`).
+**Current version:** 0.1.4 (POSIX spec suite `tests/spec/` and lexer/parser/expander
+fuzzing `tests/fuzz/`, 2026-11-23; development continues on branch `dev`).
 
 ## Decided
 

@@ -1,0 +1,1 @@
+${PATHLIKE#*/} ${PATHLIKE##*/} ${PATHLIKE%.*} ${PATHLIKE%%.*}

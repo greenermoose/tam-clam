@@ -3,36 +3,30 @@ WHATNOW
 What tam-clam is doing now and what comes next. Read this first; revise
 it at the end of every session (work/README-work).
 
-Updated: 2026-11-23, with W9 (0.1.3)
+Updated: 2026-11-23, with W10 (0.1.4)
 
 
 STATE
 
-  Version 0.1.3, Phase P2 (POSIX shell options), on branch dev.
+  Version 0.1.4, Phase P2 (POSIX spec suite and fuzzing), on branch dev.
   It adds:
-  - shared option module (include/tam-clam/options.h, src/options.c)
-    supporting -a/allexport, -C/noclobber, -e/errexit, -f/noglob,
-    -n/noexec, -u/nounset, -x/xtrace, and -o pipefail (POSIX.1-2024),
-    with set -o / set +o output and $- flags;
-  - CLI option parsing in src/main.c (-/+ flags, clustered flags like
-    -euc and -es, -o/+o named options, and -n parse-only mode);
-  - set -e (errexit) in src/exec.c following POSIX.1-2024 rules
-    (ignored in if/elif/while/until conditions, non-last &&/||, negated
-    ! pipelines, and non-subshell compound commands; active in
-    subshells, functions, pipelines, and assignment command subs; EXIT
-    traps still run with the failing status);
-  - set -u (nounset) in src/expand.c and src/arith.c (exempting
-    @/*/#/?/-/$/!/0, default/alt/assign forms, and short-circuited
-    arithmetic branches);
-  - set -o pipefail in src/exec.c (rightmost non-zero pipeline status);
-  - set -x (xtrace) in src/exec.c with PS4 expansion (reusing
-    tc_lex_expand_parts), LINENO tracking, and shell-quoted arguments;
-  - set -C (noclobber) in src/exec.c with O_EXCL, >| override, and
-    non-regular file allowance (/dev/null, FIFOs);
-  - set -n (noexec) parse-only syntax checking in main.c and exec.c
-    (ignored when interactive);
-  - sandbox/demo-0.1.3-options added to sandbox/play.
-  readelf -d lists only libc.so.6. make test and make sanitize pass.
+  - Oils-style POSIX.1-2024 spec suite in tests/spec/ (run-spec.py plus
+    10 topic files, 92 cases) comparing tam-clam side-by-side against
+    installed reference shells (bash --posix today; dash, mksh, and
+    busybox ash auto-detected when installed);
+  - two POSIX conformance fixes caught by the spec suite: IFS field
+    splitting of unquoted literals inside ${x:-word}/${x:+word} in
+    src/expand.c, and special_fail on readonly unset in non-interactive
+    shells in src/builtins_special.c;
+  - fuzzing targets in tests/fuzz/ (fuzz_parse.c, fuzz_expand.c,
+    fuzz_main.c) with 24 seed corpus files in tests/fuzz/corpus/,
+    wired into make test, make sanitize (corpus replay), and make fuzz
+    (clang libFuzzer when installed, gcc ASan+UBSan mutation fuzzer
+    otherwise);
+  - sandbox/demo-0.1.4-spec-fuzz added to sandbox/play.
+  readelf -d lists only libc.so.6. make test, make sanitize, make fuzz
+  (10,000 ASan+UBSan mutations per target), and self-dogfooding
+  tests/run-scripts.sh all pass.
 
   Fred's decisions so far are in ROADMAP.md and the plans: POSIX.1-2024
   is the target; lint mode is P2 0.1.5; tam-clam ships only its own key
@@ -44,25 +38,25 @@ STATE
 
 NEXT
 
-  1. 0.1.4 (plans/P2-posix-language.md):
-     - POSIX spec suite (tests/spec/) run against installed reference
-       shells (dash, bash --posix, mksh, busybox ash);
-     - fuzzing targets (tests/fuzz/) for lexer, parser, and expander
-       with libFuzzer (when clang is installed) and a plain C corpus
-       replay driver for make test / make sanitize.
-     Bump VERSION to 0.1.4 in the first code commit.
+  1. 0.1.5 (plans/P2-posix-language.md):
+     - lint mode: tam-clam --lint FILE... parses without running and
+       warns about legal but risky code with file, line, and column
+       (unquoted expansion in [ ]/test/case, unchecked cd, $* vs "$@",
+       for f in $(ls ...), unused/unset variable), with per-line
+       suppression (# lint: allow <name>) and spec tests.
+     Bump VERSION to 0.1.5 in the first code commit.
 
-  2. 0.1.5, lint mode: tam-clam --lint FILE...
+  2. Before 0.2.0 (Phase P3, plans/P3-interactive.md):
+     - draft arch/keys.md and agree key bindings with Fred.
 
 
 WAITING FOR FRED
 
-  - Trying 0.1.3: ./sandbox/demo-0.1.3-options, ./sandbox/play, or
-    build/tam-clam -eu -o pipefail -c '...'. It is not installed and is
-    nobody's login shell.
-  - Whether to install dash (and optionally mksh / busybox) so 0.1.4's
-    spec suite compares against multiple reference shells as well as
-    bash --posix.
+  - Trying 0.1.4: ./sandbox/demo-0.1.4-spec-fuzz, ./sandbox/play, or
+    python3 tests/spec/run-spec.py build/tam-clam.
+  - Optional: installing dash / mksh / busybox to expand multi-shell
+    spec comparisons, and clang for a 24-hour libFuzzer run via
+    make fuzz FUZZ_ITERS=0 (or -max_total_time=86400).
 
 
 WATCH OUT

@@ -1,0 +1,5 @@
+cat <<EOF; cat <<-'END'
+hello $x $((1+2)) $(echo hi)
+EOF
+	literal $y
+	END

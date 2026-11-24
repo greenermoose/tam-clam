@@ -1,0 +1,1 @@
+$X ${X} ${#X} ${UNSET:-def} ${EMPTY-def} ${X:+alt} ${NEW:=val}

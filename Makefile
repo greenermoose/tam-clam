@@ -1,8 +1,9 @@
 # tam-clam: the Tamlinux shell. Plain Make; no other build system.
 #
 #   make            build build/tam-clam
-#   make test       unit tests, then the script tests
+#   make test       unit tests, script tests, POSIX spec suite, fuzz replay
 #   make sanitize   build in build/sanitize with ASan and UBSan, run the tests
+#   make fuzz       run libFuzzer (if clang installed) or ASan+UBSan mutations
 #   make install    install to PREFIX (default $HOME/.local)
 #   make uninstall  remove what install put there
 #   make clean      remove build/
@@ -39,6 +40,8 @@ TESTS = $(B)/tests/test_var $(B)/tests/test_func $(B)/tests/test_alias \
 	$(B)/tests/test_trap $(B)/tests/test_lex $(B)/tests/test_parse \
 	$(B)/tests/test_expand
 
+FUZZ_BINS = $(B)/fuzz/fuzz_parse $(B)/fuzz/fuzz_expand
+
 all: $(B)/tam-clam
 
 $(B)/tam-clam: $(B)/main.o $(CORE_OBJS) $(LIBTAM)
@@ -52,14 +55,43 @@ $(B)/tests/test_%: tests/test_%.c $(CORE_OBJS) $(LIBTAM) tests/check.h
 	@mkdir -p $(@D)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $< $(CORE_OBJS) $(LIBTAM)
 
-test: $(TESTS) $(B)/tam-clam
+$(B)/fuzz/fuzz_%: tests/fuzz/fuzz_%.c tests/fuzz/fuzz_main.c $(CORE_OBJS) $(LIBTAM)
+	@mkdir -p $(@D)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $< tests/fuzz/fuzz_main.c $(CORE_OBJS) $(LIBTAM)
+
+test: $(TESTS) $(FUZZ_BINS) $(B)/tam-clam
 	@for t in $(TESTS); do $$t || exit 1; done
 	@sh tests/run-scripts.sh $(B)/tam-clam
+	@python3 tests/spec/run-spec.py $(B)/tam-clam
+	@$(B)/fuzz/fuzz_parse tests/fuzz/corpus/parse
+	@$(B)/fuzz/fuzz_expand tests/fuzz/corpus/expand
 
 sanitize:
 	$(MAKE) B=build/sanitize \
 		CFLAGS='-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all' \
 		test
+
+FUZZ_ITERS ?= 10000
+fuzz:
+	@if command -v clang >/dev/null 2>&1; then \
+		mkdir -p build/fuzz; \
+		clang -O1 -g -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer \
+			-std=c11 -D_POSIX_C_SOURCE=200809L -DTC_VERSION='"$(VERSION)"' \
+			-Iinclude -I$(LIBTAM_PREFIX)/include \
+			tests/fuzz/fuzz_parse.c $(CORE_SRCS) $(LIBTAM) -o build/fuzz/libfuzz_parse; \
+		clang -O1 -g -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer \
+			-std=c11 -D_POSIX_C_SOURCE=200809L -DTC_VERSION='"$(VERSION)"' \
+			-Iinclude -I$(LIBTAM_PREFIX)/include \
+			tests/fuzz/fuzz_expand.c $(CORE_SRCS) $(LIBTAM) -o build/fuzz/libfuzz_expand; \
+		build/fuzz/libfuzz_parse -runs=$(FUZZ_ITERS) tests/fuzz/corpus/parse; \
+		build/fuzz/libfuzz_expand -runs=$(FUZZ_ITERS) tests/fuzz/corpus/expand; \
+	else \
+		$(MAKE) B=build/sanitize \
+			CFLAGS='-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all' \
+			build/sanitize/fuzz/fuzz_parse build/sanitize/fuzz/fuzz_expand; \
+		build/sanitize/fuzz/fuzz_parse --mutate $(FUZZ_ITERS) tests/fuzz/corpus/parse; \
+		build/sanitize/fuzz/fuzz_expand --mutate $(FUZZ_ITERS) tests/fuzz/corpus/expand; \
+	fi
 
 install: $(B)/tam-clam
 	install -Dm755 $(B)/tam-clam $(DESTDIR)$(BINDIR)/tam-clam
@@ -70,6 +102,6 @@ uninstall:
 clean:
 	rm -rf build
 
-.PHONY: all test sanitize install uninstall clean
+.PHONY: all test sanitize fuzz install uninstall clean
 
 -include $(shell find $(B) -name '*.d' 2>/dev/null)
