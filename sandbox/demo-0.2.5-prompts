@@ -1,0 +1,29 @@
+#!/bin/sh
+# 0.2.5 demo: PS1 escapes, right prompt (RPS1), precmd/preexec/PS0 hooks.
+set -eu
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+SH="$ROOT/build/tam-clam"
+[ -x "$SH" ] || make -C "$ROOT"
+
+cat <<EOF
+=== tam-clam $(cat "$ROOT/VERSION") prompts & hooks demo (Phase P3 complete) ===
+
+This shell starts with custom PS1 and RPS1 escapes:
+  PS1 = '\[\e[36m\]\u@\h\[\e[0m\]:\[\e[32m\]\w\[\e[0m\]\$ '
+  RPS1 = '[\A exit:\? jobs:\j]'
+
+Things to try at the live prompt:
+  false                          watch RPS1 update to exit:1
+  true                           watch RPS1 return to exit:0
+  sleep 30 &                     watch RPS1 show jobs:1
+  precmd() { echo "[precmd]"; }  hook run before every prompt (preserves \$?)
+  preexec() { echo "[running: \$1]"; }  hook run before every command
+  PS0='--- running ---\n'        banner printed right before each command
+  Ctrl+Q                         exit on empty prompt
+
+EOF
+exec env HISTFILE="" \
+	PS1='\[\e[36m\]\u@\h\[\e[0m\]:\[\e[32m\]\w\[\e[0m\]\$ ' \
+	PS2='> ' \
+	RPS1='[\A exit:\? jobs:\j]' \
+	"$SH"

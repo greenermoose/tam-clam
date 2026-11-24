@@ -7,6 +7,7 @@
 
 #include "tam-clam/edit.h"
 #include "tam-clam/input.h"
+#include "tam-clam/prompt.h"
 #include "tam-clam/shell.h"
 #include "tam-clam/signals.h"
 
@@ -228,16 +229,31 @@ int tc_input_getc(struct tc_input *in)
 			in->ed_len = in->ed_pos = 0;
 			if (in->eof)
 				return TC_IN_EOF;
-			if (in->want_ps1 && in->sh && in->sh->interactive)
+			if (in->want_ps1 && in->sh && in->sh->interactive) {
 				tc_jobs_notify(in->sh);
+				tc_prompt_run_precmd(in->sh);
+			}
 			const char *p1 = in->sh ? tc_var_get(&in->sh->vars, "PS1") : "$ ";
 			const char *p2 = in->sh ? tc_var_get(&in->sh->vars, "PS2") : "> ";
-			const char *lead = in->want_ps1 ? (p1 ? p1 : "$ ") : (p2 ? p2 : "> ");
+			const char *rp = NULL;
+			if (in->want_ps1 && in->sh) {
+				rp = tc_var_get(&in->sh->vars, "RPS1");
+				if (!rp || !*rp)
+					rp = tc_var_get(&in->sh->vars, "RPROMPT");
+			}
+			char *ep1 = tc_prompt_expand(in->sh, in->want_ps1 ? (p1 ? p1 : "$ ") : (p2 ? p2 : "> "));
+			char *ep2 = tc_prompt_expand(in->sh, p2 ? p2 : "> ");
+			char *erp = (rp && *rp) ? tc_prompt_expand(in->sh, rp) : NULL;
 			char *line = NULL;
 			size_t llen = 0;
 			enum tc_edit_status st =
-				tc_editor_readline(in->ed, in->sh, lead,
-						   p2 ? p2 : "> ", &line, &llen);
+				tc_editor_readline(in->ed, in->sh,
+						   ep1 ? ep1 : "$ ",
+						   ep2 ? ep2 : "> ",
+						   erp, &line, &llen);
+			free(ep1);
+			free(ep2);
+			free(erp);
 			in->want_ps1 = false;
 			if (st == TC_EDIT_EOF) {
 				in->eof = true;

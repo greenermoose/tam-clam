@@ -21,6 +21,7 @@
 #include "tam-clam/lint.h"
 #include "tam-clam/options.h"
 #include "tam-clam/parse.h"
+#include "tam-clam/prompt.h"
 #include "tam-clam/shell.h"
 #include "tam-clam/signals.h"
 #include "tam.h"
@@ -61,8 +62,16 @@ static int run(struct tc_shell *sh, struct tc_input *in)
 		if (r == TC_OK) {
 			const char *pre_pwd = tc_var_get(&sh->vars, "PWD");
 			char *cwd_copy = pre_pwd ? strdup(pre_pwd) : NULL;
-			if (node && !(sh->opt_noexec && !sh->interactive))
+			if (node && !(sh->opt_noexec && !sh->interactive)) {
+				if (sh->interactive) {
+					const char *raw_cmd =
+						(sh->editor && sh->editor->last_cmd)
+							? sh->editor->last_cmd
+							: "";
+					tc_prompt_run_preexec(sh, raw_cmd);
+				}
 				tc_exec(sh, node);
+			}
 			if (sh->hist && sh->editor && sh->editor->last_cmd) {
 				int st = sh->exit_requested ? sh->exit_status : sh->status;
 				(void)tc_hist_add(sh->hist, sh->editor->last_cmd,

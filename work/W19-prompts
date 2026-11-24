@@ -1,0 +1,41 @@
+W19 PROMPTS AND HOOKS (0.2.5, PHASE P3 COMPLETE)
+
+Date: 2026-11-24
+AI harness: agy 1.5.15
+AI model: Gemini 4 Neon (Medium)
+Continues: W18
+
+GUIDANCE
+
+  Fred: "/plan Do the work for 0.2.5"
+  Fred: "Approved. Proceed."
+
+DONE
+
+  - Implemented safe prompt escape expansion and hooks in
+    include/tam-clam/prompt.h and src/prompt.c:
+    - PS1/PS2/RPS1/PS0 escapes: \u, \h, \H, \w (~ abbreviated), \W,
+      \$, \?, \j, \t, \T, \A, \d (evaluated once on draw, zero timers),
+      \s, \v, \n, \r, \e, \\, and \[/\] markers. Prompts are never
+      re-parsed or executed as code.
+    - Right-aligned RPS1 / RPROMPT in src/edit/render.c (auto-hides
+      when text approaches within 2 cells, transient on Enter).
+    - precmd function + PROMPT_COMMAND before each prompt (preserving
+      $? and guarding recursion via sh->in_prompt_hook); preexec
+      function (with $1 = raw command) + PS0 before each command.
+  - Added tests/test_prompt.c and extended tests/pty/test_pty.c.
+  - Added sandbox/demo-0.2.5-prompts; bumped VERSION to 0.2.5; marked
+    Phase P3 complete in plans/P3-interactive.md and ROADMAP.md;
+    updated sandbox/ and work/WHATNOW.
+  - Verified make clean test, make sanitize, and readelf -d (only
+    libc.so.6).
+
+FAILED
+
+  - Nothing.
+
+HANDOFF
+
+  - Phase P3 (0.2.0-0.2.5, interactive shell) is COMPLETE on dev.
+  - Next: Phase P4 (plans/P4-extras.md), starting with 0.3.0: indexed
+    and associative arrays.

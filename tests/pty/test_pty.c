@@ -456,6 +456,40 @@ static void test_interactive_highlight_and_suggest(const char *sh)
 	CHECK(pty_finish(&s) == 0);
 }
 
+static void test_interactive_prompts_and_hooks(const char *sh)
+{
+	struct pty_sess s;
+	CHECK(pty_start(&s, sh, "xterm-256color") == 0);
+	CHECK(pty_wait_for(&s, "CLAM$ ", 2000));
+
+	/* 1. PS1 escapes (\s, \?) and RPS1 right prompt. */
+	pty_clear_out(&s);
+	const char *p1 = "PS1='\\s:\\?\\$ '; RPS1='[RP:\\?]'; false\r";
+	CHECK(pty_send(&s, p1, strlen(p1)) == 0);
+	CHECK(pty_wait_after(&s, "tam-clam:1$ ", "[RP:1]", 2000));
+
+	/* 2. precmd + PROMPT_COMMAND run before prompt without clobbering $?. */
+	pty_clear_out(&s);
+	const char *hk = "precmd() { printf 'PRECMD '; }; PROMPT_COMMAND='printf \"PCMD\\n\"'; true\r";
+	CHECK(pty_send(&s, hk, strlen(hk)) == 0);
+	CHECK(pty_wait_after(&s, "PRECMD PCMD", "tam-clam:0$ ", 2000));
+
+	/* 3. preexec receives $1 and PS0 prints before command output. */
+	pty_clear_out(&s);
+	const char *pe = "precmd() { :; }; PROMPT_COMMAND=''; preexec() { printf 'PX:%s ' \"$1\"; }; PS0='PS0:'; echo BODY\r";
+	CHECK(pty_send(&s, pe, strlen(pe)) == 0);
+	CHECK(pty_wait_after(&s, "BODY", "tam-clam:0$ ", 2000));
+
+	pty_clear_out(&s);
+	CHECK(pty_send(&s, "echo HI\r", 8) == 0);
+	CHECK(pty_wait_after(&s, "PX:echo HI ", "PS0:", 2000));
+	CHECK(pty_wait_after(&s, "PS0:", "HI", 2000));
+	CHECK(pty_wait_after(&s, "HI", "tam-clam:0$ ", 2000));
+
+	CHECK(pty_send(&s, "\x11", 1) == 0);
+	CHECK(pty_finish(&s) == 0);
+}
+
 int main(int argc, char **argv)
 {
 	const char *sh = argc > 1 ? argv[1] : "build/tam-clam";
@@ -465,5 +499,6 @@ int main(int argc, char **argv)
 	test_interactive_jobs(sh);
 	test_interactive_complete(sh);
 	test_interactive_highlight_and_suggest(sh);
+	test_interactive_prompts_and_hooks(sh);
 	CHECK_DONE("test_pty");
 }

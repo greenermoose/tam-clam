@@ -237,6 +237,7 @@ void tc_render_init(struct tc_render_state *rs);
 int tc_render_draw(struct tc_render_state *rs, tam_tty_t *tty,
 		   const struct tc_edit_buf *buf,
 		   const char *ps1, const char *ps2,
+		   const char *rps1,
 		   const unsigned char *styles,
 		   const char *ghost,
 		   const char *overlay);
@@ -257,6 +258,7 @@ void tc_editor_restore_orig_termios(struct tc_editor *ed);
 enum tc_edit_status tc_editor_readline(struct tc_editor *ed,
 				       struct tc_shell *sh,
 				       const char *ps1, const char *ps2,
+				       const char *rps1,
 				       char **out_line, size_t *out_len);
 
 /* Builtin: bind [KEY WIDGET | -u KEY] (src/edit/edit.c). */

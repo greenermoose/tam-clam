@@ -54,5 +54,7 @@ IN THIS REPOSITORY
                                      commands, files, vars, users, .comp
     ./sandbox/demo-0.2.4-highlight   0.2.4: live syntax highlighting and
                                      dimmed history suggestions
+    ./sandbox/demo-0.2.5-prompts     0.2.5: PS1 escapes, RPS1 right
+                                     prompt, precmd/preexec/PS0 hooks
     ./sandbox/demo-interactive       start an interactive tam-clam
                                      prompt with ideas to try live

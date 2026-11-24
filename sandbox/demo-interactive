@@ -15,6 +15,7 @@ Things to try:
   sleep 30 (Ctrl+P), jobs, bg, fg, kill %1 # 0.2.2 job control
   Tab / Shift+Tab (tam-clam --<Tab>)       # 0.2.3 completion
   Right / Ctrl+Right (ghost suggestion)    # 0.2.4 highlighting & suggestions
+  PS1='\u@\h:\w\$ '; RPS1='[\A ?:\?]'      # 0.2.5 prompts, RPS1, precmd/preexec
   PS1='clam> '                           # change the live prompt
   echo \$'\e[36m\U0001F41A hello!\e[0m'   # 0.1.0 ANSI-C + UTF-8
   echo \$((6 * 7))                        # 0.1.0 64-bit arithmetic

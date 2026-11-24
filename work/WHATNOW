@@ -3,23 +3,23 @@ WHATNOW
 What tam-clam is doing now and what comes next. Read this first; revise
 it at the end of every session (work/README-work).
 
-Updated: 2026-11-24, with W18 (0.2.4)
+Updated: 2026-11-24, with W19 (0.2.5)
 
 
 STATE
 
-  Version 0.2.4, Phase P3 IN PROGRESS (line editor, history, job
-  control, completion, and highlighting/suggestions complete), on
-  branch dev. 0.2.4 adds:
-  - live syntax highlighting in include/tam-clam/highlight.h and
-    src/edit/highlight.c backed by the real parser (sh->silent_errors),
-    with a 64-slot per-prompt command-existence cache and opt-out via
-    TAM_CLAM_HIGHLIGHT=0 / NO_COLOR;
-  - dimmed history ghost-text suggestions rendered in src/edit/render.c
-    and accepted with Right (full) or Ctrl+Right / Alt+. (one word) at
-    end of line in src/edit/edit.c (opt-out via TAM_CLAM_SUGGEST=0);
-  - tests/test_highlight.c unit tests, live PTY highlight/suggestion
-    tests in tests/pty/test_pty.c, and sandbox/demo-0.2.4-highlight.
+  Version 0.2.5, Phase P3 COMPLETE (line editor, shared O_APPEND
+  history, POSIX job control, completion, syntax highlighting &
+  suggestions, and prompts/hooks), on branch dev. 0.2.5 adds:
+  - safe prompt escape expansion in include/tam-clam/prompt.h and
+    src/prompt.c (\u, \h, \H, \w, \W, \$, \?, \j, \t, \T, \A, \d, \s,
+    \v, \n, \r, \e, \\, \[/\]; never re-parsed as code, zero timers);
+  - right-aligned RPS1 / RPROMPT in src/edit/render.c (auto-hides when
+    buffer approaches, transient on Enter);
+  - precmd / PROMPT_COMMAND before each prompt and preexec ($1=cmd) /
+    PS0 before each command (preserving $?);
+  - tests/test_prompt.c unit tests, live PTY prompt/hook tests in
+    tests/pty/test_pty.c, and sandbox/demo-0.2.5-prompts.
   readelf -d lists only libc.so.6. make test and make sanitize pass.
 
   Fred's decisions so far are in ROADMAP.md and the plans: POSIX.1-2024
@@ -34,21 +34,17 @@ STATE
 
 NEXT
 
-  1. 0.2.5 (plans/P3-interactive.md):
-     - Prompts: PS1 escapes, a right prompt (RPS1), and hooks that run
-       before each prompt (`precmd` / `PROMPT_COMMAND`) and before each
-       command (`preexec` / `PS0`). Completes Phase P3.
-     Bump VERSION to 0.2.5 in the first code commit.
+  1. Phase P4 — 0.3.0 (plans/P4-extras.md):
+     - Indexed and associative arrays (`declare -a`/`-A`, `arr=(...)`,
+       `${arr[i]}`, `${arr[@]}`, `${#arr[@]}`, `${!arr[@]}`, `+=`).
+     Bump VERSION to 0.3.0 in the first code commit.
 
 
 WAITING FOR FRED
 
-  - Trying 0.2.4: ./sandbox/demo-0.2.4-highlight or ./build/tam-clam
-    (live syntax colors, unknown commands, syntax errors, Right /
-    Ctrl+Right history suggestions).
-  - Open point for 0.2.5 (plans/P3-interactive.md): Fred's energy rule
-    forbids timers/polling while idle; confirm clock escapes in PS1
-    render only when the prompt is drawn (no background tick).
+  - Trying Phase P3 (0.2.5): ./sandbox/demo-0.2.5-prompts,
+    ./sandbox/play, or ./build/tam-clam on a terminal and on the Linux
+    console (TERM=linux).
   - Optional: installing dash / mksh / busybox for multi-shell spec
     comparisons and clang for a 24-hour libFuzzer run.
 

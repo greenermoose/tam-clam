@@ -1,6 +1,6 @@
 # P3: Interactive (0.2.x)
 
-**Status:** in progress (0.2.0–0.2.4 landed 2026-11-24; 0.2.5 prompts next).
+**Status:** complete (0.2.0–0.2.5 landed 2026-11-24).
 
 ## Goal
 
@@ -89,7 +89,7 @@ defines shell-specific bindings on top of it.
 
 ## Open points
 
-- Confirm `arch/keys.md` (drafted against `tamlinux/arch/keybindings.md`)
-  before writing 0.2.0 line-editor code.
-- Fred's energy rule: no timers or background polling while the shell
-  waits for input. Does that rule out showing a clock in the prompt?
+- Settled (2026-11-23): `tamlinux/arch/keybindings.md` and `arch/keys.md`.
+- Settled (2026-11-24): Fred's energy rule forbids timers/polling while
+  idle; clock escapes (`\t`, `\T`, `\A`) evaluate once when the prompt is
+  drawn, never ticking in the background.

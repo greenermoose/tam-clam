@@ -112,6 +112,7 @@ struct tc_shell {
 	struct tc_history *hist;   /* interactive history (0.2.1), or NULL */
 	bool private_mode;         /* --private: write no history to disk */
 	bool silent_errors;        /* suppress tc_error output during syntax probe */
+	bool in_prompt_hook;       /* recursion guard for precmd / preexec */
 };
 
 void tc_shell_init(struct tc_shell *sh, const char *name);

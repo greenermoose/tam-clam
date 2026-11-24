@@ -867,6 +867,7 @@ static void dispatch_widget(struct edit_ctx *ctx, enum tc_widget w)
 enum tc_edit_status tc_editor_readline(struct tc_editor *ed,
 				       struct tc_shell *sh,
 				       const char *ps1, const char *ps2,
+				       const char *rps1,
 				       char **out_line, size_t *out_len)
 {
 	*out_line = NULL;
@@ -927,13 +928,13 @@ enum tc_edit_status tc_editor_readline(struct tc_editor *ed,
 	size_t styles_cap = 0;
 
 	const char *ov = NULL;
-	(void)tc_render_draw(&rs, &tty, &buf, ps1, ps2, NULL, NULL, ov);
+	(void)tc_render_draw(&rs, &tty, &buf, ps1, ps2, rps1, NULL, NULL, ov);
 
 	while (!ctx.done) {
 		if (tc_sigwinch_seen) {
 			tc_sigwinch_seen = 0;
 			(void)tam_tty_size(&tty, NULL, NULL);
-			(void)tc_render_draw(&rs, &tty, &buf, ps1, ps2,
+			(void)tc_render_draw(&rs, &tty, &buf, ps1, ps2, rps1,
 					     want_hl ? styles : NULL, ctx.ghost, ov);
 		}
 		if (tc_sigint_seen) {
@@ -1150,7 +1151,7 @@ enum tc_edit_status tc_editor_readline(struct tc_editor *ed,
 			} else {
 				ctx.ghost = NULL;
 			}
-			(void)tc_render_draw(&rs, &tty, &buf, ps1, ps2,
+			(void)tc_render_draw(&rs, &tty, &buf, ps1, ps2, rps1,
 					     use_styles, ctx.ghost, ov);
 		}
 	}

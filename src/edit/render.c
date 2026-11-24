@@ -111,6 +111,7 @@ static const char *sgr_for_kind(unsigned char k)
 static int render_internal(struct tc_render_state *rs, tam_tty_t *tty,
 			   const struct tc_edit_buf *buf,
 			   const char *ps1, const char *ps2,
+			   const char *rps1,
 			   const unsigned char *styles,
 			   const char *ghost,
 			   const char *overlay, bool finishing)
@@ -265,6 +266,19 @@ static int render_internal(struct tc_render_state *rs, tam_tty_t *tty,
 		ob_str(&ob, "\x1b[0m");
 	}
 
+	/* Right prompt (RPS1): drawn right-aligned on row 0 when there is at
+	 * least 2 cells of gap after the buffer + ghost text. */
+	if (!finishing && rps1 && *rps1 && row == 0) {
+		int rw = prompt_width(rps1);
+		if (rw > 0 && col + 2 + rw <= cols) {
+			int pad = cols - rw - col;
+			for (int k = 0; k < pad; k++)
+				ob_append(&ob, " ", 1);
+			ob_str(&ob, rps1);
+			ob_str(&ob, "\x1b[0m");
+		}
+	}
+
 	if (finishing) {
 		ob_str(&ob, "\r\n");
 		int rc = ob.oom ? -1 : tam_tty_write(tty, ob.data, ob.len);
@@ -341,18 +355,19 @@ static int render_internal(struct tc_render_state *rs, tam_tty_t *tty,
 int tc_render_draw(struct tc_render_state *rs, tam_tty_t *tty,
 		   const struct tc_edit_buf *buf,
 		   const char *ps1, const char *ps2,
+		   const char *rps1,
 		   const unsigned char *styles,
 		   const char *ghost,
 		   const char *overlay)
 {
-	return render_internal(rs, tty, buf, ps1, ps2, styles, ghost, overlay, false);
+	return render_internal(rs, tty, buf, ps1, ps2, rps1, styles, ghost, overlay, false);
 }
 
 int tc_render_finish(struct tc_render_state *rs, tam_tty_t *tty,
 		     const struct tc_edit_buf *buf,
 		     const char *ps1, const char *ps2)
 {
-	return render_internal(rs, tty, buf, ps1, ps2, NULL, NULL, NULL, true);
+	return render_internal(rs, tty, buf, ps1, ps2, NULL, NULL, NULL, NULL, true);
 }
 
 /* Base64-encode and emit OSC 52 clipboard write (skipped on TERM=linux). */
