@@ -1,0 +1,31 @@
+#!/bin/sh
+# Sandbox demo for tam-clam 0.3.2: process substitution <(...)/(>...) and ** globstar.
+set -e
+
+BIN="${1:-./build/tam-clam}"
+
+"$BIN" <<'EOF'
+echo "=== 1. Process substitution <(...) ==="
+paste -d: <(printf 'name\nversion\nphase\n') <(printf 'tam-clam\n0.3.2\nP4\n')
+
+echo
+echo "=== 2. Redirection from <(...) into while read ==="
+while IFS= read -r line; do
+    echo "  got: $line"
+done < <(printf 'alpha\nbeta\ngamma\n')
+
+echo
+echo "=== 3. Output process substitution >(...) ==="
+tmp=$(mktemp /tmp/tc-demo-XXXXXX)
+printf 'hello tam-clam\n' | tee >(tr a-z A-Z > "$tmp") >/dev/null
+echo "  uppercased: $(cat "$tmp")"
+rm -f "$tmp"
+
+echo
+echo "=== 4. ** recursive globbing (globstar) ==="
+echo "  default (POSIX): globstar=$(shopt -q globstar && echo on || echo off)"
+shopt -s globstar
+echo "  enabled        : globstar=$(shopt -q globstar && echo on || echo off)"
+echo "  include/**/*.h :" include/**/*.h | head -c 80
+echo "..."
+EOF

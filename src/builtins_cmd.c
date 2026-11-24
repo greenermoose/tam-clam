@@ -389,3 +389,83 @@ int tc_bi_type(struct tc_shell *sh, int argc, char **argv, unsigned long line)
 	}
 	return status;
 }
+
+int tc_bi_shopt(struct tc_shell *sh, int argc, char **argv, unsigned long line)
+{
+	bool set_opt = false;
+	bool unset_opt = false;
+	bool quiet = false;
+	bool print_reusable = false;
+	int i = 1;
+
+	for (; i < argc && argv[i][0] == '-' && argv[i][1] != '\0'; i++) {
+		if (strcmp(argv[i], "--") == 0) {
+			i++;
+			break;
+		}
+		for (const char *p = argv[i] + 1; *p; p++) {
+			if (*p == 's') {
+				set_opt = true;
+			} else if (*p == 'u') {
+				unset_opt = true;
+			} else if (*p == 'q') {
+				quiet = true;
+			} else if (*p == 'p') {
+				print_reusable = true;
+			} else {
+				tc_error(sh, line, "shopt: -%c: invalid option", *p);
+				return TC_STATUS_USAGE;
+			}
+		}
+	}
+
+	if (set_opt && unset_opt) {
+		tc_error(sh, line, "shopt: cannot set and unset shell options simultaneously");
+		return 1;
+	}
+
+	if (i >= argc) {
+		if (quiet)
+			return 0;
+		bool show = (!set_opt && !unset_opt) ||
+			    (set_opt && sh->opt_globstar) ||
+			    (unset_opt && !sh->opt_globstar);
+		if (show) {
+			const char *line_out = print_reusable
+				? (sh->opt_globstar ? "shopt -s globstar\n" : "shopt -u globstar\n")
+				: (sh->opt_globstar ? "globstar       \ton\n" : "globstar       \toff\n");
+			if (tc_write_all(STDOUT_FILENO, line_out, strlen(line_out)) < 0) {
+				tc_error(sh, line, "shopt: write error: %s", strerror(errno));
+				return 1;
+			}
+		}
+		return 0;
+	}
+
+	int status = 0;
+	for (; i < argc; i++) {
+		if (strcmp(argv[i], "globstar") != 0) {
+			tc_error(sh, line, "shopt: %s: invalid shell option name", argv[i]);
+			status = 1;
+			continue;
+		}
+		if (set_opt) {
+			sh->opt_globstar = true;
+		} else if (unset_opt) {
+			sh->opt_globstar = false;
+		} else {
+			if (!sh->opt_globstar)
+				status = 1;
+			if (!quiet) {
+				const char *line_out = print_reusable
+					? (sh->opt_globstar ? "shopt -s globstar\n" : "shopt -u globstar\n")
+					: (sh->opt_globstar ? "globstar       \ton\n" : "globstar       \toff\n");
+				if (tc_write_all(STDOUT_FILENO, line_out, strlen(line_out)) < 0) {
+					tc_error(sh, line, "shopt: write error: %s", strerror(errno));
+					return 1;
+				}
+			}
+		}
+	}
+	return status;
+}

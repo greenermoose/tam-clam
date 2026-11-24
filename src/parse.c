@@ -1999,7 +1999,9 @@ int tc_parse_cmdsub(struct tc_lexer *lx, unsigned long start_line,
 		return r;
 	}
 	sub.lx.peek = lx->peek;
+	sub.lx.peek2 = lx->peek2;
 	lx->peek = -10;
+	lx->peek2 = -10;
 	sub.depth = lx->parse_depth + 1;
 	sub.lx.parse_depth = sub.depth;
 
@@ -2026,6 +2028,7 @@ int tc_parse_cmdsub(struct tc_lexer *lx, unsigned long start_line,
 	}
 
 	lx->peek = sub.lx.peek;
+	lx->peek2 = sub.lx.peek2;
 	tc_parser_finish(&sub);
 	return r;
 }

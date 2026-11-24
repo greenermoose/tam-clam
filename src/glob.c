@@ -14,6 +14,7 @@ struct glob_seg {
 	struct tc_pat pat;
 	size_t slashes_after; /* number of '/' following this segment */
 	bool has_meta;
+	bool is_globstar;     /* exact unquoted "**" when sh->opt_globstar */
 };
 
 struct glob_res {
@@ -59,6 +60,21 @@ static bool is_dir_path(const char *path)
 	return stat(path, &st) == 0 && S_ISDIR(st.st_mode);
 }
 
+static bool is_real_dir_path(const char *path)
+{
+	struct stat st;
+	return lstat(path, &st) == 0 && S_ISDIR(st.st_mode);
+}
+
+static bool is_globstar_pat(const struct tc_pat *p)
+{
+	if (p->len != 2 || p->text[0] != '*' || p->text[1] != '*')
+		return false;
+	if (p->quoted && (p->quoted[0] || p->quoted[1]))
+		return false;
+	return true;
+}
+
 static bool path_exists(const char *path)
 {
 	struct stat st;
@@ -98,6 +114,59 @@ static bool pat_starts_with_dot(const struct tc_pat *seg)
 	return false;
 }
 
+/* Recursively emit every non-hidden file and directory under prefix (for trailing **). */
+static void walk_globstar_all(struct glob_res *res, const char *prefix,
+			      size_t plen, unsigned depth)
+{
+	if (res->err != TC_OK || depth > TC_GLOB_DEPTH_MAX)
+		return;
+
+	const char *dir_path = (plen == 0) ? "." : prefix;
+	DIR *d = opendir(dir_path);
+	if (!d)
+		return;
+
+	struct dirent *de;
+	while (res->err == TC_OK && (de = readdir(d)) != NULL) {
+		const char *name = de->d_name;
+		if (name[0] == '.')
+			continue;
+		size_t nlen = strlen(name);
+		tam_str_t next = tam_str_new_len(prefix, plen);
+		if (!next) {
+			tc_error(res->sh, res->line, "out of memory");
+			res->err = TC_ERR_NOMEM;
+			break;
+		}
+		tam_str_t t = tam_str_cat_len(next, name, nlen);
+		if (!t) {
+			tam_str_free(next);
+			tc_error(res->sh, res->line, "out of memory");
+			res->err = TC_ERR_NOMEM;
+			break;
+		}
+		next = t;
+
+		if (glob_push(res, next, tam_str_len(next)) < 0) {
+			tam_str_free(next);
+			break;
+		}
+		if (is_real_dir_path(next)) {
+			t = tam_str_cat_len(next, "/", 1);
+			if (!t) {
+				tam_str_free(next);
+				tc_error(res->sh, res->line, "out of memory");
+				res->err = TC_ERR_NOMEM;
+				break;
+			}
+			next = t;
+			walk_globstar_all(res, next, tam_str_len(next), depth + 1);
+		}
+		tam_str_free(next);
+	}
+	closedir(d);
+}
+
 static void walk_glob(struct glob_res *res, const struct glob_seg *segs,
 		      size_t nsegs, size_t idx, const char *prefix,
 		      size_t plen, unsigned depth)
@@ -112,6 +181,70 @@ static void walk_glob(struct glob_res *res, const struct glob_seg *segs,
 
 	const struct glob_seg *seg = &segs[idx];
 	bool need_dir = (seg->slashes_after > 0);
+
+	if (seg->is_globstar) {
+		if (!need_dir) {
+			/* Trailing "**": include non-empty prefix (matching bash) plus all
+			 * non-hidden files and directories recursively. */
+			if (plen > 0 && glob_push(res, prefix, plen) < 0)
+				return;
+			walk_globstar_all(res, prefix, plen, depth + 1);
+			return;
+		}
+		/* Globstar with trailing slash: match zero directories first. */
+		if (idx + 1 < nsegs) {
+			walk_glob(res, segs, nsegs, idx + 1, prefix, plen, depth + 1);
+		} else if (plen > 0) {
+			glob_push(res, prefix, plen);
+		}
+		if (res->err != TC_OK)
+			return;
+
+		/* Then descend into each non-hidden real subdirectory (never following symlinks). */
+		const char *dir_path = (plen == 0) ? "." : prefix;
+		DIR *d = opendir(dir_path);
+		if (!d)
+			return;
+		struct dirent *de;
+		while (res->err == TC_OK && (de = readdir(d)) != NULL) {
+			const char *name = de->d_name;
+			if (name[0] == '.')
+				continue;
+			size_t nlen = strlen(name);
+			tam_str_t next = tam_str_new_len(prefix, plen);
+			if (!next) {
+				tc_error(res->sh, res->line, "out of memory");
+				res->err = TC_ERR_NOMEM;
+				break;
+			}
+			tam_str_t t = tam_str_cat_len(next, name, nlen);
+			if (!t) {
+				tam_str_free(next);
+				tc_error(res->sh, res->line, "out of memory");
+				res->err = TC_ERR_NOMEM;
+				break;
+			}
+			next = t;
+			if (is_real_dir_path(next)) {
+				for (size_t s = 0; s < seg->slashes_after; s++) {
+					t = tam_str_cat_len(next, "/", 1);
+					if (!t) {
+						tam_str_free(next);
+						tc_error(res->sh, res->line, "out of memory");
+						res->err = TC_ERR_NOMEM;
+						goto done_gs;
+					}
+					next = t;
+				}
+				walk_glob(res, segs, nsegs, idx, next, tam_str_len(next),
+					  depth + 1);
+			}
+			tam_str_free(next);
+		}
+done_gs:
+		closedir(d);
+		return;
+	}
 
 	if (!seg->has_meta) {
 		tam_str_t next = tam_str_new_len(prefix, plen);
@@ -258,6 +391,8 @@ int tc_glob_expand(struct tc_shell *sh, const struct tc_pat *pat,
 		segs[nsegs].pat.len = slen;
 		segs[nsegs].slashes_after = slashes;
 		segs[nsegs].has_meta = tc_pat_has_meta(&segs[nsegs].pat);
+		segs[nsegs].is_globstar = sh->opt_globstar &&
+					  is_globstar_pat(&segs[nsegs].pat);
 		nsegs++;
 	}
 
@@ -301,6 +436,13 @@ int tc_glob_expand(struct tc_shell *sh, const struct tc_pat *pat,
 	}
 
 	qsort(res.items, res.count, sizeof(*res.items), cmp_str_ptr);
+	/* Deduplicate sorted paths (can occur with overlapping ** patterns). */
+	size_t uniq = 0;
+	for (size_t k = 0; k < res.count; k++) {
+		if (uniq == 0 || strcmp(res.items[k], res.items[uniq - 1]) != 0)
+			res.items[uniq++] = res.items[k];
+	}
+	res.count = uniq;
 	char **arr = tc_arena_alloc(&sh->arena, res.count * sizeof(*arr));
 	if (!arr) {
 		free(res.items);

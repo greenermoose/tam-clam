@@ -98,8 +98,66 @@ int main(void)
 		CHECK(n == 0);
 	}
 
+	/* Deep tree + hidden dir + symlink loop for ** globstar tests */
+	CHECK(mkdir("sub/deep", 0700) == 0);
+	touch_file("sub/deep/leaf.c");
+	CHECK(mkdir(".secret", 0700) == 0);
+	touch_file(".secret/hidden.c");
+	CHECK(symlink("..", "sub/loop") == 0);
+
+	// Off by default: **/*.c matches only 1 level deep (sub/*.c -> none)
+	{
+		struct tc_pat p = { .text = "**/*.c", .quoted = NULL, .len = 6 };
+		CHECK(tc_glob_expand(&sh, &p, 1, &out, &n) == TC_OK);
+		CHECK(n == 0);
+	}
+
+	// Enable globstar: **/*.c matches 0, 1, and 2 levels deep, skipping .secret and loop
+	sh.opt_globstar = true;
+	{
+		struct tc_pat p = { .text = "**/*.c", .quoted = NULL, .len = 6 };
+		CHECK(tc_glob_expand(&sh, &p, 1, &out, &n) == TC_OK);
+		CHECK(n == 3 && strcmp(out[0], "alpha.c") == 0 &&
+		      strcmp(out[1], "beta.c") == 0 &&
+		      strcmp(out[2], "sub/deep/leaf.c") == 0);
+	}
+
+	// **/ matches directories recursively (not symlinks, not .secret)
+	{
+		struct tc_pat p = { .text = "**/", .quoted = NULL, .len = 3 };
+		CHECK(tc_glob_expand(&sh, &p, 1, &out, &n) == TC_OK);
+		CHECK(n == 2 && strcmp(out[0], "sub/") == 0 &&
+		      strcmp(out[1], "sub/deep/") == 0);
+	}
+
+	// Trailing ** matches prefix plus all non-hidden files and directories recursively
+	{
+		struct tc_pat p = { .text = "sub/**", .quoted = NULL, .len = 6 };
+		CHECK(tc_glob_expand(&sh, &p, 1, &out, &n) == TC_OK);
+		CHECK(n == 6 && strcmp(out[0], "sub/") == 0 &&
+		      strcmp(out[1], "sub/deep") == 0 &&
+		      strcmp(out[2], "sub/deep/leaf.c") == 0 &&
+		      strcmp(out[3], "sub/loop") == 0 &&
+		      strcmp(out[4], "sub/one.txt") == 0 &&
+		      strcmp(out[5], "sub/two.txt") == 0);
+	}
+
+	// Overlapping **/**/*.c is deduplicated
+	{
+		struct tc_pat p = { .text = "**/**/*.c", .quoted = NULL, .len = 9 };
+		CHECK(tc_glob_expand(&sh, &p, 1, &out, &n) == TC_OK);
+		CHECK(n == 3 && strcmp(out[0], "alpha.c") == 0 &&
+		      strcmp(out[1], "beta.c") == 0 &&
+		      strcmp(out[2], "sub/deep/leaf.c") == 0);
+	}
+
 	tc_shell_finish(&sh);
 
+	unlink("sub/loop");
+	unlink(".secret/hidden.c");
+	rmdir(".secret");
+	unlink("sub/deep/leaf.c");
+	rmdir("sub/deep");
 	unlink("sub/one.txt");
 	unlink("sub/two.txt");
 	rmdir("sub");

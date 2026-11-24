@@ -56,6 +56,11 @@ enum tc_flow {
 	TC_FLOW_RETURN,
 };
 
+struct tc_procsub_entry {
+	int fd;
+	pid_t pid;
+};
+
 struct tc_shell {
 	const char *name;          /* $0, used in messages */
 	char self_path[TC_SELF_PATH_MAX]; /* this executable, for ENOEXEC */
@@ -84,6 +89,7 @@ struct tc_shell {
 	bool opt_nounset;          /* set -u */
 	bool opt_xtrace;           /* set -x */
 	bool opt_pipefail;         /* set -o pipefail */
+	bool opt_globstar;         /* shopt -s globstar / set -o globstar (0.3.2) */
 	unsigned errexit_ignore;   /* >0 while POSIX set -e is ignored */
 	unsigned subshell_depth;   /* nesting depth for PS4 indirection */
 	unsigned long lineno;      /* current executing command line */
@@ -113,6 +119,9 @@ struct tc_shell {
 	bool private_mode;         /* --private: write no history to disk */
 	bool silent_errors;        /* suppress tc_error output during syntax probe */
 	bool in_prompt_hook;       /* recursion guard for precmd / preexec */
+	struct tc_procsub_entry *procsubs; /* active /dev/fd process substitutions */
+	size_t procsub_count;
+	size_t procsub_cap;
 };
 
 void tc_shell_init(struct tc_shell *sh, const char *name);

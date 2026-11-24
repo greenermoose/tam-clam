@@ -856,6 +856,16 @@ static int expand_parts_single(struct tc_shell *sh, const struct tc_wpart *parts
 			r = eval_arith_part(sh, wp, line, depth, &av);
 			if (r == TC_EXP_OK)
 				r = append_str(sh, line, &buf, av, strlen(av));
+		} else if (wp->kind == TC_WPART_PROCSUB_IN ||
+			   wp->kind == TC_WPART_PROCSUB_OUT) {
+			char *path = NULL;
+			int pr = tc_exec_procsub(sh, wp->cmd,
+						 wp->kind == TC_WPART_PROCSUB_OUT,
+						 line, &path);
+			if (pr != TC_OK)
+				r = (pr == TC_ERR_NOMEM) ? TC_EXP_NOMEM : TC_EXP_ERR;
+			else
+				r = append_str(sh, line, &buf, path, strlen(path));
 		}
 		if (r != TC_EXP_OK) {
 			tam_str_free(buf);
@@ -1008,6 +1018,16 @@ static int expand_parts_pat(struct tc_shell *sh, const struct tc_wpart *parts,
 			if (r == TC_EXP_OK)
 				r = pb_append(sh, line, &pb, av, strlen(av),
 					      wp->quoted ? 1 : 0);
+		} else if (wp->kind == TC_WPART_PROCSUB_IN ||
+			   wp->kind == TC_WPART_PROCSUB_OUT) {
+			char *path = NULL;
+			int pr = tc_exec_procsub(sh, wp->cmd,
+						 wp->kind == TC_WPART_PROCSUB_OUT,
+						 line, &path);
+			if (pr != TC_OK)
+				r = (pr == TC_ERR_NOMEM) ? TC_EXP_NOMEM : TC_EXP_ERR;
+			else
+				r = pb_append(sh, line, &pb, path, strlen(path), 1);
 		}
 		if (r != TC_EXP_OK) {
 			pb_finish(&pb);
@@ -1372,6 +1392,19 @@ static int expand_parts_fields(struct field_state *fs,
 				} else {
 					r = fs_feed_splittable(fs, av, strlen(av));
 				}
+			}
+		} else if (wp->kind == TC_WPART_PROCSUB_IN ||
+			   wp->kind == TC_WPART_PROCSUB_OUT) {
+			char *path = NULL;
+			int pr = tc_exec_procsub(sh, wp->cmd,
+						 wp->kind == TC_WPART_PROCSUB_OUT,
+						 line, &path);
+			if (pr != TC_OK) {
+				r = (pr == TC_ERR_NOMEM) ? TC_EXP_NOMEM : TC_EXP_ERR;
+			} else {
+				fs->seen_delim_ws = false;
+				fs->has_quoted = true;
+				r = pb_append(sh, line, &fs->cur, path, strlen(path), 1);
 			}
 		}
 		if (r != TC_EXP_OK)

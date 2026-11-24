@@ -1,0 +1,47 @@
+W22 PROCESS SUBSTITUTION AND RECURSIVE GLOBSTAR (0.3.2)
+
+Date: 2026-11-24
+AI harness: agy 1.5.16
+AI model: Gemini 4 Neon (Medium)
+Continues: W21
+
+GUIDANCE
+
+  Fred: "/plan Do the work for 0.3.2"
+  Fred: "Keep ** recursive globbing off by default. Plan approved. Proceed."
+
+DONE
+
+  - Added process substitution <(...) and >(...) through /dev/fd across
+    include/tam-clam/ast.h, include/tam-clam/lex.h, include/tam-clam/shell.h,
+    include/tam-clam/exec.h, src/lex.c (with 2-byte lookahead peek2),
+    src/parse.c, src/expand.c, src/exec.c, src/shell.c, and src/lint.c:
+    parent pipe fds dup'd above fd 10 (without CLOEXEC), sibling procsub
+    fds closed in children to prevent EOF deadlocks, and automatic
+    per-command fd close + child reaping in exec_one.
+  - Added ** recursive globbing (off by default, enabled via `shopt -s
+    globstar` or `set -o globstar`) in src/glob.c, src/options.c,
+    src/builtins.c, and src/builtins_cmd.c (`shopt` builtin supporting
+    -s/-u/-q/-p for globstar): supports **/*.ext, **/, trailing **,
+    symlink-loop immunity (lstat), hidden-entry exclusion, and sorted
+    deduplication.
+  - Added tests/test_procsub.c (20 checks), expanded tests/test_glob.c
+    (32 checks), tests/spec/procsub.test.sh (6 cases),
+    tests/spec/globstar.test.sh (7 cases, all verified against
+    bash --posix), fuzz seeds, and sandbox/demo-0.3.2-procsub-globstar;
+    bumped VERSION to 0.3.2 and updated ROADMAP.md, plans/P4-extras.md,
+    and work/WHATNOW.
+  - Verified make test, make sanitize (ASan+UBSan), make fuzz
+    FUZZ_ITERS=5000 (0 crashes), demo output, and readelf -d (only
+    libc.so.6).
+
+FAILED
+
+  - Nothing.
+
+HANDOFF
+
+  - Phase P4 continues: 0.3.2 landed on dev.
+  - Next: 0.3.3 (Oils-named strict modes: strict_errexit,
+    command_sub_errexit, simple_word_eval, strict_argv, and
+    `set -o strict`).

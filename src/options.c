@@ -73,6 +73,10 @@ enum tc_opt_res tc_opt_set_name(struct tc_shell *sh, const char *name,
 		sh->opt_pipefail = enable;
 		return TC_OPT_OK;
 	}
+	if (strcmp(name, "globstar") == 0) {
+		sh->opt_globstar = enable;
+		return TC_OPT_OK;
+	}
 	if (strcmp(name, "xtrace") == 0) {
 		sh->opt_xtrace = enable;
 		return TC_OPT_OK;
@@ -92,6 +96,7 @@ bool tc_opt_get_name(const struct tc_shell *sh, const char *name, bool *valid)
 	if (strcmp(name, "noglob") == 0)    return sh->opt_noglob;
 	if (strcmp(name, "nounset") == 0)   return sh->opt_nounset;
 	if (strcmp(name, "pipefail") == 0)  return sh->opt_pipefail;
+	if (strcmp(name, "globstar") == 0)  return sh->opt_globstar;
 	if (strcmp(name, "xtrace") == 0)    return sh->opt_xtrace;
 	if (valid)
 		*valid = false;
@@ -101,13 +106,14 @@ bool tc_opt_get_name(const struct tc_shell *sh, const char *name, bool *valid)
 int tc_opt_print(const struct tc_shell *sh, bool reusable, unsigned long line)
 {
 	static const char *const names[] = {
-		"allexport", "errexit", "monitor", "noclobber", "noexec",
-		"noglob", "nounset", "pipefail", "xtrace",
+		"allexport", "errexit", "globstar", "monitor", "noclobber",
+		"noexec", "noglob", "nounset", "pipefail", "xtrace",
 	};
 	const bool vals[] = {
-		sh->opt_allexport, sh->opt_errexit, sh->opt_monitor,
-		sh->opt_noclobber, sh->opt_noexec, sh->opt_noglob,
-		sh->opt_nounset, sh->opt_pipefail, sh->opt_xtrace,
+		sh->opt_allexport, sh->opt_errexit, sh->opt_globstar,
+		sh->opt_monitor, sh->opt_noclobber, sh->opt_noexec,
+		sh->opt_noglob, sh->opt_nounset, sh->opt_pipefail,
+		sh->opt_xtrace,
 	};
 	char buf[128];
 	for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {

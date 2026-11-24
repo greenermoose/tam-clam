@@ -471,6 +471,7 @@ static const struct tc_builtin builtins[] = {
 	{"return", bi_return, true},
 	{"set", tc_bi_set, true},
 	{"shift", tc_bi_shift, true},
+	{"shopt", tc_bi_shopt, false},
 	{"test", tc_bi_test, false},
 	{"times", tc_bi_times, true},
 	{"trap", tc_bi_trap, true},

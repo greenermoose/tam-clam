@@ -70,11 +70,14 @@ struct tc_token {
 struct tc_lexer {
 	struct tc_shell *sh;
 	struct tc_input *in;
-	int peek;          /* one byte of lookahead, or -10 for none */
+	int peek;          /* two bytes of lookahead, or -10 for none */
+	int peek2;
 	unsigned long last_line;
 	unsigned long last_col;
 	unsigned long peek_line;
 	unsigned long peek_col;
+	unsigned long peek2_line;
+	unsigned long peek2_col;
 	char *word;        /* tam_str buffer, reused for each word */
 	unsigned parse_depth; /* nesting depth synced with tc_parser */
 };

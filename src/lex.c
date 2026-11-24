@@ -21,10 +21,13 @@ int tc_lexer_init(struct tc_lexer *lx, struct tc_shell *sh, struct tc_input *in)
 	if (in && !in->sh)
 		in->sh = sh;
 	lx->peek = NO_PEEK;
+	lx->peek2 = NO_PEEK;
 	lx->last_line = in ? in->line : 1;
 	lx->last_col = 0;
 	lx->peek_line = lx->last_line;
 	lx->peek_col = 0;
+	lx->peek2_line = lx->last_line;
+	lx->peek2_col = 0;
 	lx->parse_depth = 0;
 	lx->word = tam_str_new("");
 	return lx->word ? TC_OK : TC_ERR_NOMEM;
@@ -40,9 +43,12 @@ static int getch(struct tc_lexer *lx)
 {
 	if (lx->peek != NO_PEEK) {
 		int c = lx->peek;
-		lx->peek = NO_PEEK;
 		lx->last_line = lx->peek_line;
 		lx->last_col = lx->peek_col;
+		lx->peek = lx->peek2;
+		lx->peek_line = lx->peek2_line;
+		lx->peek_col = lx->peek2_col;
+		lx->peek2 = NO_PEEK;
 		return c;
 	}
 	int c = tc_input_getc(lx->in);
@@ -53,6 +59,11 @@ static int getch(struct tc_lexer *lx)
 
 static void ungetch(struct tc_lexer *lx, int c)
 {
+	if (lx->peek != NO_PEEK) {
+		lx->peek2 = lx->peek;
+		lx->peek2_line = lx->peek_line;
+		lx->peek2_col = lx->peek_col;
+	}
 	lx->peek = c;
 	lx->peek_line = lx->last_line;
 	lx->peek_col = lx->last_col;
@@ -1810,7 +1821,30 @@ static unsigned detect_assign_flags(const struct tc_wpart *parts)
 	return 0;
 }
 
-static int lex_word(struct tc_lexer *lx, int c, struct tc_token *tok)
+static int lex_procsub(struct tc_lexer *lx, struct wpart_buf *wb,
+		       bool is_out, unsigned *flags, unsigned long start_line)
+{
+	int r;
+	if ((r = raw_add(lx, '(')) != TC_OK)
+		return r;
+	struct tc_node *cmd = NULL;
+	if ((r = tc_parse_cmdsub(lx, start_line, &cmd)) != TC_OK)
+		return r;
+	if ((r = raw_add(lx, ')')) != TC_OK)
+		return r;
+	*flags |= TC_WORD_CMDSUB;
+	struct tc_wpart *wp = tc_arena_alloc(&lx->sh->arena, sizeof(*wp));
+	if (!wp) {
+		tc_error(lx->sh, start_line, "out of memory");
+		return TC_ERR_NOMEM;
+	}
+	memset(wp, 0, sizeof(*wp));
+	wp->kind = is_out ? TC_WPART_PROCSUB_OUT : TC_WPART_PROCSUB_IN;
+	wp->cmd = cmd;
+	return wb_add_part(wb, wp);
+}
+
+static int lex_word(struct tc_lexer *lx, int c, bool start_procsub, struct tc_token *tok)
 {
 	unsigned flags = 0;
 	bool followed_lp = false;
@@ -1821,10 +1855,36 @@ static int lex_word(struct tc_lexer *lx, int c, struct tc_token *tok)
 	if (r != TC_OK)
 		return r;
 
+	if (start_procsub) {
+		if ((r = raw_add(lx, c)) != TC_OK)
+			goto out;
+		r = lex_procsub(lx, &wb, c == '>', &flags, tok->line);
+		if (r != TC_OK)
+			goto out;
+		c = getch_cont(lx);
+	}
+
 	for (;; c = getch_cont(lx)) {
 		if (c < TC_IN_EOF) {
 			r = input_failure(lx, c);
 			goto out;
+		}
+		if (c == '<' || c == '>') {
+			int err = TC_OK;
+			if (follows(lx, '(', &err)) {
+				if ((r = raw_add(lx, c)) != TC_OK)
+					goto out;
+				r = lex_procsub(lx, &wb, c == '>', &flags, lx->in->line);
+				if (r != TC_OK)
+					goto out;
+				continue;
+			}
+			if (err != TC_OK) {
+				r = err;
+				goto out;
+			}
+			ungetch(lx, c);
+			break;
 		}
 		if (c == TC_IN_EOF || c == ' ' || c == '\t' || c == '\n' ||
 		    is_operator_start(c)) {
@@ -1965,9 +2025,17 @@ int tc_lex_next(struct tc_lexer *lx, struct tc_token *tok)
 			tok->line--;
 			return TC_OK;
 		}
+		if (c == '<' || c == '>') {
+			int err = TC_OK;
+			if (follows(lx, '(', &err))
+				return lex_word(lx, c, true, tok);
+			if (err != TC_OK)
+				return err;
+			return lex_operator(lx, c, tok);
+		}
 		if (is_operator_start(c))
 			return lex_operator(lx, c, tok);
-		return lex_word(lx, c, tok);
+		return lex_word(lx, c, false, tok);
 	}
 }
 
@@ -2113,6 +2181,7 @@ void tc_lex_skip_line(struct tc_lexer *lx)
 void tc_lexer_reset(struct tc_lexer *lx)
 {
 	lx->peek = NO_PEEK;
+	lx->peek2 = NO_PEEK;
 }
 
 const char *tc_token_name(enum tc_token_kind kind)

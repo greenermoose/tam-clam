@@ -1783,6 +1783,7 @@ static int exec_one(struct tc_shell *sh, const struct tc_node *n)
 	sh->exec_depth++;
 	if (n->line > 0)
 		sh->lineno = n->line;
+	size_t ps_mark = sh->procsub_count;
 	int status;
 
 	switch (n->kind) {
@@ -1845,6 +1846,7 @@ static int exec_one(struct tc_shell *sh, const struct tc_node *n)
 		break;
 	}
 
+	tc_procsub_cleanup(sh, ps_mark);
 	sh->exec_depth--;
 	return status;
 }
@@ -2058,4 +2060,116 @@ int tc_exec_cmdsub(struct tc_shell *sh, const struct tc_node *cmd,
 	*out = copy;
 	*out_len = len;
 	return TC_OK;
+}
+
+int tc_exec_procsub(struct tc_shell *sh, const struct tc_node *cmd,
+		    bool is_out, unsigned long line, char **out_path)
+{
+	*out_path = "";
+	int pfd[2];
+	if (pipe(pfd) < 0) {
+		tc_error(sh, line, "cannot create pipe: %s", strerror(errno));
+		return TC_ERR_IO;
+	}
+
+	int parent_raw = is_out ? pfd[1] : pfd[0];
+	int child_fd = is_out ? pfd[0] : pfd[1];
+
+	/* Move parent fd above 10 without CLOEXEC so external commands can open /dev/fd/N. */
+	int parent_fd = fcntl(parent_raw, F_DUPFD, 10);
+	if (parent_fd < 0) {
+		tc_error(sh, line, "dup: %s", strerror(errno));
+		close(pfd[0]);
+		close(pfd[1]);
+		return TC_ERR_IO;
+	}
+	close(parent_raw);
+
+	if (sh->procsub_count == sh->procsub_cap) {
+		size_t ncap = sh->procsub_cap ? sh->procsub_cap * 2 : 8;
+		struct tc_procsub_entry *ne = realloc(sh->procsubs, ncap * sizeof(*ne));
+		if (!ne) {
+			close(parent_fd);
+			close(child_fd);
+			tc_error(sh, line, "out of memory");
+			return TC_ERR_NOMEM;
+		}
+		sh->procsubs = ne;
+		sh->procsub_cap = ncap;
+	}
+
+	pid_t pid = fork();
+	if (pid < 0) {
+		tc_error(sh, line, "cannot fork: %s", strerror(errno));
+		close(parent_fd);
+		close(child_fd);
+		return TC_ERR_IO;
+	}
+	if (pid == 0) {
+		tc_signals_child();
+		tc_traps_subshell_reset(&sh->traps);
+		tc_bg_reset_subshell(&sh->bg);
+		/* Close sibling process substitution fds to avoid EOF deadlocks. */
+		for (size_t i = 0; i < sh->procsub_count; i++) {
+			if (sh->procsubs[i].fd >= 0)
+				close(sh->procsubs[i].fd);
+		}
+		sh->procsub_count = 0;
+		close(parent_fd);
+
+		int target = is_out ? STDIN_FILENO : STDOUT_FILENO;
+		if (child_fd != target) {
+			if (dup2(child_fd, target) < 0)
+				_exit(1);
+			close(child_fd);
+		}
+
+		sh->interactive = false;
+		sh->subshell_depth++;
+		sh->loop_depth = 0;
+		sh->func_depth = 0;
+		sh->dot_depth = 0;
+		sh->flow = TC_FLOW_NONE;
+		int st = cmd ? tc_exec(sh, cmd) : 0;
+		if (sh->flow == TC_FLOW_RETURN)
+			st = sh->return_status;
+		sh->status = sh->exit_requested ? sh->exit_status : st;
+		tc_trap_run_exit(sh);
+		_exit(sh->exit_requested ? sh->exit_status : st);
+	}
+
+	close(child_fd);
+	sh->procsubs[sh->procsub_count].fd = parent_fd;
+	sh->procsubs[sh->procsub_count].pid = pid;
+	sh->procsub_count++;
+
+	char buf[32];
+	int n = snprintf(buf, sizeof(buf), "/dev/fd/%d", parent_fd);
+	if (n < 0 || (size_t)n >= sizeof(buf)) {
+		tc_error(sh, line, "out of memory");
+		return TC_ERR_NOMEM;
+	}
+	char *path = tc_arena_strndup(&sh->arena, buf, (size_t)n);
+	if (!path) {
+		tc_error(sh, line, "out of memory");
+		return TC_ERR_NOMEM;
+	}
+	*out_path = path;
+	return TC_OK;
+}
+
+void tc_procsub_cleanup(struct tc_shell *sh, size_t mark)
+{
+	/* Close all parent pipe ends first so >(...) children see EOF before waiting. */
+	for (size_t i = mark; i < sh->procsub_count; i++) {
+		if (sh->procsubs[i].fd >= 0) {
+			close(sh->procsubs[i].fd);
+			sh->procsubs[i].fd = -1;
+		}
+	}
+	for (size_t i = mark; i < sh->procsub_count; i++) {
+		if (sh->procsubs[i].pid > 0)
+			(void)wait_child(sh->procsubs[i].pid);
+	}
+	sh->procsub_count = mark;
 }

@@ -41,7 +41,7 @@ TESTS = $(B)/tests/test_array $(B)/tests/test_var $(B)/tests/test_func $(B)/test
 	$(B)/tests/test_hash $(B)/tests/test_options $(B)/tests/test_test \
 	$(B)/tests/test_pattern $(B)/tests/test_regex $(B)/tests/test_brace \
 	$(B)/tests/test_cond $(B)/tests/test_arith $(B)/tests/test_glob \
-	$(B)/tests/test_trap $(B)/tests/test_lex $(B)/tests/test_parse \
+	$(B)/tests/test_procsub $(B)/tests/test_trap $(B)/tests/test_lex $(B)/tests/test_parse \
 	$(B)/tests/test_expand $(B)/tests/test_lint $(B)/tests/test_edit \
 	$(B)/tests/test_history $(B)/tests/test_jobs $(B)/tests/test_complete \
 	$(B)/tests/test_highlight $(B)/tests/test_prompt

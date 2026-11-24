@@ -5,10 +5,10 @@ of versions. Versions follow semantic versioning: during 0.x, the minor
 number marks a phase's big step and the patch number marks each
 milestone inside it.
 
-**Current version:** 0.3.1 (Phase P4 in progress: `[[ ]]` with `==`
-patterns and linear-time POSIX ERE `=~` + `BASH_REMATCH`, `local` and
-full `declare` (`-i`/`-l`/`-u`/`-g`/`-F`), and brace expansion
-`{a,b}`/`{1..9}`, 2026-11-24; development continues on branch `dev`).
+**Current version:** 0.3.2 (Phase P4 in progress: process substitution
+`<(...)` and `>(...)` through `/dev/fd`, and `**` recursive globbing via
+`shopt -s globstar` / `set -o globstar`, 2026-11-24; development
+continues on branch `dev`).
 
 ## Decided
 

@@ -3,34 +3,28 @@ WHATNOW
 What tam-clam is doing now and what comes next. Read this first; revise
 it at the end of every session (work/README-work).
 
-Updated: 2026-11-24, with W21 (0.3.1)
+Updated: 2026-11-24, with W22 (0.3.2)
 
 
 STATE
 
-  Version 0.3.1, Phase P4 in progress ([[ ]], local/declare, brace
-  expansion), on branch dev. 0.3.1 adds:
-  - linear-time POSIX ERE engine (Thompson NFA / PikeVM, submatch
-    captures, bounded compile/exec, immune to ReDoS) in
-    include/tam-clam/regex.h and src/regex.c (no PCRE or libc regcomp);
-  - [[ ... ]] conditional compound command in include/tam-clam/cond.h,
-    src/cond.c, src/parse.c, src/lex.c, src/func.c, src/lint.c,
-    src/exec.c, and src/edit/highlight.c: &&, ||, !, (), == / != glob
-    patterns, =~ with BASH_REMATCH, < / >, arithmetic -eq..-ge, -v, -o,
-    and file/string tests;
-  - dynamic function-local variable scopes (local, declare local by
-    default inside functions, declare -g) and full declare attributes
-    (-i integer arithmetic/+=, -l lowercase, -u uppercase, -F function
-    names) in src/var.c, src/bi_declare.c, src/exec.c, and src/builtins.c;
-  - brace expansion ({a,b}, nested braces, Cartesian products, and
-    {start..end[..incr]} integer/char/zero-padded sequences with depth
-    and word-count limits) in include/tam-clam/brace.h, src/brace.c,
-    and src/expand.c;
-  - tests/test_regex.c (48 checks), tests/test_brace.c (42 checks),
-    tests/test_cond.c (24 checks), tests/spec/cond.test.sh (10 cases),
-    tests/spec/local-declare.test.sh (9 cases), tests/spec/brace.test.sh
-    (7 cases, all verified against bash --posix), fuzz seeds, and
-    sandbox/demo-0.3.1-cond-local-brace.
+  Version 0.3.2, Phase P4 in progress (process substitution and **
+  recursive globbing), on branch dev. 0.3.2 adds:
+  - process substitution <(...) and >(...) through /dev/fd in
+    include/tam-clam/ast.h, include/tam-clam/lex.h, src/lex.c,
+    src/expand.c, src/exec.c, src/shell.c, and src/lint.c: parent pipe
+    fds held above fd 10 (without CLOEXEC so external commands inherit
+    /dev/fd/N), sibling procsub fds closed in children to prevent EOF
+    deadlocks, and automatic per-command fd close + child reaping;
+  - ** recursive globbing (off by default for strict POSIX
+    compatibility, enabled via `shopt -s globstar` or `set -o globstar`)
+    in src/glob.c, src/options.c, src/builtins.c, and src/builtins_cmd.c:
+    supports **/*.ext, **/, trailing **, deduplication, hidden-entry
+    exclusion, and symlink-loop immunity (lstat);
+  - tests/test_procsub.c (20 checks), expanded tests/test_glob.c (32
+    checks), tests/spec/procsub.test.sh (6 cases),
+    tests/spec/globstar.test.sh (7 cases, all verified against
+    bash --posix), fuzz seeds, and sandbox/demo-0.3.2-procsub-globstar.
   readelf -d lists only libc.so.6. make test, make sanitize, and make
   fuzz pass.
 
@@ -41,20 +35,22 @@ STATE
   VSUSP=Ctrl+P, Ctrl+F history search, Ctrl+Q quit); FUNCNEST sets the
   function recursion limit; signed 64-bit arithmetic overflow is a
   reported error; echo recognizes -n only and does not interpret
-  backslash escapes by default.
+  backslash escapes by default; ** recursive globbing is off by default.
 
 
 NEXT
 
-  1. Phase P4 -- 0.3.2 (plans/P4-extras.md):
-     - Process substitution <(...) and >(...) through /dev/fd;
-     - ** recursive globbing.
-     Bump VERSION to 0.3.2 in the first code commit.
+  1. Phase P4 -- 0.3.3 (plans/P4-extras.md):
+     - Strict modes (Oils-named options): strict_errexit,
+       command_sub_errexit, simple_word_eval, strict_argv, plus
+       `set -o strict` enabling all of them along with nounset and
+       pipefail.
+     Bump VERSION to 0.3.3 in the first code commit.
 
 
 WAITING FOR FRED
 
-  - Trying 0.3.1: ./sandbox/demo-0.3.1-cond-local-brace or ./build/tam-clam.
+  - Trying 0.3.2: ./sandbox/demo-0.3.2-procsub-globstar or ./build/tam-clam.
   - Optional: installing dash / mksh / busybox for multi-shell spec
     comparisons and clang for a 24-hour libFuzzer run.
 

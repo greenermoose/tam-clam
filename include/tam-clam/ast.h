@@ -8,11 +8,13 @@
 #include <stddef.h>
 
 enum tc_wpart_kind {
-	TC_WPART_LITERAL, /* unquoted literal text */
-	TC_WPART_QUOTED,  /* quoted literal text ('...', $'...', \x, or "..." text) */
-	TC_WPART_PARAM,   /* $x or ${...} */
-	TC_WPART_CMDSUB,  /* $(...) or `...` */
-	TC_WPART_ARITH,   /* $((...)) */
+	TC_WPART_LITERAL,     /* unquoted literal text */
+	TC_WPART_QUOTED,      /* quoted literal text ('...', $'...', \x, or "..." text) */
+	TC_WPART_PARAM,       /* $x or ${...} */
+	TC_WPART_CMDSUB,      /* $(...) or `...` */
+	TC_WPART_ARITH,       /* $((...)) */
+	TC_WPART_PROCSUB_IN,  /* <(...) process substitution (read end) */
+	TC_WPART_PROCSUB_OUT, /* >(...) process substitution (write end) */
 };
 
 enum tc_param_op {

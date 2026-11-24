@@ -304,7 +304,9 @@ static void collect_defs_parts(struct lint_ctx *ctx, const struct tc_wpart *wp,
 			}
 			if (wp->arg)
 				collect_defs_parts(ctx, wp->arg, depth + 1);
-		} else if (wp->kind == TC_WPART_CMDSUB && wp->cmd) {
+		} else if ((wp->kind == TC_WPART_CMDSUB ||
+			    wp->kind == TC_WPART_PROCSUB_IN ||
+			    wp->kind == TC_WPART_PROCSUB_OUT) && wp->cmd) {
 			collect_defs_node(ctx, wp->cmd);
 		}
 	}
@@ -604,6 +606,9 @@ static void check_parts(struct lint_ctx *ctx, const struct tc_wpart *wp,
 			}
 			if (wp->cmd)
 				check_node(ctx, wp->cmd, false, false);
+		} else if ((wp->kind == TC_WPART_PROCSUB_IN ||
+			    wp->kind == TC_WPART_PROCSUB_OUT) && wp->cmd) {
+			check_node(ctx, wp->cmd, false, false);
 		}
 	}
 }

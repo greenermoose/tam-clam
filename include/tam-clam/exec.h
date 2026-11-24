@@ -31,6 +31,14 @@ int tc_exec_string(struct tc_shell *sh, const char *src, size_t len,
 int tc_exec_cmdsub(struct tc_shell *sh, const struct tc_node *cmd,
 		   unsigned long line, char **out, size_t *out_len);
 
+/* Spawn a process substitution <(...) (is_out == false) or >(...) (is_out == true),
+ * register its fd/pid in sh->procsubs, and return "/dev/fd/N" in sh->arena. */
+int tc_exec_procsub(struct tc_shell *sh, const struct tc_node *cmd,
+		    bool is_out, unsigned long line, char **out_path);
+
+/* Close parent fds and wait for process substitutions opened since mark. */
+void tc_procsub_cleanup(struct tc_shell *sh, size_t mark);
+
 /* Find an executable regular file in PATH (or default POSIX PATH when
  * default_path is true). Returns a heap-allocated path or NULL. */
 char *tc_exec_find_in_path(struct tc_shell *sh, const char *name,

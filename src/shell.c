@@ -151,6 +151,16 @@ void tc_shell_shift_params(struct tc_shell *sh, size_t n)
 
 void tc_shell_finish(struct tc_shell *sh)
 {
+	if (sh->procsubs) {
+		for (size_t i = 0; i < sh->procsub_count; i++) {
+			if (sh->procsubs[i].fd >= 0)
+				close(sh->procsubs[i].fd);
+		}
+		free(sh->procsubs);
+		sh->procsubs = NULL;
+		sh->procsub_count = 0;
+		sh->procsub_cap = 0;
+	}
 	free_params(sh);
 	tc_jobs_finish(&sh->jobs);
 	tc_bg_finish(&sh->bg);
