@@ -11,6 +11,8 @@ WHAT GOES HERE
   Sample input files, interactive demo scripts, and throwaway configs
   that let someone exercise the program and see how it behaves. Nothing
   here is installed by make install, and make test does not rely on it.
+  Write demos for someone with no prior shell-programming background:
+  explain each idea in plain words, show the exact syntax, and run it.
 
 
 IN THIS REPOSITORY
@@ -56,5 +58,7 @@ IN THIS REPOSITORY
                                      dimmed history suggestions
     ./sandbox/demo-0.2.5-prompts     0.2.5: PS1 escapes, RPS1 right
                                      prompt, precmd/preexec/PS0 hooks
+    ./sandbox/demo-0.3.0-arrays      0.3.0: beginner guide to indexed and
+                                     associative arrays with full syntax
     ./sandbox/demo-interactive       start an interactive tam-clam
                                      prompt with ideas to try live

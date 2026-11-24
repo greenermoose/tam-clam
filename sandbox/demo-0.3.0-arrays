@@ -1,51 +1,175 @@
 #!/bin/sh
-# 0.3.0 demo: indexed and associative arrays (Phase P4).
+# 0.3.0 demo: beginner-friendly guide to indexed and associative arrays.
+# Assumes no prior knowledge of shell programming: every section explains
+# the idea in plain words, prints the exact tam-clam code, and runs it.
 set -eu
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 SH="$ROOT/build/tam-clam"
 [ -x "$SH" ] || make -C "$ROOT"
 
-echo "=== tam-clam $(cat "$ROOT/VERSION") arrays demo (Phase P4) ==="
-echo
+# Print the exact code block, then run it in tam-clam and show its output.
+run_example() {
+	title=$1
+	note=$2
+	code=$(cat)
+	printf '\n================================================================\n'
+	printf '%s\n' "$title"
+	printf '================================================================\n'
+	if [ -n "$note" ]; then
+		printf '%s\n\n' "$note"
+	fi
+	printf 'Code:\n'
+	printf '%s\n' "$code" | sed 's/^/  /'
+	printf '\nOutput:\n'
+	"$SH" -c "$code" 2>&1 | sed 's/^/  /'
+}
 
-"$SH" -c '
-echo "1. Indexed arrays, append, negative index, sparse indices:"
+printf 'tam-clam %s -- Beginner Guide to Arrays (Phase P4)\n' "$(cat "$ROOT/VERSION")"
+printf 'An array is a single variable that holds a list of values instead of just one.\n'
+printf 'Every example below prints the exact syntax first, then runs it in tam-clam.\n'
+
+run_example \
+	"1. Creating an indexed (numbered) array and reading items" \
+	"Put items inside ( ... ) separated by spaces. Do NOT put spaces around '='.
+If an item itself contains a space, wrap it in quotes like \"blood orange\".
+Items are numbered starting at 0 (0 is first, 1 is second, -1 is last).
+Always wrap array lookups in \${ ... } curly braces." <<'EOF'
 fruits=(apple "blood orange" cherry)
-fruits+=(date)
-fruits[10]=elderberry
-printf "  count = %s\n" "${#fruits[@]}"
-printf "  keys  = %s\n" "${!fruits[*]}"
-printf "  last  = %s\n" "${fruits[-1]}"
+
+echo "First item  (index 0):  ${fruits[0]}"
+echo "Second item (index 1):  ${fruits[1]}"
+echo "Third item  (index 2):  ${fruits[2]}"
+echo "Last item   (index -1): ${fruits[-1]}"
+echo "How many items total:   ${#fruits[@]}"
+EOF
+
+run_example \
+	"2. Why curly braces \${...} matter" \
+	"Without curly braces, \$fruits[1] means \"item 0 followed by the literal text [1]\".
+With curly braces, \${fruits[1]} actually looks up index 1." <<'EOF'
+fruits=(apple "blood orange" cherry)
+
+echo "Without braces: $fruits[1]"
+echo "With braces:    ${fruits[1]}"
+EOF
+
+run_example \
+	"3. Adding, changing, and appending items" \
+	"Use +=(...) to add new items to the end of an array.
+Use name[N]=value to replace an item (or place one at a higher index, leaving gaps).
+Use name[N]+=text to tack extra text onto one existing item." <<'EOF'
+fruits=(apple banana)
+fruits+=(cherry date)        # append two new items at the end
+fruits[1]="ripe banana"      # replace index 1
+fruits[0]+=" pie"            # append text onto index 0
+fruits[10]=elderberry        # jump ahead to index 10 (indices 4..9 stay empty)
+
+echo "Count of stored items: ${#fruits[@]}"
+echo "Occupied index numbers: ${!fruits[*]}"
 for i in "${!fruits[@]}"; do
     printf "  fruits[%s] = %s\n" "$i" "${fruits[$i]}"
 done
+EOF
 
-echo
-echo "2. Element-wise trimming:"
-files=(alpha.c beta.c gamma.c)
-printf "  stems = %s\n" "${files[*]%.c}"
+run_example \
+	"4. Looping over all items: \"\${arr[@]}\" vs \"\${arr[*]}\"" \
+	"\"@\" keeps every item as its own separate word (even items with spaces).
+\"*\" glues all items together into a single string separated by spaces.
+Rule of thumb: almost always use \"\${arr[@]}\" in loops." <<'EOF'
+snacks=("peanut butter" "trail mix" apple)
 
-echo
-echo "3. Associative arrays (declare -A):"
-declare -A colors=([sky]=blue [grass]=green)
-colors[sun]=yellow
-colors[sky]+="-bright"
-printf "  count = %s\n" "${#colors[@]}"
-for k in "${!colors[@]}"; do
-    printf "  colors[%s] = %s\n" "$k" "${colors[$k]}"
+echo 'With "${snacks[@]}" (3 separate items -- spaces preserved):'
+for item in "${snacks[@]}"; do
+    printf "  - [%s]\n" "$item"
 done
 
-echo
-echo "4. Arithmetic indexing:"
-nums=(10 20 30)
-sum=$(( nums[0] + nums[1] + nums[2] ))
-nums[1]=$(( nums[1] + 5 ))
-printf "  sum = %s, updated nums[1] = %s\n" "$sum" "${nums[1]}"
+echo 'With "${snacks[*]}" (1 combined string):'
+for item in "${snacks[*]}"; do
+    printf "  - [%s]\n" "$item"
+done
+EOF
 
-echo
-echo "5. read -a and declare -p:"
+run_example \
+	"5. Removing one item or the whole array with unset" \
+	"Put quotes around 'fruits[1]' in unset so the shell does not treat [1]
+as a filename pattern. Removing an item leaves the other index numbers intact." <<'EOF'
+fruits=(apple banana cherry)
+unset 'fruits[1]'            # remove only index 1 (banana)
+
+echo "Remaining indices: ${!fruits[*]}"
+echo "Remaining items:   ${fruits[*]}"
+
+unset fruits                 # remove the entire array
+echo "Count after full unset: ${#fruits[@]}"
+EOF
+
+run_example \
+	"6. Stripping a prefix or suffix from every item at once" \
+	"\${arr[@]%suffix} removes a matching ending from every item.
+\${arr[@]#prefix} removes a matching start from every item.
+The original array is not modified." <<'EOF'
+files=(src/alpha.c src/beta.c src/gamma.c)
+
+echo "Original:        ${files[*]}"
+echo "Drop 'src/':     ${files[*]#src/}"
+echo "Drop '.c':       ${files[*]%.c}"
+EOF
+
+run_example \
+	"7. Associative arrays (word keys instead of numbers)" \
+	"An associative array maps names (keys) to values, like a dictionary.
+You MUST declare it first with 'declare -A' so the shell knows keys are words." <<'EOF'
+declare -A color=([sky]=blue [grass]=green)
+color[sun]=yellow            # add a new key
+color[sky]+="-bright"        # append text to an existing value
+
+echo "Sky is: ${color[sky]}"
+echo "Total entries: ${#color[@]}"
+for key in "${!color[@]}"; do
+    printf "  color[%s] = %s\n" "$key" "${color[$key]}"
+done
+
+unset 'color[grass]'         # delete one key
+echo "Keys after removing grass: ${!color[*]}"
+EOF
+
+run_example \
+	"8. Math with array elements" \
+	"Inside \$(( ... )) arithmetic, you can refer to array items directly
+by name[index] without needing \$ or curly braces." <<'EOF'
+scores=(10 20 30)
+total=$(( scores[0] + scores[1] + scores[2] ))
+scores[1]=$(( scores[1] + 5 ))
+
+echo "Original total:     $total"
+echo "Updated scores[1]:  ${scores[1]}"
+echo "New total:          $(( scores[0] + scores[1] + scores[2] ))"
+EOF
+
+run_example \
+	"9. Reading words into an array (read -a) and inspecting (declare -p)" \
+	"'read -a name' reads one line of input and splits it into array elements.
+'declare -p name' prints the exact command that recreates the array -- handy
+for debugging." <<'EOF'
 printf "red green blue\n" | {
     read -a palette
+    echo "First color: ${palette[0]}, count: ${#palette[@]}"
     declare -p palette
 }
-'
+EOF
+
+run_example \
+	"10. Making an array read-only (declare -r -a)" \
+	"Add -r to lock an array so later commands cannot overwrite it." <<'EOF'
+declare -r -a weekdays=(Mon Tue Wed Thu Fri)
+echo "Locked array: ${weekdays[*]}"
+echo "Trying to modify weekdays[0] prints an error:"
+( weekdays[0]=Sun ) || true
+EOF
+
+printf '\n================================================================\n'
+printf 'Try it yourself! Run ./build/tam-clam and experiment with:\n'
+printf '  fruits=(apple banana cherry)\n'
+printf '  echo "${fruits[1]}"\n'
+printf '  declare -A cap=([FR]=Paris [JP]=Tokyo); echo "${cap[JP]}"\n'
+printf '================================================================\n'
