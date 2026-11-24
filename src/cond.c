@@ -213,7 +213,8 @@ static int eval_binary(struct tc_shell *sh, const struct tc_cond_expr *e,
 	char *lhs = NULL;
 	int er = tc_expand_single(sh, &e->w1, false, &lhs);
 	if (er != TC_EXP_OK)
-		return TC_STATUS_USAGE;
+		return er == TC_EXP_CMDSUB_FAIL ? (sh->cmdsub_status ? sh->cmdsub_status : 1)
+						: TC_STATUS_USAGE;
 
 	const char *op = e->op;
 	if (strcmp(op, "==") == 0 || strcmp(op, "=") == 0 || strcmp(op, "!=") == 0) {

@@ -518,8 +518,11 @@ int tc_exec_decl_builtin(struct tc_shell *sh, const char *cmd,
 		char **expv = NULL;
 		size_t expc = 0;
 		int er = tc_expand_words(sh, &words[i], 1, &expv, &expc);
-		if (er != TC_EXP_OK)
+		if (er != TC_EXP_OK) {
+			if (er == TC_EXP_CMDSUB_FAIL)
+				return sh->cmdsub_status ? sh->cmdsub_status : 1;
 			return er == TC_EXP_ERR ? 1 : TC_STATUS_USAGE;
+		}
 
 		for (size_t k = 0; k < expc; k++) {
 			const char *arg = expv[k];

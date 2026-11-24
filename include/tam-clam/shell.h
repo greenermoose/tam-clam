@@ -90,6 +90,10 @@ struct tc_shell {
 	bool opt_xtrace;           /* set -x */
 	bool opt_pipefail;         /* set -o pipefail */
 	bool opt_globstar;         /* shopt -s globstar / set -o globstar (0.3.2) */
+	bool opt_strict_errexit;   /* set -o strict_errexit (0.3.3) */
+	bool opt_command_sub_errexit; /* set -o command_sub_errexit (0.3.3) */
+	bool opt_simple_word_eval; /* set -o simple_word_eval (0.3.3) */
+	bool opt_strict_argv;      /* set -o strict_argv (0.3.3) */
 	unsigned errexit_ignore;   /* >0 while POSIX set -e is ignored */
 	unsigned subshell_depth;   /* nesting depth for PS4 indirection */
 	unsigned long lineno;      /* current executing command line */

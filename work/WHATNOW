@@ -3,28 +3,31 @@ WHATNOW
 What tam-clam is doing now and what comes next. Read this first; revise
 it at the end of every session (work/README-work).
 
-Updated: 2026-11-24, with W22 (0.3.2)
+Updated: 2026-11-24, with W23 (0.3.3)
 
 
 STATE
 
-  Version 0.3.2, Phase P4 in progress (process substitution and **
-  recursive globbing), on branch dev. 0.3.2 adds:
-  - process substitution <(...) and >(...) through /dev/fd in
-    include/tam-clam/ast.h, include/tam-clam/lex.h, src/lex.c,
-    src/expand.c, src/exec.c, src/shell.c, and src/lint.c: parent pipe
-    fds held above fd 10 (without CLOEXEC so external commands inherit
-    /dev/fd/N), sibling procsub fds closed in children to prevent EOF
-    deadlocks, and automatic per-command fd close + child reaping;
-  - ** recursive globbing (off by default for strict POSIX
-    compatibility, enabled via `shopt -s globstar` or `set -o globstar`)
-    in src/glob.c, src/options.c, src/builtins.c, and src/builtins_cmd.c:
-    supports **/*.ext, **/, trailing **, deduplication, hidden-entry
-    exclusion, and symlink-loop immunity (lstat);
-  - tests/test_procsub.c (20 checks), expanded tests/test_glob.c (32
-    checks), tests/spec/procsub.test.sh (6 cases),
-    tests/spec/globstar.test.sh (7 cases, all verified against
-    bash --posix), fuzz seeds, and sandbox/demo-0.3.2-procsub-globstar.
+  Version 0.3.3, Phase P4 in progress (Oils-named strict modes), on
+  branch dev. 0.3.3 adds:
+  - strict_errexit (in src/exec.c): refuses running shell functions,
+    compound commands (other than [[ ]]), or command sequences while
+    errexit is ignored (if/while/until conditions, &&/|| LHS, !);
+  - command_sub_errexit (in src/expand.c, src/exec.c, src/bi_declare.c,
+    src/cond.c): failing $(...) or `...` aborts the enclosing command
+    with its non-zero exit status (TC_EXP_CMDSUB_FAIL) instead of being
+    swallowed by echo/local/etc.;
+  - simple_word_eval (in src/expand.c): unquoted $x, $(...), $((...))
+    do not undergo implicit IFS splitting or pathname globbing, while
+    literal globs and ${a[@]}/$@ continue to work normally;
+  - strict_argv (in src/exec.c): commands whose words expand to 0 args
+    or an empty command name ("") fail with a clear error;
+  - set -o strict / set +o strict (in src/options.c): single switch
+    enabling/disabling errexit, nounset, pipefail, strict_errexit,
+    command_sub_errexit, simple_word_eval, and strict_argv (all off by
+    default so POSIX scripts are unchanged);
+  - tests/test_strict.c (37 checks), tests/spec/strict.test.sh (8 cases),
+    and sandbox/demo-0.3.3-strict.
   readelf -d lists only libc.so.6. make test, make sanitize, and make
   fuzz pass.
 
@@ -35,22 +38,21 @@ STATE
   VSUSP=Ctrl+P, Ctrl+F history search, Ctrl+Q quit); FUNCNEST sets the
   function recursion limit; signed 64-bit arithmetic overflow is a
   reported error; echo recognizes -n only and does not interpret
-  backslash escapes by default; ** recursive globbing is off by default.
+  backslash escapes by default; ** recursive globbing is off by default;
+  strict modes are opt-in and off by default.
 
 
 NEXT
 
-  1. Phase P4 -- 0.3.3 (plans/P4-extras.md):
-     - Strict modes (Oils-named options): strict_errexit,
-       command_sub_errexit, simple_word_eval, strict_argv, plus
-       `set -o strict` enabling all of them along with nounset and
-       pipefail.
-     Bump VERSION to 0.3.3 in the first code commit.
+  1. Phase P4 -- 0.3.4 (plans/P4-extras.md):
+     - fish-style abbreviations;
+     - tool that writes completion files from man pages (C or POSIX sh).
+     Bump VERSION to 0.3.4 in the first code commit.
 
 
 WAITING FOR FRED
 
-  - Trying 0.3.2: ./sandbox/demo-0.3.2-procsub-globstar or ./build/tam-clam.
+  - Trying 0.3.3: ./sandbox/demo-0.3.3-strict or ./build/tam-clam.
   - Optional: installing dash / mksh / busybox for multi-shell spec
     comparisons and clang for a 24-hour libFuzzer run.
 

@@ -1,0 +1,50 @@
+W23 STRICT MODES (0.3.3)
+
+Date: 2026-11-24
+AI harness: agy 1.5.16
+AI model: Gemini 4 Neon (Medium)
+Continues: W22
+
+GUIDANCE
+
+  Fred: "/plan Do the work for 0.3.3"
+  Fred: "Approved. Proceed."
+
+DONE
+
+  - Added Oils-named strict mode flags to include/tam-clam/shell.h and
+    src/options.c: strict_errexit, command_sub_errexit, simple_word_eval,
+    strict_argv, plus meta-option `set -o strict` / `set +o strict`
+    (enabling/disabling all 4 alongside errexit, nounset, and pipefail;
+    all off by default so POSIX scripts are unchanged).
+  - Implemented strict_errexit in src/exec.c (refuses shell functions,
+    compound commands other than [[ ]], and command sequences while
+    errexit_ignore > 0).
+  - Implemented command_sub_errexit across include/tam-clam/expand.h
+    (TC_EXP_CMDSUB_FAIL), src/expand.c, src/exec.c, src/bi_declare.c,
+    and src/cond.c (failing $(...) / `...` aborts the enclosing command
+    with its non-zero exit status, and resets errexit_ignore inside the
+    cmdsub child).
+  - Implemented simple_word_eval in src/expand.c (disables implicit IFS
+    field splitting and pathname globbing on unquoted parameter, cmdsub,
+    and arithmetic expansions while preserving literal globs and
+    $@ / ${a[@]}).
+  - Implemented strict_argv in src/exec.c (rejects empty command names
+    and zero-word expansions when command words were present, while
+    allowing assignment-only and redirection-only commands).
+  - Added tests/test_strict.c, tests/spec/strict.test.sh (8 cases), and
+    sandbox/demo-0.3.3-strict; bumped VERSION to 0.3.3 and updated
+    ROADMAP.md, plans/P4-extras.md, and work/WHATNOW.
+  - Verified make test, make sanitize (ASan+UBSan), make fuzz
+    FUZZ_ITERS=5000 (0 crashes), demo output, and readelf -d (only
+    libc.so.6).
+
+FAILED
+
+  - Nothing.
+
+HANDOFF
+
+  - Phase P4 continues: 0.3.3 landed on dev.
+  - Next: 0.3.4 (fish-style abbreviations and man-page completion
+    generator).

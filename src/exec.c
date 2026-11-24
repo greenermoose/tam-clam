@@ -155,6 +155,27 @@ static int fatal_exp_error(struct tc_shell *sh)
 	return 1;
 }
 
+static int exp_fail_status(struct tc_shell *sh, int er)
+{
+	if (er == TC_EXP_CMDSUB_FAIL)
+		return sh->cmdsub_status ? sh->cmdsub_status : 1;
+	return er == TC_EXP_ERR ? fatal_exp_error(sh) : TC_STATUS_USAGE;
+}
+
+static int check_strict_errexit(struct tc_shell *sh, const char *what,
+				unsigned long line)
+{
+	if (!sh->opt_errexit || !sh->opt_strict_errexit || sh->errexit_ignore == 0)
+		return 0;
+	tc_error(sh, line, "strict_errexit: cannot run %s while errexit is disabled",
+		 what);
+	if (!sh->interactive) {
+		sh->exit_requested = true;
+		sh->exit_status = 1;
+	}
+	return 1;
+}
+
 static unsigned effective_func_limit(const struct tc_shell *sh)
 {
 	unsigned limit = sh->func_limit ? sh->func_limit : TC_FUNC_DEPTH_DEFAULT;
@@ -760,11 +781,11 @@ int tc_exec_apply_assign(struct tc_shell *sh, const struct tc_assign *a,
 		char *sub_s = NULL;
 		int er = expand_sub_word(sh, a->sub, a->line, &sub_s);
 		if (er != TC_EXP_OK)
-			return er == TC_EXP_ERR ? fatal_exp_error(sh) : TC_STATUS_USAGE;
+			return exp_fail_status(sh, er);
 		char *val = NULL;
 		er = tc_expand_single(sh, &a->value, true, &val);
 		if (er != TC_EXP_OK)
-			return er == TC_EXP_ERR ? fatal_exp_error(sh) : TC_STATUS_USAGE;
+			return exp_fail_status(sh, er);
 		int sr;
 		if (is_assoc) {
 			sr = tc_var_set_elem_key(&sh->vars, a->name, sub_s, val,
@@ -785,7 +806,7 @@ int tc_exec_apply_assign(struct tc_shell *sh, const struct tc_assign *a,
 	char *val = NULL;
 	int er = tc_expand_single(sh, &a->value, true, &val);
 	if (er != TC_EXP_OK)
-		return er == TC_EXP_ERR ? fatal_exp_error(sh) : TC_STATUS_USAGE;
+		return exp_fail_status(sh, er);
 
 	const struct tc_var_entry *cur_e = tc_var_find(&sh->vars, a->name);
 	bool is_int = (cur_e && (cur_e->flags & TC_VAR_INTEGER)) ||
@@ -883,7 +904,7 @@ static int expand_assigns_kv(struct tc_shell *sh,
 		char *val = NULL;
 		int er = tc_expand_single(sh, &assigns[i].value, true, &val);
 		if (er != TC_EXP_OK)
-			return er == TC_EXP_ERR ? fatal_exp_error(sh) : TC_STATUS_USAGE;
+			return exp_fail_status(sh, er);
 		if (assigns[i].append) {
 			const char *cur = tc_var_get(&sh->vars, assigns[i].name);
 			size_t cl = cur ? strlen(cur) : 0;
@@ -911,6 +932,8 @@ static int exec_func(struct tc_shell *sh, struct tc_func *fn,
 		     const struct tc_redir *redirs, size_t nr,
 		     unsigned long line)
 {
+	if (check_strict_errexit(sh, "shell function", line) != 0)
+		return 1;
 	unsigned limit = effective_func_limit(sh);
 	if (sh->func_depth >= limit) {
 		tc_error(sh, line, "%s: maximum function nesting level exceeded (%u)",
@@ -1072,7 +1095,7 @@ static int exec_simple_body(struct tc_shell *sh, const struct tc_node *n)
 		size_t cmd_argc = 0;
 		int er = tc_expand_words(sh, &n->u.simple.words[0], 1, &cmd_argv, &cmd_argc);
 		if (er != TC_EXP_OK)
-			return er == TC_EXP_ERR ? fatal_exp_error(sh) : TC_STATUS_USAGE;
+			return exp_fail_status(sh, er);
 		struct tc_var_kv *kvs = NULL;
 		if (na > 0) {
 			int ar = expand_assigns_kv(sh, n->u.simple.assigns, na, &kvs);
@@ -1113,7 +1136,11 @@ static int exec_simple_body(struct tc_shell *sh, const struct tc_node *n)
 	if (nw > 0) {
 		int er = tc_expand_words(sh, n->u.simple.words, nw, &argv, &argc);
 		if (er != TC_EXP_OK)
-			return er == TC_EXP_ERR ? fatal_exp_error(sh) : TC_STATUS_USAGE;
+			return exp_fail_status(sh, er);
+		if (sh->opt_strict_argv && (argc == 0 || argv[0][0] == '\0')) {
+			tc_error(sh, n->line, "strict_argv: empty command name");
+			return 1;
+		}
 	}
 
 	/* Assignment-only and/or redirection-only command (or command word
@@ -1506,6 +1533,8 @@ static int exec_subshell(struct tc_shell *sh, const struct tc_node *n)
 		sh->func_depth = 0;
 		sh->dot_depth = 0;
 		sh->flow = TC_FLOW_NONE;
+		if (sh->opt_command_sub_errexit)
+			sh->errexit_ignore = 0;
 		int st = tc_exec(sh, n->u.group.body);
 		if (sh->flow == TC_FLOW_RETURN)
 			st = sh->return_status;
@@ -1556,6 +1585,8 @@ static int exec_bg(struct tc_shell *sh, const struct tc_node *n)
 		sh->func_depth = 0;
 		sh->dot_depth = 0;
 		sh->flow = TC_FLOW_NONE;
+		if (sh->opt_command_sub_errexit)
+			sh->errexit_ignore = 0;
 		/* POSIX XCU 2.9.3.1: stdin of an async list is /dev/null
 		 * before explicit redirections when job control is off. */
 		if (!jc) {
@@ -1815,22 +1846,40 @@ static int exec_one(struct tc_shell *sh, const struct tc_node *n)
 		status = exec_redir(sh, n);
 		break;
 	case TC_NODE_GROUP:
-		status = tc_exec(sh, n->u.group.body);
+		if (check_strict_errexit(sh, "compound command", n->line) != 0)
+			status = 1;
+		else
+			status = tc_exec(sh, n->u.group.body);
 		break;
 	case TC_NODE_SUBSHELL:
-		status = exec_subshell(sh, n);
+		if (check_strict_errexit(sh, "subshell", n->line) != 0)
+			status = 1;
+		else
+			status = exec_subshell(sh, n);
 		break;
 	case TC_NODE_IF:
-		status = exec_if(sh, n);
+		if (check_strict_errexit(sh, "if statement", n->line) != 0)
+			status = 1;
+		else
+			status = exec_if(sh, n);
 		break;
 	case TC_NODE_LOOP:
-		status = exec_loop(sh, n);
+		if (check_strict_errexit(sh, "loop", n->line) != 0)
+			status = 1;
+		else
+			status = exec_loop(sh, n);
 		break;
 	case TC_NODE_FOR:
-		status = exec_for(sh, n);
+		if (check_strict_errexit(sh, "for loop", n->line) != 0)
+			status = 1;
+		else
+			status = exec_for(sh, n);
 		break;
 	case TC_NODE_CASE:
-		status = exec_case(sh, n);
+		if (check_strict_errexit(sh, "case statement", n->line) != 0)
+			status = 1;
+		else
+			status = exec_case(sh, n);
 		break;
 	case TC_NODE_FUNCDEF:
 		status = exec_funcdef(sh, n);
@@ -1853,6 +1902,11 @@ static int exec_one(struct tc_shell *sh, const struct tc_node *n)
 
 int tc_exec(struct tc_shell *sh, const struct tc_node *n)
 {
+	if (n && n->kind == TC_NODE_SEQ &&
+	    check_strict_errexit(sh, "command sequence", n->line) != 0) {
+		sh->status = 1;
+		return 1;
+	}
 	/* A sequence is a right-leaning chain; walk it without recursion. */
 	while (n) {
 		const struct tc_node *cur = n;
@@ -1971,6 +2025,8 @@ int tc_exec_cmdsub(struct tc_shell *sh, const struct tc_node *cmd,
 		sh->func_depth = 0;
 		sh->dot_depth = 0;
 		sh->flow = TC_FLOW_NONE;
+		if (sh->opt_command_sub_errexit)
+			sh->errexit_ignore = 0;
 		close(pfd[0]);
 		if (pfd[1] != STDOUT_FILENO) {
 			if (dup2(pfd[1], STDOUT_FILENO) < 0)
@@ -2130,6 +2186,8 @@ int tc_exec_procsub(struct tc_shell *sh, const struct tc_node *cmd,
 		sh->func_depth = 0;
 		sh->dot_depth = 0;
 		sh->flow = TC_FLOW_NONE;
+		if (sh->opt_command_sub_errexit)
+			sh->errexit_ignore = 0;
 		int st = cmd ? tc_exec(sh, cmd) : 0;
 		if (sh->flow == TC_FLOW_RETURN)
 			st = sh->return_status;

@@ -77,6 +77,32 @@ enum tc_opt_res tc_opt_set_name(struct tc_shell *sh, const char *name,
 		sh->opt_globstar = enable;
 		return TC_OPT_OK;
 	}
+	if (strcmp(name, "strict_errexit") == 0) {
+		sh->opt_strict_errexit = enable;
+		return TC_OPT_OK;
+	}
+	if (strcmp(name, "command_sub_errexit") == 0) {
+		sh->opt_command_sub_errexit = enable;
+		return TC_OPT_OK;
+	}
+	if (strcmp(name, "simple_word_eval") == 0) {
+		sh->opt_simple_word_eval = enable;
+		return TC_OPT_OK;
+	}
+	if (strcmp(name, "strict_argv") == 0) {
+		sh->opt_strict_argv = enable;
+		return TC_OPT_OK;
+	}
+	if (strcmp(name, "strict") == 0) {
+		sh->opt_errexit = enable;
+		sh->opt_nounset = enable;
+		sh->opt_pipefail = enable;
+		sh->opt_strict_errexit = enable;
+		sh->opt_command_sub_errexit = enable;
+		sh->opt_simple_word_eval = enable;
+		sh->opt_strict_argv = enable;
+		return TC_OPT_OK;
+	}
 	if (strcmp(name, "xtrace") == 0) {
 		sh->opt_xtrace = enable;
 		return TC_OPT_OK;
@@ -97,6 +123,15 @@ bool tc_opt_get_name(const struct tc_shell *sh, const char *name, bool *valid)
 	if (strcmp(name, "nounset") == 0)   return sh->opt_nounset;
 	if (strcmp(name, "pipefail") == 0)  return sh->opt_pipefail;
 	if (strcmp(name, "globstar") == 0)  return sh->opt_globstar;
+	if (strcmp(name, "strict_errexit") == 0) return sh->opt_strict_errexit;
+	if (strcmp(name, "command_sub_errexit") == 0) return sh->opt_command_sub_errexit;
+	if (strcmp(name, "simple_word_eval") == 0) return sh->opt_simple_word_eval;
+	if (strcmp(name, "strict_argv") == 0) return sh->opt_strict_argv;
+	if (strcmp(name, "strict") == 0) {
+		return sh->opt_errexit && sh->opt_nounset && sh->opt_pipefail &&
+		       sh->opt_strict_errexit && sh->opt_command_sub_errexit &&
+		       sh->opt_simple_word_eval && sh->opt_strict_argv;
+	}
 	if (strcmp(name, "xtrace") == 0)    return sh->opt_xtrace;
 	if (valid)
 		*valid = false;
@@ -106,14 +141,17 @@ bool tc_opt_get_name(const struct tc_shell *sh, const char *name, bool *valid)
 int tc_opt_print(const struct tc_shell *sh, bool reusable, unsigned long line)
 {
 	static const char *const names[] = {
-		"allexport", "errexit", "globstar", "monitor", "noclobber",
-		"noexec", "noglob", "nounset", "pipefail", "xtrace",
+		"allexport", "command_sub_errexit", "errexit", "globstar",
+		"monitor", "noclobber", "noexec", "noglob", "nounset",
+		"pipefail", "simple_word_eval", "strict_argv",
+		"strict_errexit", "xtrace",
 	};
 	const bool vals[] = {
-		sh->opt_allexport, sh->opt_errexit, sh->opt_globstar,
-		sh->opt_monitor, sh->opt_noclobber, sh->opt_noexec,
-		sh->opt_noglob, sh->opt_nounset, sh->opt_pipefail,
-		sh->opt_xtrace,
+		sh->opt_allexport, sh->opt_command_sub_errexit, sh->opt_errexit,
+		sh->opt_globstar, sh->opt_monitor, sh->opt_noclobber,
+		sh->opt_noexec, sh->opt_noglob, sh->opt_nounset,
+		sh->opt_pipefail, sh->opt_simple_word_eval, sh->opt_strict_argv,
+		sh->opt_strict_errexit, sh->opt_xtrace,
 	};
 	char buf[128];
 	for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {

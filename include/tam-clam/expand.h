@@ -15,8 +15,9 @@
 
 enum tc_exp_result {
 	TC_EXP_OK = 0,
-	TC_EXP_ERR,    /* expansion error (${x:?msg}, readonly assign, arith), reported */
-	TC_EXP_NOMEM,  /* out of memory, reported */
+	TC_EXP_ERR,         /* expansion error (${x:?msg}, readonly assign, arith), reported */
+	TC_EXP_NOMEM,       /* out of memory, reported */
+	TC_EXP_CMDSUB_FAIL, /* command_sub_errexit: $(...) exited non-zero (sh->cmdsub_status) */
 };
 
 /* Expand a command's words into a NULL-terminated argv array in sh->arena.

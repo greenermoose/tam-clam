@@ -301,8 +301,11 @@ static int eval_cmdsub_part(struct tc_shell *sh, const struct tc_wpart *wp,
 {
 	size_t len = 0;
 	int r = tc_exec_cmdsub(sh, wp->cmd, line, out, &len);
-	if (r == TC_OK)
+	if (r == TC_OK) {
+		if (sh->opt_command_sub_errexit && sh->cmdsub_status != 0)
+			return TC_EXP_CMDSUB_FAIL;
 		return TC_EXP_OK;
+	}
 	return r == TC_ERR_NOMEM ? TC_EXP_NOMEM : TC_EXP_ERR;
 }
 
@@ -1306,7 +1309,7 @@ static int expand_parts_fields(struct field_state *fs,
 					at_start = false;
 					continue;
 				}
-				if (wp->quoted) {
+				if (wp->quoted || sh->opt_simple_word_eval) {
 					fs->seen_delim_ws = false;
 					for (size_t i = 0; i < nitems; i++) {
 						if (i > 0) {
@@ -1334,7 +1337,8 @@ static int expand_parts_fields(struct field_state *fs,
 							break;
 					}
 				}
-			} else if (!wp->quoted && wp->sub_kind == TC_SUB_NONE &&
+			} else if (!wp->quoted && !sh->opt_simple_word_eval &&
+				   wp->sub_kind == TC_SUB_NONE &&
 				   (wp->op == TC_PARAM_USE_DEFAULT ||
 				    wp->op == TC_PARAM_USE_ALT)) {
 				const char *val = NULL;
@@ -1357,7 +1361,7 @@ static int expand_parts_fields(struct field_state *fs,
 				char *pv = NULL;
 				r = eval_param_single(sh, wp, line, depth, &pv);
 				if (r == TC_EXP_OK) {
-					if (wp->quoted) {
+					if (wp->quoted || sh->opt_simple_word_eval) {
 						fs->seen_delim_ws = false;
 						fs->has_quoted = true;
 						r = pb_append(sh, line, &fs->cur,
@@ -1371,7 +1375,7 @@ static int expand_parts_fields(struct field_state *fs,
 			char *cv = NULL;
 			r = eval_cmdsub_part(sh, wp, line, &cv);
 			if (r == TC_EXP_OK) {
-				if (wp->quoted) {
+				if (wp->quoted || sh->opt_simple_word_eval) {
 					fs->seen_delim_ws = false;
 					fs->has_quoted = true;
 					r = pb_append(sh, line, &fs->cur,
@@ -1384,7 +1388,7 @@ static int expand_parts_fields(struct field_state *fs,
 			char *av = NULL;
 			r = eval_arith_part(sh, wp, line, depth, &av);
 			if (r == TC_EXP_OK) {
-				if (wp->quoted) {
+				if (wp->quoted || sh->opt_simple_word_eval) {
 					fs->seen_delim_ws = false;
 					fs->has_quoted = true;
 					r = pb_append(sh, line, &fs->cur,

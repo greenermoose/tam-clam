@@ -1,0 +1,47 @@
+#!/bin/sh
+# Sandbox demo for tam-clam 0.3.3: Oils-named strict modes and `set -o strict`.
+set -e
+
+BIN="${1:-./build/tam-clam}"
+
+echo "=== 1. set -o strict toggles the full bundle ==="
+"$BIN" -c '
+set -o strict
+[[ -o strict ]] && echo "strict bundle: ON"
+set +o strict
+[[ ! -o strict ]] && echo "strict bundle: OFF"
+'
+
+echo
+echo "=== 2. simple_word_eval: no implicit splitting or globbing ==="
+"$BIN" -c '
+set -o simple_word_eval
+file="my report *.txt"
+empty=""
+set -- $file $empty
+printf "argc=%d arg1=[%s] arg2=[%s]\n" "$#" "$1" "$2"
+'
+
+echo
+echo "=== 3. command_sub_errexit: failing \$(...) is not swallowed ==="
+"$BIN" -c '
+set -o command_sub_errexit
+echo $(exit 42)
+echo "echo \$(exit 42) exited with status $?"
+'
+
+echo
+echo "=== 4. strict_errexit: refuses silently disabling errexit ==="
+"$BIN" -c '
+set -e -o strict_errexit
+f() { false; echo "would have continued in POSIX"; }
+if f; then echo yes; fi
+' || echo "caught strict_errexit error (exit $?)"
+
+echo
+echo "=== 5. strict_argv: refuses empty command names ==="
+"$BIN" -c '
+set -o strict_argv
+empty=""
+$empty
+' || echo "caught strict_argv error (exit $?)"
