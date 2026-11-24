@@ -42,5 +42,7 @@ IN THIS REPOSITORY
                                      -x with PS4/LINENO, -C vs >|, -n
     ./sandbox/demo-0.1.4-spec-fuzz   0.1.4: POSIX spec table, fuzz
                                      mutations, and self-dogfooding
+    ./sandbox/demo-0.1.5-lint        0.1.5: tam-clam --lint FILE...
+                                     and # lint: allow suppressions
     ./sandbox/demo-interactive       start an interactive tam-clam
                                      prompt with ideas to try live

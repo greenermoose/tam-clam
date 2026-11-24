@@ -1,0 +1,42 @@
+W11 LINT MODE AND COLUMN LOCATIONS (0.1.5)
+
+Date: 2026-11-23
+AI harness: agy 1.5.15
+AI model: Gemini 4 Neon (Medium)
+
+GUIDANCE
+
+  Fred: "/plan Do 0.1.5"
+  Fred: "Approved. Proceed."
+
+DONE
+
+  - Added 1-based column tracking (col) across input.h/input.c,
+    lex.h/lex.c (preserving line/col across 1-byte peek/ungetch),
+    ast.h (tc_word, tc_assign, tc_node), and parse.c.
+  - Added static lint analyzer (include/tam-clam/lint.h, src/lint.c)
+    and wired `tam-clam --lint FILE...` into src/main.c (exit 0 clean,
+    1 warnings, 2 syntax/I/O/usage error; executes nothing).
+  - Implemented 6 checks with file:line:col shellcheck-style warnings:
+    unquoted-test, unquoted-case, unchecked-cd, unquoted-star,
+    split-cmdsub, and unset-var, plus inline and preceding-line
+    `# lint: allow <name>` suppression comments.
+  - Added tests/test_lint.c and `--lint` CLI checks in
+    tests/run-scripts.sh; added sandbox/demo-0.1.5-lint and updated
+    sandbox/play and sandbox/README-sandbox.
+  - Bumped VERSION to 0.1.5, marked Phase P2 done in
+    plans/P2-posix-language.md, and updated ROADMAP.md and work/WHATNOW.
+  - Verified make clean test, make sanitize, readelf -d (only
+    libc.so.6), and ./sandbox/demo-0.1.5-lint.
+
+FAILED
+
+  - Nothing.
+
+HANDOFF
+
+  - Phase P2 (0.1.0-0.1.5) is complete.
+  - Next is Phase P3 (plans/P3-interactive.md): draft arch/keys.md and
+    agree tam-clam's own ergonomic, mnemonic key bindings with Fred
+    before implementing 0.2.0 (line editor on libtam tam_tty/tam_key/
+    tam_uni).

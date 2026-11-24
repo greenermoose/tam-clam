@@ -20,7 +20,7 @@ static int expand_to(struct tc_shell *sh, const char *src, const char *want)
 	tc_lexer_finish(&lx);
 	if (r != TC_OK || tok.kind != TC_TOK_WORD)
 		return 0;
-	struct tc_word w = {tok.text, tok.len, tok.parts, tok.flags, tok.line};
+	struct tc_word w = {tok.text, tok.len, tok.parts, tok.flags, tok.line, tok.col};
 	char *got = NULL;
 	int er = tc_expand_single(sh, &w, false, &got);
 	return er == TC_EXP_OK && got && strcmp(got, want) == 0;
@@ -38,7 +38,7 @@ static int expand_fails(struct tc_shell *sh, const char *src)
 	tc_lexer_finish(&lx);
 	if (r != TC_OK || tok.kind != TC_TOK_WORD)
 		return 0;
-	struct tc_word w = {tok.text, tok.len, tok.parts, tok.flags, tok.line};
+	struct tc_word w = {tok.text, tok.len, tok.parts, tok.flags, tok.line, tok.col};
 	int saved = dup(2), null = open("/dev/null", O_WRONLY);
 	dup2(null, 2);
 	char *got = NULL;
@@ -131,7 +131,7 @@ int main(void)
 		for (int i = 0; i < 3; i++) {
 			struct tc_token t;
 			CHECK(tc_lex_next(&lx, &t) == TC_OK && t.kind == TC_TOK_WORD);
-			ws[i] = (struct tc_word){t.text, t.len, t.parts, t.flags, t.line};
+			ws[i] = (struct tc_word){t.text, t.len, t.parts, t.flags, t.line, t.col};
 		}
 		tc_lexer_finish(&lx);
 		char **argv = NULL;
@@ -155,7 +155,7 @@ int main(void)
 		struct tc_token t;
 		CHECK(tc_lex_next(&lx, &t) == TC_OK && t.kind == TC_TOK_WORD);
 		tc_lexer_finish(&lx);
-		struct tc_word w = {t.text, t.len, t.parts, t.flags, t.line};
+		struct tc_word w = {t.text, t.len, t.parts, t.flags, t.line, t.col};
 		char **argv = NULL;
 		size_t argc = 0;
 		CHECK(tc_expand_words(&sh, &w, 1, &argv, &argc) == TC_EXP_OK);

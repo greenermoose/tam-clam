@@ -14,6 +14,7 @@
 
 #include "tam-clam/exec.h"
 #include "tam-clam/input.h"
+#include "tam-clam/lint.h"
 #include "tam-clam/options.h"
 #include "tam-clam/parse.h"
 #include "tam-clam/shell.h"
@@ -29,6 +30,7 @@ static void usage(int fd)
 		"usage: tam-clam -c COMMANDS [NAME [ARGS...]]\n"
 		"       tam-clam SCRIPT [ARGS...]\n"
 		"       tam-clam [-s] [ARGS...]\n"
+		"       tam-clam --lint FILE...\n"
 		"       tam-clam --version\n";
 	(void)tc_write_all(fd, text, sizeof(text) - 1);
 }
@@ -112,6 +114,7 @@ int main(int argc, char **argv)
 	int i = 1;
 	const char *command = NULL;
 	bool want_c = false;
+	bool lint_mode = false;
 	int read_stdin = 0;
 	for (; i < argc && (argv[i][0] == '-' || argv[i][0] == '+') &&
 	       argv[i][1] != '\0';
@@ -120,6 +123,10 @@ int main(int argc, char **argv)
 		if (strcmp(a, "--") == 0) {
 			i++;
 			break;
+		}
+		if (strcmp(a, "--lint") == 0) {
+			lint_mode = true;
+			continue;
 		}
 		if (strcmp(a, "--version") == 0) {
 			static const char v[] = "tam-clam " TC_VERSION "\n";
@@ -187,6 +194,22 @@ int main(int argc, char **argv)
 			i++;
 			break;
 		}
+	}
+	if (lint_mode) {
+		if (i >= argc) {
+			tc_error(&sh, 0, "--lint: at least one file is required");
+			usage(STDERR_FILENO);
+			tc_shell_finish(&sh);
+			return TC_STATUS_USAGE;
+		}
+		int max_status = 0;
+		for (; i < argc; i++) {
+			int rc = tc_lint_file(&sh, argv[i]);
+			if (rc > max_status)
+				max_status = rc;
+		}
+		tc_shell_finish(&sh);
+		return max_status;
 	}
 	if (want_c) {
 		if (i >= argc) {

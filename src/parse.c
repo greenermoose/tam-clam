@@ -233,6 +233,7 @@ static void tok_to_word(const struct tc_token *t, struct tc_word *w)
 	w->parts = t->parts;
 	w->flags = t->flags;
 	w->line = t->line;
+	w->col = t->col;
 }
 
 static int parse_io_number(struct tc_parser *p, const struct tc_token *t, int *out)
@@ -344,7 +345,9 @@ static int split_assign(struct tc_parser *p, const struct tc_token *t,
 	out->value.parts = vparts;
 	out->value.flags = t->flags & ~TC_WORD_ASSIGN;
 	out->value.line = t->line;
+	out->value.col = t->col + nlen + 1;
 	out->line = t->line;
+	out->col = t->col;
 	return TC_OK;
 }
 
@@ -420,6 +423,7 @@ static int parse_simple(struct tc_parser *p, struct tc_node **out)
 	struct redir_link *rhead = NULL, **rtail = &rhead;
 	size_t na = 0, nw = 0, nr = 0;
 	unsigned long line = p->tok.line;
+	unsigned long col = p->tok.col;
 	int r;
 
 	for (;;) {
@@ -502,6 +506,7 @@ static int parse_simple(struct tc_parser *p, struct tc_node **out)
 
 	node->kind = TC_NODE_SIMPLE;
 	node->line = line;
+	node->col = col;
 	node->u.simple.assigns = assigns;
 	node->u.simple.nassigns = na;
 	node->u.simple.words = words;
@@ -711,6 +716,7 @@ err:
 static int parse_for(struct tc_parser *p, struct tc_node **out)
 {
 	unsigned long line = p->tok.line;
+	unsigned long col = p->tok.col;
 	int r;
 	if ((r = enter_depth(p, line)) != TC_OK)
 		return r;
@@ -807,6 +813,7 @@ static int parse_for(struct tc_parser *p, struct tc_node **out)
 		words[i++] = wl->w;
 	node->kind = TC_NODE_FOR;
 	node->line = line;
+	node->col = col;
 	node->u.for_cmd.name = name;
 	node->u.for_cmd.has_in = has_in;
 	node->u.for_cmd.words = words;
@@ -823,6 +830,7 @@ err:
 static int parse_case(struct tc_parser *p, struct tc_node **out)
 {
 	unsigned long line = p->tok.line;
+	unsigned long col = p->tok.col;
 	int r;
 	if ((r = enter_depth(p, line)) != TC_OK)
 		return r;
@@ -945,6 +953,7 @@ static int parse_case(struct tc_parser *p, struct tc_node **out)
 		items[i++] = cl->item;
 	node->kind = TC_NODE_CASE;
 	node->line = line;
+	node->col = col;
 	node->u.case_cmd.word = subject;
 	node->u.case_cmd.items = items;
 	node->u.case_cmd.nitems = ni;

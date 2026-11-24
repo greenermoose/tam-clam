@@ -19,6 +19,7 @@ static void input_common(struct tc_input *in)
 	in->eof = false;
 	in->err = 0;
 	in->line = 1;
+	in->col = 0;
 	in->prompt = false;
 	in->at_line_start = true;
 	in->want_ps1 = true;
@@ -114,8 +115,12 @@ int tc_input_pushback(struct tc_input *in, const char *s, size_t len)
 	in->push_len = len + rem;
 	in->push_pos = 0;
 	for (size_t i = 0; i < len; i++) {
-		if (s[i] == '\n' && in->line > 1)
-			in->line--;
+		if (s[i] == '\n') {
+			if (in->line > 1)
+				in->line--;
+		} else if (in->col > 0) {
+			in->col--;
+		}
 	}
 	return 0;
 }
@@ -218,7 +223,11 @@ int tc_input_getc(struct tc_input *in)
 		c = in->buf[in->pos++];
 	}
 	in->at_line_start = (c == '\n');
-	if (c == '\n')
+	if (c == '\n') {
 		in->line++;
+		in->col = 0;
+	} else {
+		in->col++;
+	}
 	return c;
 }

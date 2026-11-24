@@ -1,0 +1,59 @@
+#!/bin/sh
+# Demo 0.1.5: static lint mode (tam-clam --lint FILE...).
+set -eu
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+SH="$ROOT/build/tam-clam"
+[ -x "$SH" ] || make -C "$ROOT"
+
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+
+cat >"$tmp/risky.sh" <<'SCRIPT'
+#!/bin/sh
+name=clam
+[ $name = clam ]
+case $name in
+clam) echo hi ;;
+esac
+cd /tmp
+echo $*
+for f in $(ls *.txt); do
+	echo "$f" "$MISSING_VAR"
+done
+SCRIPT
+
+cat >"$tmp/clean.sh" <<'SCRIPT'
+#!/bin/sh
+name=clam
+[ "$name" = clam ]
+case "$name" in
+clam) echo hi ;;
+esac
+cd /tmp || exit 1
+echo "$@"
+# lint: allow unset-var
+echo "$EXTERNAL_CFG"
+SCRIPT
+
+cat >"$tmp/broken.sh" <<'SCRIPT'
+#!/bin/sh
+if true; then
+	echo missing_fi
+SCRIPT
+
+echo "--- 0.1.5: tam-clam --lint mode ---"
+echo "=== 1. Linting risky.sh (expects warnings, status 1) ==="
+"$SH" --lint "$tmp/risky.sh" | sed 's/^/  /' || true
+"$SH" --lint "$tmp/risky.sh" >/dev/null && rc=0 || rc=$?
+echo "  exit status: $rc"
+
+echo ""
+echo "=== 2. Linting clean.sh with quotes, checked cd, and '# lint: allow' ==="
+"$SH" --lint "$tmp/clean.sh" && rc=0 || rc=$?
+echo "  no warnings! exit status: $rc"
+
+echo ""
+echo "=== 3. Linting broken.sh (syntax error -> status 2) ==="
+"$SH" --lint "$tmp/broken.sh" 2>&1 | sed 's/^/  /' || true
+"$SH" --lint "$tmp/broken.sh" 2>/dev/null && rc=0 || rc=$?
+echo "  exit status: $rc"

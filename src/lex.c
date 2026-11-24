@@ -21,6 +21,10 @@ int tc_lexer_init(struct tc_lexer *lx, struct tc_shell *sh, struct tc_input *in)
 	if (in && !in->sh)
 		in->sh = sh;
 	lx->peek = NO_PEEK;
+	lx->last_line = in ? in->line : 1;
+	lx->last_col = 0;
+	lx->peek_line = lx->last_line;
+	lx->peek_col = 0;
 	lx->parse_depth = 0;
 	lx->word = tam_str_new("");
 	return lx->word ? TC_OK : TC_ERR_NOMEM;
@@ -37,14 +41,21 @@ static int getch(struct tc_lexer *lx)
 	if (lx->peek != NO_PEEK) {
 		int c = lx->peek;
 		lx->peek = NO_PEEK;
+		lx->last_line = lx->peek_line;
+		lx->last_col = lx->peek_col;
 		return c;
 	}
-	return tc_input_getc(lx->in);
+	int c = tc_input_getc(lx->in);
+	lx->last_line = lx->in->line;
+	lx->last_col = lx->in->col;
+	return c;
 }
 
 static void ungetch(struct tc_lexer *lx, int c)
 {
 	lx->peek = c;
+	lx->peek_line = lx->last_line;
+	lx->peek_col = lx->last_col;
 }
 
 static int getch_cont(struct tc_lexer *lx)
@@ -53,10 +64,14 @@ static int getch_cont(struct tc_lexer *lx)
 		int c = getch(lx);
 		if (c != '\\')
 			return c;
+		unsigned long b_line = lx->last_line;
+		unsigned long b_col = lx->last_col;
 		int d = getch(lx);
 		if (d == '\n')
 			continue;
 		ungetch(lx, d);
+		lx->last_line = b_line;
+		lx->last_col = b_col;
 		return '\\';
 	}
 }
@@ -1657,9 +1672,11 @@ int tc_lex_next(struct tc_lexer *lx, struct tc_token *tok)
 	tok->len = 0;
 	tok->parts = NULL;
 	tok->flags = 0;
+	tok->col = 0;
 	for (;;) {
 		int c = getch_cont(lx);
-		tok->line = lx->in->line;
+		tok->line = lx->last_line;
+		tok->col = lx->last_col;
 		if (c == ' ' || c == '\t')
 			continue;
 		if (c == TC_IN_EOF) {

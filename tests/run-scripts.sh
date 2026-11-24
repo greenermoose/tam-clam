@@ -184,5 +184,22 @@ expect 'CLI -n reports syntax error with status 2' 2 '' \
 expect 'CLI -v is refused as deferred option' 2 '' \
 	"$shell" -v -c 'echo hi'
 
+# 0.1.5: --lint mode (0 clean, 1 warnings, 2 syntax/usage error).
+printf 'x=ok\n[ "$x" = ok ] && cd /tmp || exit 1\n' >"$tmp/lint_clean.sh"
+expect '--lint clean script exits 0' 0 '' \
+	"$shell" --lint "$tmp/lint_clean.sh"
+printf 'x=1\n[ $x = 1 ] # lint: allow unquoted-test\n' >"$tmp/lint_allow.sh"
+expect '--lint suppressed warning exits 0' 0 '' \
+	"$shell" --lint "$tmp/lint_allow.sh"
+printf 'cd /tmp\n' >"$tmp/lint_warn.sh"
+expect '--lint warning exits 1' 1 \
+	"$tmp/lint_warn.sh:1:1: warning [unchecked-cd]: cd failure is not checked; use 'cd ... || exit' or 'cd ... || return'" \
+	"$shell" --lint "$tmp/lint_warn.sh"
+printf 'if true; then echo bad\n' >"$tmp/lint_err.sh"
+expect '--lint syntax error exits 2' 2 '' \
+	"$shell" --lint "$tmp/lint_err.sh"
+expect '--lint missing file exits 2' 2 '' \
+	"$shell" --lint "$tmp/no_such_lint.sh"
+
 echo "run-scripts: $pass passed, $fail failed (reference shell: $ref)"
 [ "$fail" -eq 0 ]

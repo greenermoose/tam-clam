@@ -31,14 +31,15 @@ LIBTAM := $(LIBTAM_PREFIX)/lib/libtam.a
 CORE_SRCS = src/arena.c src/var.c src/func.c src/alias.c src/hash.c \
 	src/options.c src/pattern.c src/arith.c src/glob.c src/shell.c \
 	src/signals.c src/trap.c src/bg.c src/input.c src/lex.c src/parse.c \
-	src/expand.c src/builtins.c src/builtins_special.c src/bi_test.c \
-	src/bi_printf.c src/builtins_io.c src/builtins_cmd.c src/exec.c
+	src/expand.c src/lint.c src/builtins.c src/builtins_special.c \
+	src/bi_test.c src/bi_printf.c src/builtins_io.c src/builtins_cmd.c \
+	src/exec.c
 CORE_OBJS = $(patsubst src/%.c,$(B)/%.o,$(CORE_SRCS))
 TESTS = $(B)/tests/test_var $(B)/tests/test_func $(B)/tests/test_alias \
 	$(B)/tests/test_hash $(B)/tests/test_options $(B)/tests/test_test \
 	$(B)/tests/test_pattern $(B)/tests/test_arith $(B)/tests/test_glob \
 	$(B)/tests/test_trap $(B)/tests/test_lex $(B)/tests/test_parse \
-	$(B)/tests/test_expand
+	$(B)/tests/test_expand $(B)/tests/test_lint
 
 FUZZ_BINS = $(B)/fuzz/fuzz_parse $(B)/fuzz/fuzz_expand
 

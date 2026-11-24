@@ -47,6 +47,7 @@ struct tc_input {
 	bool eof;
 	int err;
 	unsigned long line;     /* line number of the next byte */
+	unsigned long col;      /* 1-based column of the last returned byte */
 	bool prompt;            /* write prompts (interactive) */
 	bool at_line_start;
 	bool want_ps1;          /* next prompt is PS1, not PS2 */

@@ -49,12 +49,14 @@ struct tc_word {
 	struct tc_wpart *parts;   /* structured parts for expansion */
 	unsigned flags;           /* TC_WORD_* from lex.h */
 	unsigned long line;
+	unsigned long col;
 };
 
 struct tc_assign {
 	const char *name;
 	struct tc_word value;     /* word parts after '=' */
 	unsigned long line;
+	unsigned long col;
 };
 
 enum tc_redir_kind {
@@ -121,6 +123,7 @@ enum tc_node_kind {
 struct tc_node {
 	enum tc_node_kind kind;
 	unsigned long line;
+	unsigned long col;
 	union {
 		struct {
 			struct tc_assign *assigns;
