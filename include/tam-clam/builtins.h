@@ -43,6 +43,7 @@ int tc_bi_ulimit(struct tc_shell *sh, int argc, char **argv, unsigned long line)
 int tc_bi_getopts(struct tc_shell *sh, int argc, char **argv, unsigned long line);
 int tc_bi_command(struct tc_shell *sh, int argc, char **argv, unsigned long line);
 int tc_bi_type(struct tc_shell *sh, int argc, char **argv, unsigned long line);
+int tc_bi_bind(struct tc_shell *sh, int argc, char **argv, unsigned long line);
 
 /* Write s in POSIX single-quoted form to fd. 0 or -1. */
 int tc_write_shell_quoted(int fd, const char *s);

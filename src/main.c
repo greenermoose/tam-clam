@@ -7,11 +7,14 @@
  */
 #include <errno.h>
 #include <fcntl.h>
+#include <locale.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include "tam-clam/edit.h"
 #include "tam-clam/exec.h"
 #include "tam-clam/input.h"
 #include "tam-clam/lint.h"
@@ -108,6 +111,7 @@ static int open_script(struct tc_shell *sh, const char *path, int *out)
 
 int main(int argc, char **argv)
 {
+	(void)setlocale(LC_CTYPE, "");
 	struct tc_shell sh;
 	tc_shell_init(&sh, "tam-clam");
 
@@ -261,14 +265,28 @@ int main(int argc, char **argv)
 		}
 		tc_input_from_fd(&in, STDIN_FILENO, true);
 		sh.interactive = isatty(STDIN_FILENO) && isatty(STDERR_FILENO);
+		struct tc_editor ed;
+		bool have_ed = false;
 		if (sh.interactive) {
 			in.prompt = true;
 			tc_traps_finish(&sh.traps);
 			tc_traps_init(&sh.traps, true);
 			if (tc_signals_interactive() < 0)
 				tc_error(&sh, 0, "cannot set up signals: %s", strerror(errno));
+			const char *term = getenv("TERM");
+			if (!term || strcmp(term, "dumb") != 0) {
+				tc_editor_init(&ed, STDIN_FILENO, STDERR_FILENO);
+				tc_editor_configure_child_termios(&ed);
+				sh.editor = &ed;
+				in.ed = &ed;
+				have_ed = true;
+			}
 		}
 		status = run(&sh, &in);
+		if (have_ed) {
+			tc_editor_finish(&ed);
+			sh.editor = NULL;
+		}
 	}
 	tc_trap_run_exit(&sh);
 	status = sh.exit_requested ? sh.exit_status : status;

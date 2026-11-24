@@ -6,6 +6,7 @@
 
 /* The only global state in tam-clam (see arch/principles.md). */
 volatile sig_atomic_t tc_sigint_seen;
+volatile sig_atomic_t tc_sigwinch_seen;
 volatile sig_atomic_t tc_sig_pending[TC_NSIG];
 volatile sig_atomic_t tc_sig_any;
 
@@ -20,12 +21,20 @@ static void on_signal(int sig)
 	}
 	if (sig == SIGINT)
 		tc_sigint_seen = 1;
+#ifdef SIGWINCH
+	if (sig == SIGWINCH)
+		tc_sigwinch_seen = 1;
+#endif
 }
 
 int tc_signals_interactive(void)
 {
 	if (tc_signals_set_handler(SIGINT, TC_SIG_CATCH) < 0)
 		return -1;
+#ifdef SIGWINCH
+	if (tc_signals_set_handler(SIGWINCH, TC_SIG_CATCH) < 0)
+		return -1;
+#endif
 	if (tc_signals_set_handler(SIGQUIT, TC_SIG_IGN) < 0 ||
 	    tc_signals_set_handler(SIGTERM, TC_SIG_IGN) < 0)
 		return -1;
@@ -72,6 +81,7 @@ bool tc_signals_query_ignored(int sig)
 void tc_signals_clear_pending(void)
 {
 	tc_sigint_seen = 0;
+	tc_sigwinch_seen = 0;
 	tc_sig_any = 0;
 	for (int i = 0; i < TC_NSIG; i++)
 		tc_sig_pending[i] = 0;

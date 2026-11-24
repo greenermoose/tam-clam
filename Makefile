@@ -33,13 +33,15 @@ CORE_SRCS = src/arena.c src/var.c src/func.c src/alias.c src/hash.c \
 	src/signals.c src/trap.c src/bg.c src/input.c src/lex.c src/parse.c \
 	src/expand.c src/lint.c src/builtins.c src/builtins_special.c \
 	src/bi_test.c src/bi_printf.c src/builtins_io.c src/builtins_cmd.c \
-	src/exec.c
+	src/exec.c src/edit/buf.c src/edit/keymap.c src/edit/render.c \
+	src/edit/edit.c
 CORE_OBJS = $(patsubst src/%.c,$(B)/%.o,$(CORE_SRCS))
 TESTS = $(B)/tests/test_var $(B)/tests/test_func $(B)/tests/test_alias \
 	$(B)/tests/test_hash $(B)/tests/test_options $(B)/tests/test_test \
 	$(B)/tests/test_pattern $(B)/tests/test_arith $(B)/tests/test_glob \
 	$(B)/tests/test_trap $(B)/tests/test_lex $(B)/tests/test_parse \
-	$(B)/tests/test_expand $(B)/tests/test_lint
+	$(B)/tests/test_expand $(B)/tests/test_lint $(B)/tests/test_edit
+PTY_TESTS = $(B)/tests/pty/test_pty
 
 FUZZ_BINS = $(B)/fuzz/fuzz_parse $(B)/fuzz/fuzz_expand
 
@@ -56,12 +58,17 @@ $(B)/tests/test_%: tests/test_%.c $(CORE_OBJS) $(LIBTAM) tests/check.h
 	@mkdir -p $(@D)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $< $(CORE_OBJS) $(LIBTAM)
 
+$(B)/tests/pty/test_pty: tests/pty/test_pty.c tests/check.h
+	@mkdir -p $(@D)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $<
+
 $(B)/fuzz/fuzz_%: tests/fuzz/fuzz_%.c tests/fuzz/fuzz_main.c $(CORE_OBJS) $(LIBTAM)
 	@mkdir -p $(@D)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $< tests/fuzz/fuzz_main.c $(CORE_OBJS) $(LIBTAM)
 
-test: $(TESTS) $(FUZZ_BINS) $(B)/tam-clam
+test: $(TESTS) $(PTY_TESTS) $(FUZZ_BINS) $(B)/tam-clam
 	@for t in $(TESTS); do $$t || exit 1; done
+	@$(B)/tests/pty/test_pty $(B)/tam-clam
 	@sh tests/run-scripts.sh $(B)/tam-clam
 	@python3 tests/spec/run-spec.py $(B)/tam-clam
 	@$(B)/fuzz/fuzz_parse tests/fuzz/corpus/parse

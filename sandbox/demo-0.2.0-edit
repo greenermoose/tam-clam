@@ -1,0 +1,25 @@
+#!/bin/sh
+# 0.2.0 demo: interactive line editor on libtam (arch/keys.md).
+set -eu
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+SH="$ROOT/build/tam-clam"
+[ -x "$SH" ] || make -C "$ROOT"
+
+cat <<EOF
+=== tam-clam $(cat "$ROOT/VERSION") line editor demo ===
+Follows arch/keys.md (and tamlinux/arch/keybindings.md).
+
+Things to try at the live prompt:
+  Ctrl+G              show keybinding guidance overlay (Escape closes)
+  Ctrl+E              open named-widget command palette (type to filter)
+  Shift+Left/Right    select text, then Ctrl+C copy / Ctrl+X cut / Ctrl+V paste
+  Alt+M + Alt+,/.     TERM=linux selection mark & word jump
+  Ctrl+Z / Ctrl+Y     undo / redo
+  Alt+Enter           insert a literal newline (multi-line editing)
+  Alt+E               edit current buffer in \$VISUAL / \$EDITOR
+  Ctrl+K / Ctrl+L     clear prompt / clear screen
+  bind                list all bindings (or: bind Ctrl+T kill-line)
+  Ctrl+Q              exit on empty prompt (or type 'exit')
+
+EOF
+exec env PS1='tam-clam$ ' PS2='tam-clam> ' "$SH"

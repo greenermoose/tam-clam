@@ -1,0 +1,51 @@
+W14 LINE EDITOR (0.2.0)
+
+Date: 2026-11-24
+AI harness: agy 1.5.15
+AI model: Gemini 4 Neon (Medium)
+Continues: W13
+
+GUIDANCE
+
+  Fred: "/plan Move on to 0.2.0, the line editor"
+  Fred: "1 yes / 2 yes / Plan approved. Proceed."
+
+DONE
+
+  - Built our own interactive line editor in include/tam-clam/edit.h and
+    src/edit/{buf.c,keymap.c,render.c,edit.c} on libtam's tam_tty,
+    tam_key, and tam_uni (no readline, no ncurses, no terminfo):
+    - UTF-8 and wide-character editing and multi-line rendering with
+      explicit CR/LF and DEC 2026 synchronized output (auto-skipped on
+      TERM=linux).
+    - Full arch/keys.md default key map (universal Ctrl map, selection,
+      clipboard ring + OSC 52 write, undo/redo, TERM=linux Alt
+      fallbacks, Alt+Enter multi-line, Ctrl+G guidance overlay, Ctrl+E
+      named-widget palette, Alt+E $VISUAL/$EDITOR, Alt+Q verbatim,
+      Alt+# comment-line, Ctrl+Q quit on empty prompt, Ctrl+\ cancel).
+    - Bracketed paste interceptor (CSI 200~ / CSI 201~) so pasted
+      newlines never auto-execute.
+    - Child-process termios setup (VINTR=Ctrl+\, VQUIT disabled,
+      VSUSP=Ctrl+P) with original termios restored on shell exit.
+    - SIGWINCH redraw flag in signals.h/signals.c and zero-CPU idle
+      poll in tam_tty_read.
+    - Registered `bind` builtin (list, bind, bind -u).
+  - Added unit tests (tests/test_edit.c) and C pseudo-terminal tests
+    (tests/pty/test_pty.c) covering xterm and TERM=linux flows.
+  - Added sandbox/demo-0.2.0-edit, updated sandbox/play,
+    sandbox/demo-interactive, sandbox/README-sandbox, VERSION (0.2.0),
+    ROADMAP.md, plans/P3-interactive.md, and work/WHATNOW.
+  - Verified make clean test, make sanitize, and readelf -d (only
+    libc.so.6).
+
+FAILED
+
+  - Nothing.
+
+HANDOFF
+
+  - 0.2.0 line editor is complete on dev.
+  - Next: 0.2.1 history (plans/P3-interactive.md): append-only file with
+    timestamps/status/cwd via single O_APPEND writes, damaged-record
+    recovery, Ctrl+F incremental search, Up/Down prefix search, and
+    private mode.

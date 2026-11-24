@@ -5,6 +5,7 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "tam-clam/edit.h"
 #include "tam-clam/input.h"
 #include "tam-clam/shell.h"
 #include "tam-clam/signals.h"
@@ -24,6 +25,9 @@ static void input_common(struct tc_input *in)
 	in->at_line_start = true;
 	in->want_ps1 = true;
 	in->sh = NULL;
+	in->ed = NULL;
+	in->ed_line = NULL;
+	in->ed_len = in->ed_pos = 0;
 }
 
 void tc_input_finish(struct tc_input *in)
@@ -36,6 +40,9 @@ void tc_input_finish(struct tc_input *in)
 	free(in->push);
 	in->push = NULL;
 	in->push_len = in->push_pos = 0;
+	free(in->ed_line);
+	in->ed_line = NULL;
+	in->ed_len = in->ed_pos = 0;
 }
 
 int tc_input_push_alias(struct tc_input *in, const char *name,
@@ -214,6 +221,45 @@ int tc_input_getc(struct tc_input *in)
 		if (in->str_pos >= in->str_len)
 			return TC_IN_EOF;
 		c = (unsigned char)in->str[in->str_pos++];
+	} else if (in->ed) {
+		if (in->ed_pos >= in->ed_len) {
+			free(in->ed_line);
+			in->ed_line = NULL;
+			in->ed_len = in->ed_pos = 0;
+			if (in->eof)
+				return TC_IN_EOF;
+			const char *p1 = in->sh ? tc_var_get(&in->sh->vars, "PS1") : "$ ";
+			const char *p2 = in->sh ? tc_var_get(&in->sh->vars, "PS2") : "> ";
+			const char *lead = in->want_ps1 ? (p1 ? p1 : "$ ") : (p2 ? p2 : "> ");
+			char *line = NULL;
+			size_t llen = 0;
+			enum tc_edit_status st =
+				tc_editor_readline(in->ed, in->sh, lead,
+						   p2 ? p2 : "> ", &line, &llen);
+			in->want_ps1 = false;
+			if (st == TC_EDIT_EOF) {
+				in->eof = true;
+				return TC_IN_EOF;
+			}
+			if (st == TC_EDIT_CANCEL)
+				return TC_IN_INTR;
+			if (st != TC_EDIT_OK) {
+				in->err = EIO;
+				return TC_IN_ERROR;
+			}
+			char *nb = realloc(line, llen + 2);
+			if (!nb) {
+				free(line);
+				in->err = ENOMEM;
+				return TC_IN_ERROR;
+			}
+			nb[llen] = '\n';
+			nb[llen + 1] = '\0';
+			in->ed_line = nb;
+			in->ed_len = llen + 1;
+			in->ed_pos = 0;
+		}
+		c = (unsigned char)in->ed_line[in->ed_pos++];
 	} else {
 		if (in->pos >= in->len) {
 			int r = fill(in);

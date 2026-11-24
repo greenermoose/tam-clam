@@ -17,6 +17,7 @@ enum tc_sig_disp {
 };
 
 extern volatile sig_atomic_t tc_sigint_seen;
+extern volatile sig_atomic_t tc_sigwinch_seen;
 extern volatile sig_atomic_t tc_sig_pending[TC_NSIG];
 extern volatile sig_atomic_t tc_sig_any;
 

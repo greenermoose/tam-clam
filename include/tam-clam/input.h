@@ -12,6 +12,7 @@
 #include <stddef.h>
 
 struct tc_shell;
+struct tc_editor;
 
 /* tc_input_getc returns a byte (0 to 255) or one of these. */
 enum {
@@ -51,7 +52,10 @@ struct tc_input {
 	bool prompt;            /* write prompts (interactive) */
 	bool at_line_start;
 	bool want_ps1;          /* next prompt is PS1, not PS2 */
-	const struct tc_shell *sh; /* shell for PS1/PS2 lookup */
+	struct tc_shell *sh;    /* shell for PS1/PS2 lookup and $EDITOR */
+	struct tc_editor *ed;   /* interactive line editor, or NULL */
+	char *ed_line;          /* buffered line from line editor */
+	size_t ed_len, ed_pos;
 };
 
 void tc_input_from_string(struct tc_input *in, const char *s, size_t len);

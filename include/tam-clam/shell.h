@@ -18,6 +18,7 @@
 #include "tam-clam/var.h"
 
 struct tc_input;
+struct tc_editor;
 
 /* Results shared by the lexer, parser and input layers. */
 enum tc_result {
@@ -100,6 +101,7 @@ struct tc_shell {
 	size_t nparams;
 	struct tc_arena arena;     /* memory for the command being run */
 	struct tc_input *in;       /* the input being read, for line numbers */
+	struct tc_editor *editor;  /* interactive line editor (0.2.0), or NULL */
 };
 
 void tc_shell_init(struct tc_shell *sh, const char *name);

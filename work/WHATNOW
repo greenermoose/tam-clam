@@ -3,54 +3,53 @@ WHATNOW
 What tam-clam is doing now and what comes next. Read this first; revise
 it at the end of every session (work/README-work).
 
-Updated: 2026-11-23, with W13 (0.1.5)
+Updated: 2026-11-24, with W14 (0.2.0)
 
 
 STATE
 
-  Version 0.1.5, Phase P2 COMPLETE (full POSIX.1-2024 shell language,
-  builtins, options, spec suite, fuzzing, and lint mode), on branch dev.
-  0.1.5 adds:
-  - 1-based column tracking across input.c, lex.c, ast.h, and parse.c;
-  - static lint mode (`tam-clam --lint FILE...`) in
-    include/tam-clam/lint.h and src/lint.c: parses with the real parser,
-    runs nothing, emits `file:line:col: warning [check-name]: message`
-    (exit 0 clean, 1 warnings, 2 syntax/I/O error);
-  - checks: unquoted-test, unquoted-case, unchecked-cd, unquoted-star,
-    split-cmdsub, and unset-var, with inline and preceding-line
-    `# lint: allow <name>` suppression comments;
-  - tests/test_lint.c, --lint CLI checks in tests/run-scripts.sh, and
-    sandbox/demo-0.1.5-lint added to sandbox/play.
+  Version 0.2.0, Phase P3 IN PROGRESS (line editor complete), on branch
+  dev. 0.2.0 adds:
+  - interactive line editor in include/tam-clam/edit.h and
+    src/edit/{buf.c,keymap.c,render.c,edit.c} on libtam's tam_tty,
+    tam_key, and tam_uni, implementing arch/keys.md (following
+    tamlinux/arch/keybindings.md);
+  - UTF-8 and wide-character editing, multi-line editing (Alt+Enter and
+    incomplete-syntax continuation), selection (Shift+Nav, Ctrl+A,
+    Alt+M), clipboard ring + OSC 52 write (Ctrl+X/C/V, Alt+V),
+    undo/redo (Ctrl+Z/Y), guidance overlay (Ctrl+G), widget palette
+    (Ctrl+E), $VISUAL/$EDITOR (Alt+E), bracketed paste (CSI 200~/201~),
+    SIGWINCH redraw, and the `bind` builtin;
+  - child-process termios (VINTR=Ctrl+\, VQUIT disabled, VSUSP=Ctrl+P)
+    with original termios restored on shell exit;
+  - tests/test_edit.c unit tests, tests/pty/test_pty.c C PTY tests
+    (xterm and TERM=linux), and sandbox/demo-0.2.0-edit.
   readelf -d lists only libc.so.6. make test and make sanitize pass.
 
   Fred's decisions so far are in ROADMAP.md and the plans: POSIX.1-2024
-  is the target; lint mode is P2 0.1.5 (done); the Tamlinux-wide
-  keybinding standard lives in tamlinux/arch/keybindings.md (settled
-  2026-11-23) and tam-clam's arch/keys.md is drafted against it (W13,
-  no vi mode, no built-in readline map, VINTR=Ctrl+\, VSUSP=Ctrl+P,
-  Ctrl+F history search, Ctrl+Q quit); FUNCNEST sets the function
-  recursion limit; signed 64-bit arithmetic overflow is a reported
-  error; echo recognizes -n only and does not interpret backslash
-  escapes by default.
+  is the target; the Tamlinux-wide keybinding standard lives in
+  tamlinux/arch/keybindings.md and tam-clam implements it in
+  arch/keys.md (no vi mode, no built-in readline map, VINTR=Ctrl+\,
+  VSUSP=Ctrl+P, Ctrl+F history search, Ctrl+Q quit); FUNCNEST sets the
+  function recursion limit; signed 64-bit arithmetic overflow is a
+  reported error; echo recognizes -n only and does not interpret
+  backslash escapes by default.
 
 
 NEXT
 
-  1. 0.2.0 (plans/P3-interactive.md, arch/keys.md):
-     - Our own line editor (src/edit/) on libtam's tam_tty, tam_key, and
-       tam_uni: arch/keys.md bindings, UTF-8, wide characters, selection,
-       undo/redo, kill/clipboard ring + OSC 52 write, multi-line editing,
-       bracketed paste (closing the CSI 200~/201~ gap), SIGWINCH redraw,
-       and PTY tests (tests/pty/).
-     Bump VERSION to 0.2.0 in the first code commit.
+  1. 0.2.1 (plans/P3-interactive.md):
+     - History (src/history/): append-only file with timestamps, exit
+       status, and working directory via single O_APPEND writes; reader
+       that skips damaged records; Ctrl+F incremental search, Up/Down
+       prefix search, Alt+L insert-last-arg, and private mode.
+     Bump VERSION to 0.2.1 in the first code commit.
 
 
 WAITING FOR FRED
 
-  - Quick review / go-ahead on arch/keys.md to begin 0.2.0 line-editor
-    implementation.
-  - Trying 0.1.5: ./sandbox/demo-0.1.5-lint, ./sandbox/play, or
-    ./build/tam-clam --lint <script.sh>.
+  - Trying 0.2.0: ./sandbox/demo-0.2.0-edit or ./build/tam-clam on a
+    terminal and on the Linux console (TERM=linux).
   - Optional: installing dash / mksh / busybox for multi-shell spec
     comparisons and clang for a 24-hour libFuzzer run.
 

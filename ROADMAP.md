@@ -5,9 +5,10 @@ of versions. Versions follow semantic versioning: during 0.x, the minor
 number marks a phase's big step and the patch number marks each
 milestone inside it.
 
-**Current version:** 0.1.5 (Phase P2 complete: static lint mode
-`tam-clam --lint FILE...` with column-precise locations and per-line
-suppression comments, 2026-11-23; development continues on branch `dev`).
+**Current version:** 0.2.0 (Phase P3 started: our own line editor in
+`src/edit/` on libtam's `tam_tty`, `tam_key`, and `tam_uni`, implementing
+`arch/keys.md` and `tamlinux/arch/keybindings.md`, 2026-11-24; development
+continues on branch `dev`).
 
 ## Decided
 
