@@ -42,6 +42,7 @@ static bool cmd_exists(struct tc_shell *sh, struct tc_hl_cache *cache,
 	bool ok = false;
 	if (tc_builtin_find(name) != NULL ||
 	    tc_alias_get(&sh->aliases, name) != NULL ||
+	    tc_abbr_get(&sh->abbrs, name) != NULL ||
 	    tc_func_find(&sh->funcs, name) != NULL) {
 		ok = true;
 	} else if (strchr(name, '/') != NULL) {

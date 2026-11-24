@@ -9,6 +9,7 @@
 #include <stddef.h>
 #include <sys/types.h>
 
+#include "tam-clam/abbr.h"
 #include "tam-clam/alias.h"
 #include "tam-clam/arena.h"
 #include "tam-clam/bg.h"
@@ -107,6 +108,7 @@ struct tc_shell {
 	struct tc_vars vars;       /* shell variables and environment */
 	struct tc_funcs funcs;     /* shell functions */
 	struct tc_aliases aliases; /* shell aliases */
+	struct tc_abbrs abbrs;     /* interactive abbreviations (0.3.4) */
 	struct tc_hash_table hash; /* cached PATH lookups */
 	struct tc_traps traps;     /* signal and EXIT traps */
 	struct tc_bg_table bg;     /* background child tracking */

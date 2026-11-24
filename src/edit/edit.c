@@ -783,6 +783,8 @@ static void dispatch_widget(struct edit_ctx *ctx, enum tc_widget w)
 		(void)tc_ebuf_delete_to_line_end(b, clip);
 		break;
 	case TC_W_ACCEPT_LINE:
+		if (ctx->sh)
+			(void)tc_abbr_try_expand(&ctx->sh->abbrs, b);
 		if (b->len > 0 && buffer_incomplete(b->data, b->len)) {
 			(void)tc_ebuf_insert(b, "\n", 1, true);
 		} else {
@@ -1095,6 +1097,8 @@ enum tc_edit_status tc_editor_readline(struct tc_editor *ed,
 				ctx_reset_comp(&ctx, false);
 				if (ctx.ov_mode == OV_GUIDANCE)
 					ctx.ov_mode = OV_NONE;
+				if (ev.codepoint == ' ' && sh)
+					(void)tc_abbr_try_expand(&sh->abbrs, &buf);
 				(void)tc_ebuf_insert_cp(&buf, ev.codepoint, true);
 				continue;
 			}

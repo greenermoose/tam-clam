@@ -1,0 +1,32 @@
+#!/bin/sh
+# Sandbox demo for tam-clam 0.3.4: fish-style abbreviations and man-page completion generator.
+set -e
+
+BIN="${1:-./build/tam-clam}"
+
+echo "=== 1. abbr builtin ==="
+"$BIN" -c '
+abbr -a gco git checkout
+abbr -a gs git status
+abbr -a -p anywhere L "| less"
+abbr --show
+echo "names: $(abbr -l | tr "\n" " ")"
+'
+
+echo
+echo "=== 2. tam-clam-gen-comp (man-page -> .comp generator) ==="
+tmp=$(mktemp /tmp/tc-man-demo-XXXXXX)
+cat > "$tmp" <<'EOF'
+DEMO(1)
+
+OPTIONS
+       -a, --all
+              Process all entries including hidden ones
+
+       -n NUM, --limit=NUM  Stop after NUM items
+
+       --quiet
+              Suppress normal output
+EOF
+sh ./tools/tam-clam-gen-comp --stdout -f "$tmp" demo
+rm -f "$tmp"

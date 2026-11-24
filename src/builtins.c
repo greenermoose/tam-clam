@@ -443,6 +443,7 @@ static const struct tc_builtin builtins[] = {
 	{".", tc_bi_dot, true},
 	{":", bi_true, true},
 	{"[", tc_bi_test, false},
+	{"abbr", tc_bi_abbr, false},
 	{"alias", tc_bi_alias, false},
 	{"bg", tc_bi_bg, false},
 	{"bind", tc_bi_bind, false},

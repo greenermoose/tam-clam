@@ -67,6 +67,7 @@ void tc_shell_init(struct tc_shell *sh, const char *name)
 	tc_var_init(&sh->vars);
 	tc_funcs_init(&sh->funcs);
 	tc_alias_init(&sh->aliases);
+	tc_abbr_init(&sh->abbrs);
 	tc_hash_init(&sh->hash);
 	tc_traps_init(&sh->traps, false);
 	tc_bg_init(&sh->bg);
@@ -166,6 +167,7 @@ void tc_shell_finish(struct tc_shell *sh)
 	tc_bg_finish(&sh->bg);
 	tc_traps_finish(&sh->traps);
 	tc_hash_finish(&sh->hash);
+	tc_abbr_finish(&sh->abbrs);
 	tc_alias_finish(&sh->aliases);
 	tc_funcs_finish(&sh->funcs);
 	tc_var_finish(&sh->vars);

@@ -3,31 +3,27 @@ WHATNOW
 What tam-clam is doing now and what comes next. Read this first; revise
 it at the end of every session (work/README-work).
 
-Updated: 2026-11-24, with W23 (0.3.3)
+Updated: 2026-11-24, with W24 (0.3.4, Phase P4 complete)
 
 
 STATE
 
-  Version 0.3.3, Phase P4 in progress (Oils-named strict modes), on
-  branch dev. 0.3.3 adds:
-  - strict_errexit (in src/exec.c): refuses running shell functions,
-    compound commands (other than [[ ]]), or command sequences while
-    errexit is ignored (if/while/until conditions, &&/|| LHS, !);
-  - command_sub_errexit (in src/expand.c, src/exec.c, src/bi_declare.c,
-    src/cond.c): failing $(...) or `...` aborts the enclosing command
-    with its non-zero exit status (TC_EXP_CMDSUB_FAIL) instead of being
-    swallowed by echo/local/etc.;
-  - simple_word_eval (in src/expand.c): unquoted $x, $(...), $((...))
-    do not undergo implicit IFS splitting or pathname globbing, while
-    literal globs and ${a[@]}/$@ continue to work normally;
-  - strict_argv (in src/exec.c): commands whose words expand to 0 args
-    or an empty command name ("") fail with a clear error;
-  - set -o strict / set +o strict (in src/options.c): single switch
-    enabling/disabling errexit, nounset, pipefail, strict_errexit,
-    command_sub_errexit, simple_word_eval, and strict_argv (all off by
-    default so POSIX scripts are unchanged);
-  - tests/test_strict.c (37 checks), tests/spec/strict.test.sh (8 cases),
-    and sandbox/demo-0.3.3-strict.
+  Version 0.3.4, Phase P4 complete (arrays, [[ ]]/=~, local/declare,
+  brace expansion, process substitution, ** globstar, strict modes,
+  abbreviations, and man-page completion generator), on branch dev.
+  0.3.4 adds:
+  - fish-style interactive abbreviations in include/tam-clam/abbr.h,
+    src/abbr.c, src/edit/edit.c, src/edit/highlight.c, src/builtins.c,
+    and src/shell.c: `abbr` builtin (-a/-e/-q/-l/-s, -p command|anywhere,
+    NAME=EXPANSION shorthand), in-place expansion on Space and Enter
+    outside quotes (undoable with Ctrl+Z so history records the real
+    command), and valid-command syntax highlighting;
+  - man-page completion generator tools/tam-clam-gen-comp (POSIX sh +
+    awk, installed to $(BINDIR)/tam-clam-gen-comp by `make install`)
+    writing .comp files directly into tam-clam's XDG completion path;
+  - tests/test_abbr.c (39 checks covering abbr table/builtin, line
+    editor expansion/undo/quoting, and end-to-end tam-clam-gen-comp ->
+    tc_complete loading) and sandbox/demo-0.3.4-abbr-compgen.
   readelf -d lists only libc.so.6. make test, make sanitize, and make
   fuzz pass.
 
@@ -44,17 +40,16 @@ STATE
 
 NEXT
 
-  1. Phase P4 -- 0.3.4 (plans/P4-extras.md):
-     - fish-style abbreviations;
-     - tool that writes completion files from man pages (C or POSIX sh).
-     Bump VERSION to 0.3.4 in the first code commit.
+  1. Phase P5 -- 0.4.0 (plans/P5-dogfood.md):
+     - Package tam-clam in tamlinux-packages for Fred to dogfood as an
+       interactive shell (keeping bash as login shell until Fred decides
+       otherwise).
 
 
 WAITING FOR FRED
 
-  - Trying 0.3.3: ./sandbox/demo-0.3.3-strict or ./build/tam-clam.
-  - Optional: installing dash / mksh / busybox for multi-shell spec
-    comparisons and clang for a 24-hour libFuzzer run.
+  - Trying 0.3.4: ./sandbox/demo-0.3.4-abbr-compgen or ./build/tam-clam.
+  - Deciding when to start Phase P5 dogfooding (0.4.0).
 
 
 WATCH OUT

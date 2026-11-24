@@ -1,0 +1,171 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# tam-clam-gen-comp: generate tam-clam .comp completion files from man pages.
+# Written in portable POSIX sh + awk (no Python dependency).
+set -eu
+
+usage() {
+	cat >&2 <<'EOF'
+usage: tam-clam-gen-comp [-o DIR | --stdout] COMMAND...
+       tam-clam-gen-comp [-o DIR | --stdout] -f MAN_TEXT_FILE COMMAND
+EOF
+	exit 2
+}
+
+out_dir="${XDG_CONFIG_HOME:-$HOME/.config}/tamlinux/tam-clam/completions"
+to_stdout=0
+from_file=""
+
+while [ $# -gt 0 ]; do
+	case "$1" in
+	-o|--output)
+		[ $# -ge 2 ] || usage
+		out_dir="$2"
+		shift 2
+		;;
+	--stdout)
+		to_stdout=1
+		shift
+		;;
+	-f|--file)
+		[ $# -ge 2 ] || usage
+		from_file="$2"
+		shift 2
+		;;
+	-h|--help)
+		usage
+		;;
+	--)
+		shift
+		break
+		;;
+	-*)
+		usage
+		;;
+	*)
+		break
+		;;
+	esac
+done
+
+[ $# -ge 1 ] || usage
+
+extract_comp() {
+	cmd_name="$1"
+	awk -v cmd="$cmd_name" '
+	function trim(s) {
+		sub(/^[ \t]+/, "", s)
+		sub(/[ \t]+$/, "", s)
+		return s
+	}
+	function emit_pending(    i, o, desc) {
+		if (n_opts == 0) return
+		desc = trim(cur_desc)
+		gsub(/[ \t]+/, " ", desc)
+		if (length(desc) > 72)
+			desc = substr(desc, 1, 69) "..."
+		for (i = 1; i <= n_opts; i++) {
+			o = opts[i]
+			if (!(o in seen)) {
+				seen[o] = 1
+				if (desc != "")
+					printf "opt %-16s %s\n", o, desc
+				else
+					printf "opt %s\n", o
+			}
+		}
+		n_opts = 0
+		cur_desc = ""
+	}
+	BEGIN {
+		printf "# Generated from man %s by tam-clam-gen-comp\n", cmd
+		n_opts = 0
+		cur_desc = ""
+	}
+	{
+		line = $0
+		gsub(/\r/, "", line)
+		# Section headers at column 0 flush any pending option.
+		if (line ~ /^[A-Z][A-Z0-9 _-]+$/) {
+			emit_pending()
+			next
+		}
+		# Blank line flushes pending option once we have a description.
+		if (line ~ /^[ \t]*$/) {
+			if (cur_desc != "")
+				emit_pending()
+			next
+		}
+		# Option line: indented (or col 0) starting with -x or --long
+		if (line ~ /^[ \t]+(-[A-Za-z0-9?]|--[A-Za-z0-9][A-Za-z0-9_-]*)/) {
+			trimmed = trim(line)
+			# Reject prose sentences that happen to start with a dash + space.
+			if (trimmed ~ /^-[ \t]/) {
+				if (n_opts > 0 && cur_desc == "")
+					cur_desc = trimmed
+				next
+			}
+			emit_pending()
+
+			# Split header from inline description (2+ spaces or tab after options).
+			hdr = trimmed
+			inline_desc = ""
+			if (match(trimmed, /([ \t]{2,}|\t)/)) {
+				hdr = substr(trimmed, 1, RSTART - 1)
+				inline_desc = trim(substr(trimmed, RSTART + RLENGTH))
+			}
+
+			# Extract -x and --long-opt tokens from comma/space-separated header.
+			rest = hdr
+			while (match(rest, /(--[A-Za-z0-9][A-Za-z0-9_-]*|-[A-Za-z0-9?])/)) {
+				tok = substr(rest, RSTART, RLENGTH)
+				# Avoid matching negative numbers or mid-word hyphens.
+				before = (RSTART > 1) ? substr(rest, RSTART - 1, 1) : " "
+				if (before == " " || before == "\t" || before == "," || before == "|" || before == "[") {
+					n_opts++
+					opts[n_opts] = tok
+				}
+				rest = substr(rest, RSTART + RLENGTH)
+			}
+			if (inline_desc != "")
+				cur_desc = inline_desc
+			next
+		}
+		# Continuation description line for the active option header.
+		if (n_opts > 0 && cur_desc == "") {
+			cur_desc = trim(line)
+		}
+	}
+	END {
+		emit_pending()
+	}
+	'
+}
+
+if [ -n "$from_file" ]; then
+	[ $# -eq 1 ] || usage
+	cmd="$1"
+	if [ "$to_stdout" -eq 1 ]; then
+		col -b < "$from_file" | extract_comp "$cmd"
+	else
+		mkdir -p "$out_dir"
+		col -b < "$from_file" | extract_comp "$cmd" > "$out_dir/$cmd.comp"
+	fi
+	exit 0
+fi
+
+status=0
+for cmd in "$@"; do
+	if ! tmp=$(LC_ALL=C MANWIDTH=1000 man -P cat "$cmd" 2>/dev/null | col -b); then
+		printf 'tam-clam-gen-comp: no manual entry for %s\n' "$cmd" >&2
+		status=1
+		continue
+	fi
+	if [ "$to_stdout" -eq 1 ]; then
+		printf '%s\n' "$tmp" | extract_comp "$cmd"
+	else
+		mkdir -p "$out_dir"
+		printf '%s\n' "$tmp" | extract_comp "$cmd" > "$out_dir/$cmd.comp"
+	fi
+done
+exit "$status"

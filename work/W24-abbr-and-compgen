@@ -1,0 +1,42 @@
+W24 ABBREVIATIONS AND MAN-PAGE COMPLETION GENERATOR (0.3.4, PHASE P4 COMPLETE)
+
+Date: 2026-11-24
+AI harness: agy 1.5.16
+AI model: Gemini 4 Neon (Medium)
+Continues: W23
+
+GUIDANCE
+
+  Fred: "/plan Do the work for 0.3.4"
+  Fred: "Approved. Proceed."
+
+DONE
+
+  - Implemented fish-style interactive abbreviations from scratch in
+    include/tam-clam/abbr.h and src/abbr.c, wired into src/shell.c,
+    src/builtins.c (`abbr` builtin: -a/-e/-q/-l/-s, -p command|anywhere,
+    NAME=EXPANSION shorthand), src/edit/edit.c (in-place expansion on
+    Space and Enter outside quotes, undoable with Ctrl+Z so history
+    records the real command), and src/edit/highlight.c (highlights
+    defined abbreviations as valid commands).
+  - Implemented tools/tam-clam-gen-comp (POSIX sh + awk) to extract
+    short/long options and descriptions from man pages into tam-clam
+    .comp completion files (defaulting to tam-clam's XDG completion
+    directory, installed to $(BINDIR)/tam-clam-gen-comp by Makefile).
+  - Added tests/test_abbr.c (unit tests for abbr table/builtin,
+    command/anywhere expansion, quote suppression, undo, and end-to-end
+    tam-clam-gen-comp -> tc_complete loading) and
+    sandbox/demo-0.3.4-abbr-compgen; bumped VERSION to 0.3.4 and updated
+    ROADMAP.md, plans/P4-extras.md (Phase P4 complete), and work/WHATNOW.
+  - Verified make test, make sanitize (ASan+UBSan), make fuzz
+    FUZZ_ITERS=5000 (0 crashes), demo output, and readelf -d (only
+    libc.so.6).
+
+FAILED
+
+  - Nothing.
+
+HANDOFF
+
+  - Phase P4 (0.3.0–0.3.4) is complete on dev.
+  - Next: Phase P5 (0.4.0 dogfooding, plans/P5-dogfood.md).

@@ -28,9 +28,9 @@ override CFLAGS += -std=c11 -Wall -Wextra -Wpedantic -Wshadow -Wvla \
 LIBTAM := $(LIBTAM_PREFIX)/lib/libtam.a
 
 # Everything but main.c, so the unit tests can link it.
-CORE_SRCS = src/arena.c src/array.c src/var.c src/func.c src/alias.c src/hash.c \
-	src/options.c src/pattern.c src/regex.c src/arith.c src/glob.c src/brace.c \
-	src/shell.c src/signals.c src/trap.c src/bg.c src/jobs.c src/input.c \
+CORE_SRCS = src/arena.c src/array.c src/var.c src/func.c src/alias.c src/abbr.c \
+	src/hash.c src/options.c src/pattern.c src/regex.c src/arith.c src/glob.c \
+	src/brace.c src/shell.c src/signals.c src/trap.c src/bg.c src/jobs.c src/input.c \
 	src/lex.c src/parse.c src/expand.c src/cond.c src/lint.c src/builtins.c \
 	src/builtins_special.c src/bi_declare.c src/bi_test.c src/bi_printf.c \
 	src/builtins_io.c src/builtins_cmd.c src/exec.c src/prompt.c \
@@ -38,7 +38,7 @@ CORE_SRCS = src/arena.c src/array.c src/var.c src/func.c src/alias.c src/hash.c 
 	src/edit/keymap.c src/edit/highlight.c src/edit/render.c src/edit/edit.c
 CORE_OBJS = $(patsubst src/%.c,$(B)/%.o,$(CORE_SRCS))
 TESTS = $(B)/tests/test_array $(B)/tests/test_var $(B)/tests/test_func $(B)/tests/test_alias \
-	$(B)/tests/test_hash $(B)/tests/test_options $(B)/tests/test_test \
+	$(B)/tests/test_abbr $(B)/tests/test_hash $(B)/tests/test_options $(B)/tests/test_test \
 	$(B)/tests/test_pattern $(B)/tests/test_regex $(B)/tests/test_brace \
 	$(B)/tests/test_cond $(B)/tests/test_arith $(B)/tests/test_glob \
 	$(B)/tests/test_procsub $(B)/tests/test_strict $(B)/tests/test_trap $(B)/tests/test_lex $(B)/tests/test_parse \
@@ -107,12 +107,13 @@ fuzz:
 
 install: $(B)/tam-clam
 	install -Dm755 $(B)/tam-clam $(DESTDIR)$(BINDIR)/tam-clam
+	install -Dm755 tools/tam-clam-gen-comp $(DESTDIR)$(BINDIR)/tam-clam-gen-comp
 	@for f in share/completions/*.comp; do \
 		install -Dm644 "$$f" "$(DESTDIR)$(PREFIX)/share/tam-clam/completions/$$(basename "$$f")"; \
 	done
 
 uninstall:
-	rm -f $(DESTDIR)$(BINDIR)/tam-clam
+	rm -f $(DESTDIR)$(BINDIR)/tam-clam $(DESTDIR)$(BINDIR)/tam-clam-gen-comp
 	rm -rf $(DESTDIR)$(PREFIX)/share/tam-clam/completions
 
 clean:

@@ -1,6 +1,6 @@
 # P4: The extras (0.3.x)
 
-**Status:** in progress (0.3.0, 0.3.1, 0.3.2, and 0.3.3 landed 2026-11-24).
+**Status:** complete (0.3.0–0.3.4 landed 2026-11-24).
 
 ## Goal
 

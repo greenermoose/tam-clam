@@ -5,10 +5,10 @@ of versions. Versions follow semantic versioning: during 0.x, the minor
 number marks a phase's big step and the patch number marks each
 milestone inside it.
 
-**Current version:** 0.3.3 (Phase P4 in progress: Oils-named strict modes
-`strict_errexit`, `command_sub_errexit`, `simple_word_eval`,
-`strict_argv`, and `set -o strict`, 2026-11-24; development continues on
-branch `dev`).
+**Current version:** 0.3.4 (Phase P4 complete: fish-style interactive
+abbreviations via `abbr` and line-editor Space/Enter expansion, plus
+POSIX sh man-page completion generator `tools/tam-clam-gen-comp`,
+2026-11-24; development continues on branch `dev`).
 
 ## Decided
 
