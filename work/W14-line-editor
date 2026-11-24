@@ -37,6 +37,8 @@ DONE
     ROADMAP.md, plans/P3-interactive.md, and work/WHATNOW.
   - Verified make clean test, make sanitize, and readelf -d (only
     libc.so.6).
+  - Reordered Ctrl+G guidance line to list Cut/Copy/Paste before
+    Undo/Redo per Fred's feedback.
 
 FAILED
 

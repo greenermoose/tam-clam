@@ -115,7 +115,7 @@ static bool buffer_incomplete(const char *s, size_t len)
 /* Guidance overlay text (Ctrl+G). */
 static const char guidance_text[] =
 	"--- tam-clam guidance (Escape to close) ---\n"
-	"Ctrl+Z Undo   Ctrl+Y Redo    Ctrl+X Cut     Ctrl+C Copy   Ctrl+V Paste (Alt+V prev)\n"
+	"Ctrl+X Cut   Ctrl+C Copy    Ctrl+V Paste (Alt+V prev)    Ctrl+Z Undo    Ctrl+Y Redo\n"
 	"Ctrl+A All    Ctrl+K Clear   Ctrl+L Redraw  Ctrl+E Run    Ctrl+Q Quit  Ctrl+\\ Cancel\n"
 	"Ctrl+Left/Right (Alt+,/.) Word   Ctrl+Home/End (Alt+</>) Buffer   Alt+M Mark\n"
 	"Alt+Enter Newline   Alt+E $EDITOR   Alt+Q Verbatim   Alt+# Comment   Alt+K/Shift+K Del";
