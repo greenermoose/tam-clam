@@ -13,6 +13,7 @@
 #include "tam-clam/builtins.h"
 #include "tam-clam/complete.h"
 #include "tam-clam/edit.h"
+#include "tam-clam/highlight.h"
 #include "tam-clam/history.h"
 #include "tam-clam/shell.h"
 #include "tam-clam/signals.h"
@@ -359,6 +360,9 @@ struct edit_ctx {
 	size_t comp_span_end;
 	char *comp_orig;
 	size_t comp_orig_len;
+	/* Active history suggestion suffix (0.2.4). */
+	bool want_sg;
+	const char *ghost;
 };
 
 static void ctx_reset_comp(struct edit_ctx *ctx, bool restore)
@@ -655,12 +659,36 @@ static void dispatch_widget(struct edit_ctx *ctx, enum tc_widget w)
 		tc_ebuf_move(b, tc_ebuf_prev_cp(b, b->cursor), b->has_mark);
 		break;
 	case TC_W_CHAR_RIGHT:
+		if (ctx->want_sg && !b->has_mark && b->cursor == b->len && b->len > 0) {
+			const char *g = tc_suggest_history(ctx->sh, b->data, b->len);
+			if (g && g[0]) {
+				const char *nl = strchr(g, '\n');
+				size_t glen = nl ? (size_t)(nl - g) : strlen(g);
+				(void)tc_ebuf_insert(b, g, glen, true);
+				ctx->ghost = NULL;
+				break;
+			}
+		}
 		tc_ebuf_move(b, tc_ebuf_next_cp(b, b->cursor), b->has_mark);
 		break;
 	case TC_W_WORD_LEFT:
 		tc_ebuf_move(b, tc_ebuf_word_left_pos(b, b->cursor), b->has_mark);
 		break;
 	case TC_W_WORD_RIGHT:
+		if (ctx->want_sg && !b->has_mark && b->cursor == b->len && b->len > 0) {
+			const char *g = tc_suggest_history(ctx->sh, b->data, b->len);
+			if (g && g[0]) {
+				size_t n = 0;
+				while (g[n] == ' ' || g[n] == '\t')
+					n++;
+				while (g[n] && g[n] != ' ' && g[n] != '\t' && g[n] != '\n')
+					n++;
+				if (n > 0) {
+					(void)tc_ebuf_insert(b, g, n, true);
+					break;
+				}
+			}
+		}
 		tc_ebuf_move(b, tc_ebuf_word_right_pos(b, b->cursor), b->has_mark);
 		break;
 	case TC_W_LINE_START:
@@ -888,14 +916,25 @@ enum tc_edit_status tc_editor_readline(struct tc_editor *ed,
 	tam_key_event_t chord[TC_EDIT_CHORD_MAX];
 	size_t chord_len = 0;
 
+	struct tc_hl_cache hl_cache;
+	tc_hl_cache_clear(&hl_cache);
+	const char *hl_env = sh ? tc_var_get(&sh->vars, "TAM_CLAM_HIGHLIGHT") : NULL;
+	const char *sg_env = sh ? tc_var_get(&sh->vars, "TAM_CLAM_SUGGEST") : NULL;
+	bool want_hl = (!hl_env || strcmp(hl_env, "0") != 0) && tty.colors > 0;
+	bool want_sg = (!sg_env || strcmp(sg_env, "0") != 0);
+	ctx.want_sg = want_sg;
+	unsigned char *styles = NULL;
+	size_t styles_cap = 0;
+
 	const char *ov = NULL;
-	(void)tc_render_draw(&rs, &tty, &buf, ps1, ps2, ov);
+	(void)tc_render_draw(&rs, &tty, &buf, ps1, ps2, NULL, NULL, ov);
 
 	while (!ctx.done) {
 		if (tc_sigwinch_seen) {
 			tc_sigwinch_seen = 0;
 			(void)tam_tty_size(&tty, NULL, NULL);
-			(void)tc_render_draw(&rs, &tty, &buf, ps1, ps2, ov);
+			(void)tc_render_draw(&rs, &tty, &buf, ps1, ps2,
+					     want_hl ? styles : NULL, ctx.ghost, ov);
 		}
 		if (tc_sigint_seen) {
 			tc_sigint_seen = 0;
@@ -1089,9 +1128,34 @@ enum tc_edit_status tc_editor_readline(struct tc_editor *ed,
 			ov = NULL;
 		}
 
-		if (dirty && !ctx.done)
-			(void)tc_render_draw(&rs, &tty, &buf, ps1, ps2, ov);
+		if (dirty && !ctx.done) {
+			unsigned char *use_styles = NULL;
+			if (want_hl && buf.len > 0) {
+				if (buf.len > styles_cap) {
+					unsigned char *ns = realloc(styles, buf.len);
+					if (ns) {
+						styles = ns;
+						styles_cap = buf.len;
+					}
+				}
+				if (styles && styles_cap >= buf.len) {
+					tc_highlight_line(sh, &hl_cache,
+							  buf.data, buf.len, styles);
+					use_styles = styles;
+				}
+			}
+			if (want_sg && ctx.ov_mode == OV_NONE &&
+			    !buf.has_mark && buf.cursor == buf.len && buf.len > 0) {
+				ctx.ghost = tc_suggest_history(sh, buf.data, buf.len);
+			} else {
+				ctx.ghost = NULL;
+			}
+			(void)tc_render_draw(&rs, &tty, &buf, ps1, ps2,
+					     use_styles, ctx.ghost, ov);
+		}
 	}
+
+	free(styles);
 
 	/* Commit final visual line (no overlay, no selection) before leaving raw mode. */
 	if (ctx.status == TC_EDIT_OK) {

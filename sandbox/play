@@ -26,9 +26,10 @@ while :; do
 	printf ' 13) 0.2.1 history     (Up/Down prefix, Ctrl+F search, Alt+L, history)\n'
 	printf ' 14) 0.2.2 job control (Ctrl+P pause, Ctrl+\\ break, jobs/fg/bg, %%n)\n'
 	printf ' 15) 0.2.3 completion  (Tab/Shift+Tab: cmds, files, vars, users, .comp)\n'
-	printf ' 16) interactive shell (try tam-clam live at a prompt)\n'
+	printf ' 16) 0.2.4 highlight   (live syntax highlighting & dimmed suggestions)\n'
+	printf ' 17) interactive shell (try tam-clam live at a prompt)\n'
 	printf '  q) quit\n'
-	printf 'Choose [1-16, q]: '
+	printf 'Choose [1-17, q]: '
 	IFS= read -r choice || break
 	printf '\n'
 	case "$choice" in
@@ -47,7 +48,8 @@ while :; do
 	13) "$ROOT/sandbox/demo-0.2.1-history" ;;
 	14) "$ROOT/sandbox/demo-0.2.2-jobs" ;;
 	15) "$ROOT/sandbox/demo-0.2.3-complete" ;;
-	16) "$ROOT/sandbox/demo-interactive" ;;
+	16) "$ROOT/sandbox/demo-0.2.4-highlight" ;;
+	17) "$ROOT/sandbox/demo-interactive" ;;
 	q|Q) break ;;
 	*) echo "Unknown choice: $choice" ;;
 	esac

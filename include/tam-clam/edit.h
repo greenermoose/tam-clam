@@ -237,6 +237,8 @@ void tc_render_init(struct tc_render_state *rs);
 int tc_render_draw(struct tc_render_state *rs, tam_tty_t *tty,
 		   const struct tc_edit_buf *buf,
 		   const char *ps1, const char *ps2,
+		   const unsigned char *styles,
+		   const char *ghost,
 		   const char *overlay);
 int tc_render_finish(struct tc_render_state *rs, tam_tty_t *tty,
 		     const struct tc_edit_buf *buf,

@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "tam-clam/edit.h"
+#include "tam-clam/highlight.h"
 #include "tam_uni.h"
 
 struct out_buf {
@@ -91,12 +92,31 @@ static void advance_col(int cols, int cw, int *row, int *col)
 	}
 }
 
+static const char *sgr_for_kind(unsigned char k)
+{
+	switch ((enum tc_hl_kind)k) {
+	case TC_HL_CMD_OK:  return "\x1b[32m";    /* green */
+	case TC_HL_CMD_BAD: return "\x1b[1;31m";  /* bold red */
+	case TC_HL_KEYWORD: return "\x1b[35m";    /* magenta */
+	case TC_HL_STRING:  return "\x1b[33m";    /* yellow */
+	case TC_HL_VAR:     return "\x1b[36m";    /* cyan */
+	case TC_HL_OP:      return "\x1b[36m";    /* cyan */
+	case TC_HL_COMMENT: return "\x1b[2m";     /* dim */
+	case TC_HL_ERROR:   return "\x1b[1;31m";  /* bold red */
+	case TC_HL_NONE:
+	default:            return "\x1b[0m";
+	}
+}
+
 static int render_internal(struct tc_render_state *rs, tam_tty_t *tty,
 			   const struct tc_edit_buf *buf,
 			   const char *ps1, const char *ps2,
+			   const unsigned char *styles,
+			   const char *ghost,
 			   const char *overlay, bool finishing)
 {
 	int cols = tty->cols > 0 ? tty->cols : 80;
+	bool use_color = !finishing && styles != NULL && tty->colors > 0;
 	struct out_buf ob = {0};
 
 	/* Move back to row 0, column 0 of our previous frame. */
@@ -113,6 +133,7 @@ static int render_internal(struct tc_render_state *rs, tam_tty_t *tty,
 	size_t sel0 = 0, sel1 = 0;
 	bool has_sel = !finishing && tc_ebuf_sel_range(buf, &sel0, &sel1);
 	bool in_rev = false;
+	unsigned char cur_style = TC_HL_NONE;
 
 	int row = 0, col = 0;
 	int cur_row = 0, cur_col = 0;
@@ -138,16 +159,25 @@ static int render_internal(struct tc_render_state *rs, tam_tty_t *tty,
 			break;
 
 		bool want_rev = has_sel && (i >= sel0 && i < sel1);
-		if (want_rev != in_rev) {
-			ob_str(&ob, want_rev ? "\x1b[7m" : "\x1b[27m");
+		unsigned char want_style = (use_color && !want_rev) ? styles[i] : TC_HL_NONE;
+
+		if (want_rev != in_rev || (!want_rev && want_style != cur_style)) {
+			if (in_rev || cur_style != TC_HL_NONE)
+				ob_str(&ob, "\x1b[0m");
 			in_rev = want_rev;
+			cur_style = want_rev ? TC_HL_NONE : want_style;
+			if (in_rev)
+				ob_str(&ob, "\x1b[7m");
+			else if (cur_style != TC_HL_NONE)
+				ob_str(&ob, sgr_for_kind(cur_style));
 		}
 
 		unsigned char ch = (unsigned char)buf->data[i];
 		if (ch == '\n') {
-			if (in_rev) {
-				ob_str(&ob, "\x1b[27m");
+			if (in_rev || cur_style != TC_HL_NONE) {
+				ob_str(&ob, "\x1b[0m");
 				in_rev = false;
+				cur_style = TC_HL_NONE;
 			}
 			ob_str(&ob, "\r\n");
 			ob_str(&ob, p2);
@@ -204,8 +234,36 @@ static int render_internal(struct tc_render_state *rs, tam_tty_t *tty,
 		i += n;
 	}
 
-	if (in_rev)
-		ob_str(&ob, "\x1b[27m");
+	if (in_rev || cur_style != TC_HL_NONE)
+		ob_str(&ob, "\x1b[0m");
+
+	if (!finishing && ghost && *ghost) {
+		ob_str(&ob, "\x1b[2m");
+		const char *gp = ghost;
+		while (*gp && *gp != '\n') {
+			uint32_t cp = 0;
+			size_t n = tam_utf8_decode(gp, strlen(gp), &cp);
+			if (n == 0)
+				n = 1;
+			int cw = tam_uni_width(cp);
+			if (cw < 0)
+				cw = 1;
+			if (cw == 2 && col + 2 > cols) {
+				ob_str(&ob, "\r\n");
+				row++;
+				col = 0;
+			}
+			ob_append(&ob, gp, n);
+			col += cw;
+			if (col >= cols) {
+				ob_str(&ob, "\r\n");
+				row++;
+				col = 0;
+			}
+			gp += n;
+		}
+		ob_str(&ob, "\x1b[0m");
+	}
 
 	if (finishing) {
 		ob_str(&ob, "\r\n");
@@ -283,16 +341,18 @@ static int render_internal(struct tc_render_state *rs, tam_tty_t *tty,
 int tc_render_draw(struct tc_render_state *rs, tam_tty_t *tty,
 		   const struct tc_edit_buf *buf,
 		   const char *ps1, const char *ps2,
+		   const unsigned char *styles,
+		   const char *ghost,
 		   const char *overlay)
 {
-	return render_internal(rs, tty, buf, ps1, ps2, overlay, false);
+	return render_internal(rs, tty, buf, ps1, ps2, styles, ghost, overlay, false);
 }
 
 int tc_render_finish(struct tc_render_state *rs, tam_tty_t *tty,
 		     const struct tc_edit_buf *buf,
 		     const char *ps1, const char *ps2)
 {
-	return render_internal(rs, tty, buf, ps1, ps2, NULL, true);
+	return render_internal(rs, tty, buf, ps1, ps2, NULL, NULL, NULL, true);
 }
 
 /* Base64-encode and emit OSC 52 clipboard write (skipped on TERM=linux). */

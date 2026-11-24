@@ -180,6 +180,8 @@ int tc_write_all(int fd, const void *buf, size_t len)
 
 void tc_error(const struct tc_shell *sh, unsigned long line, const char *fmt, ...)
 {
+	if (sh && sh->silent_errors)
+		return;
 	char buf[1024];
 	int n;
 	if (line && !sh->interactive)

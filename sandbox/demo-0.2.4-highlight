@@ -1,0 +1,31 @@
+#!/bin/sh
+# 0.2.4 demo: live syntax highlighting & dimmed history suggestions.
+set -eu
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+SH="$ROOT/build/tam-clam"
+[ -x "$SH" ] || make -C "$ROOT"
+
+TMPHIST=$(mktemp /tmp/tam-clam-demo-hl.XXXXXX)
+trap 'rm -f "$TMPHIST"' EXIT
+
+cat >"$TMPHIST" <<EOF
+v1 1795430001 0 /tmp echo "hello from tam-clam 0.2.4"
+v1 1795430002 0 /tmp git status --short
+v1 1795430003 0 /tmp for x in one two three; do echo "item: \$x"; done
+EOF
+
+cat <<EOF
+=== tam-clam $(cat "$ROOT/VERSION") highlighting & suggestions demo ===
+
+Things to try at the live prompt:
+  echo "hi" \$HOME | ls # ok    green cmds, yellow strings, cyan vars/ops, dim comment
+  nosuchcmd                     bold red unknown command before pressing Enter
+  echo "unterminated            bold red unterminated quote before pressing Enter
+  echo )                        bold red real-parser syntax error before Enter
+  git <Right>                   accept full dimmed history suggestion ("status --short")
+  for <Ctrl+Right>              accept one word at a time (Alt+. on TERM=linux)
+  TAM_CLAM_HIGHLIGHT=0          disable highlighting (TAM_CLAM_SUGGEST=0 for suggestions)
+  Ctrl+Q                        exit on empty prompt
+
+EOF
+exec env HISTFILE="$TMPHIST" PS1='tam-clam$ ' PS2='tam-clam> ' "$SH"

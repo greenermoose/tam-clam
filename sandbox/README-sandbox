@@ -52,5 +52,7 @@ IN THIS REPOSITORY
                                      jobs/fg/bg, %n job IDs, notifications
     ./sandbox/demo-0.2.3-complete    0.2.3: Tab/Shift+Tab completion for
                                      commands, files, vars, users, .comp
+    ./sandbox/demo-0.2.4-highlight   0.2.4: live syntax highlighting and
+                                     dimmed history suggestions
     ./sandbox/demo-interactive       start an interactive tam-clam
                                      prompt with ideas to try live

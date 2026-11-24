@@ -14,6 +14,7 @@ Things to try:
   Up / Down / Ctrl+F / Alt+L / history   # 0.2.1 prefix & incremental history
   sleep 30 (Ctrl+P), jobs, bg, fg, kill %1 # 0.2.2 job control
   Tab / Shift+Tab (tam-clam --<Tab>)       # 0.2.3 completion
+  Right / Ctrl+Right (ghost suggestion)    # 0.2.4 highlighting & suggestions
   PS1='clam> '                           # change the live prompt
   echo \$'\e[36m\U0001F41A hello!\e[0m'   # 0.1.0 ANSI-C + UTF-8
   echo \$((6 * 7))                        # 0.1.0 64-bit arithmetic

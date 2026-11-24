@@ -3,24 +3,23 @@ WHATNOW
 What tam-clam is doing now and what comes next. Read this first; revise
 it at the end of every session (work/README-work).
 
-Updated: 2026-11-24, with W17 (0.2.3)
+Updated: 2026-11-24, with W18 (0.2.4)
 
 
 STATE
 
-  Version 0.2.3, Phase P3 IN PROGRESS (line editor, history, job
-  control, and completion complete), on branch dev. 0.2.3 adds:
-  - context-aware completion in include/tam-clam/complete.h and
-    src/complete/complete.c: commands (builtins, aliases, functions,
-    PATH), files/directories, variables ($VAR/${VAR}), user names
-    (~user/), and lazy declarative *.comp files for options/subcommands;
-  - starter share/completions/{tam-clam,git,ls,grep,cd}.comp installed
-    by make install;
-  - Tab (complete-next), Shift+Tab (complete-prev), longest-common-
-    prefix expansion, candidate overlay, and Escape restore in
-    src/edit/edit.c;
-  - tests/test_complete.c unit tests, live PTY completion tests in
-    tests/pty/test_pty.c, and sandbox/demo-0.2.3-complete.
+  Version 0.2.4, Phase P3 IN PROGRESS (line editor, history, job
+  control, completion, and highlighting/suggestions complete), on
+  branch dev. 0.2.4 adds:
+  - live syntax highlighting in include/tam-clam/highlight.h and
+    src/edit/highlight.c backed by the real parser (sh->silent_errors),
+    with a 64-slot per-prompt command-existence cache and opt-out via
+    TAM_CLAM_HIGHLIGHT=0 / NO_COLOR;
+  - dimmed history ghost-text suggestions rendered in src/edit/render.c
+    and accepted with Right (full) or Ctrl+Right / Alt+. (one word) at
+    end of line in src/edit/edit.c (opt-out via TAM_CLAM_SUGGEST=0);
+  - tests/test_highlight.c unit tests, live PTY highlight/suggestion
+    tests in tests/pty/test_pty.c, and sandbox/demo-0.2.4-highlight.
   readelf -d lists only libc.so.6. make test and make sanitize pass.
 
   Fred's decisions so far are in ROADMAP.md and the plans: POSIX.1-2024
@@ -35,19 +34,21 @@ STATE
 
 NEXT
 
-  1. 0.2.4 (plans/P3-interactive.md):
-     - Syntax highlighting as you type (from the real lexer/parser,
-       showing unknown commands, unterminated quotes, and syntax errors
-       before Enter, with per-prompt command-existence caching) and
-       dimmed history suggestions accepted with Right / Ctrl+Right.
-     Bump VERSION to 0.2.4 in the first code commit.
+  1. 0.2.5 (plans/P3-interactive.md):
+     - Prompts: PS1 escapes, a right prompt (RPS1), and hooks that run
+       before each prompt (`precmd` / `PROMPT_COMMAND`) and before each
+       command (`preexec` / `PS0`). Completes Phase P3.
+     Bump VERSION to 0.2.5 in the first code commit.
 
 
 WAITING FOR FRED
 
-  - Trying 0.2.3: ./sandbox/demo-0.2.3-complete or ./build/tam-clam
-    (Tab/Shift+Tab on commands, files, $vars, ~users, tam-clam --<Tab>,
-    git <Tab>).
+  - Trying 0.2.4: ./sandbox/demo-0.2.4-highlight or ./build/tam-clam
+    (live syntax colors, unknown commands, syntax errors, Right /
+    Ctrl+Right history suggestions).
+  - Open point for 0.2.5 (plans/P3-interactive.md): Fred's energy rule
+    forbids timers/polling while idle; confirm clock escapes in PS1
+    render only when the prompt is drawn (no background tick).
   - Optional: installing dash / mksh / busybox for multi-shell spec
     comparisons and clang for a 24-hour libFuzzer run.
 

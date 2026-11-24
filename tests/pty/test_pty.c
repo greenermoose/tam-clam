@@ -418,6 +418,44 @@ static void test_interactive_complete(const char *sh)
 	CHECK(pty_finish(&s) == 0);
 }
 
+static void test_interactive_highlight_and_suggest(const char *sh)
+{
+	struct pty_sess s;
+	CHECK(pty_start(&s, sh, "xterm-256color") == 0);
+	CHECK(pty_wait_for(&s, "CLAM$ ", 2000));
+
+	/* 1. Seed history with a distinctive multi-word command. */
+	pty_clear_out(&s);
+	const char *seed = "printf 'SG:%s-%s\\n' one two\r";
+	CHECK(pty_send(&s, seed, strlen(seed)) == 0);
+	CHECK(pty_wait_after(&s, "SG:one-two", "CLAM$ ", 2000));
+
+	/* 2. Typing "printf 'SG" renders green SGR (\x1b[32m) and dim ghost (\x1b[2m);
+	 *    Right (\x1b[C) accepts full suggestion! */
+	pty_clear_out(&s);
+	CHECK(pty_send(&s, "printf 'SG", 10) == 0);
+	CHECK(pty_wait_after(&s, "\x1b[32m", "\x1b[2m", 2000));
+	pty_clear_out(&s);
+	CHECK(pty_send(&s, "\x1b[C\r", 4) == 0);
+	CHECK(pty_wait_after(&s, "SG:one-two", "CLAM$ ", 2000));
+
+	/* 3. Ctrl+Right (\x1b[1;5C) accepts one word of suggestion. */
+	pty_clear_out(&s);
+	const char *wacc = "printf 'SG:%s-%s\\n'\x1b[1;5C three\r";
+	CHECK(pty_send(&s, wacc, strlen(wacc)) == 0);
+	CHECK(pty_wait_after(&s, "SG:one-three", "CLAM$ ", 2000));
+
+	/* 4. Unknown command highlights in bold red (\x1b[1;31m) before Enter. */
+	pty_clear_out(&s);
+	const char *bad = "nosuchcmd_xyz_999";
+	CHECK(pty_send(&s, bad, strlen(bad)) == 0);
+	CHECK(pty_wait_for(&s, "\x1b[1;31m", 2000));
+	CHECK(pty_send(&s, "\x0b", 1) == 0); /* Ctrl+K clears buffer */
+
+	CHECK(pty_send(&s, "\x11", 1) == 0);
+	CHECK(pty_finish(&s) == 0);
+}
+
 int main(int argc, char **argv)
 {
 	const char *sh = argc > 1 ? argv[1] : "build/tam-clam";
@@ -426,5 +464,6 @@ int main(int argc, char **argv)
 	test_interactive_history(sh);
 	test_interactive_jobs(sh);
 	test_interactive_complete(sh);
+	test_interactive_highlight_and_suggest(sh);
 	CHECK_DONE("test_pty");
 }

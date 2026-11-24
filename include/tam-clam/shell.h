@@ -111,6 +111,7 @@ struct tc_shell {
 	struct tc_editor *editor;  /* interactive line editor (0.2.0), or NULL */
 	struct tc_history *hist;   /* interactive history (0.2.1), or NULL */
 	bool private_mode;         /* --private: write no history to disk */
+	bool silent_errors;        /* suppress tc_error output during syntax probe */
 };
 
 void tc_shell_init(struct tc_shell *sh, const char *name);

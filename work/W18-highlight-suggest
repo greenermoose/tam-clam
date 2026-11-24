@@ -1,0 +1,43 @@
+W18 SYNTAX HIGHLIGHTING AND HISTORY SUGGESTIONS (0.2.4)
+
+Date: 2026-11-24
+AI harness: agy 1.5.15
+AI model: Gemini 4 Neon (Medium)
+Continues: W17
+
+GUIDANCE
+
+  Fred: "/plan Yes, do the work for 0.2.4"
+  Fred: "Approved. Proceed."
+
+DONE
+
+  - Implemented live syntax highlighting and dimmed history suggestions
+    in include/tam-clam/highlight.h and src/edit/highlight.c:
+    - Lexical + real-parser syntax pass (via sh->silent_errors) showing
+      known commands (green), unknown commands (bold red), keywords
+      (magenta), strings (yellow), variables/operators (cyan), comments
+      (dim), and unterminated quotes or unexpected-token syntax errors
+      (bold red) before Enter.
+    - Per-prompt 64-entry command-existence cache avoiding repeated
+      PATH/stat calls; opt-out via TAM_CLAM_HIGHLIGHT=0,
+      TAM_CLAM_SUGGEST=0, or NO_COLOR.
+    - Dimmed history ghost-text suggestions rendered after the buffer
+      in src/edit/render.c and accepted with Right (full) or Ctrl+Right
+      / Alt+. (one word) at end of line in src/edit/edit.c.
+  - Added tests/test_highlight.c and extended tests/pty/test_pty.c.
+  - Added sandbox/demo-0.2.4-highlight; bumped VERSION to 0.2.4;
+    updated ROADMAP.md, plans/P3-interactive.md, sandbox/, and
+    work/WHATNOW.
+  - Verified make clean test, make sanitize, and readelf -d (only
+    libc.so.6).
+
+FAILED
+
+  - Nothing.
+
+HANDOFF
+
+  - 0.2.4 highlighting and suggestions are complete on dev.
+  - Next: 0.2.5 prompts (plans/P3-interactive.md): PS1 escapes, right
+    prompt, and precmd / preexec hooks (completes Phase P3).
