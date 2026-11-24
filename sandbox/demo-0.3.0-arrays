@@ -1,0 +1,51 @@
+#!/bin/sh
+# 0.3.0 demo: indexed and associative arrays (Phase P4).
+set -eu
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+SH="$ROOT/build/tam-clam"
+[ -x "$SH" ] || make -C "$ROOT"
+
+echo "=== tam-clam $(cat "$ROOT/VERSION") arrays demo (Phase P4) ==="
+echo
+
+"$SH" -c '
+echo "1. Indexed arrays, append, negative index, sparse indices:"
+fruits=(apple "blood orange" cherry)
+fruits+=(date)
+fruits[10]=elderberry
+printf "  count = %s\n" "${#fruits[@]}"
+printf "  keys  = %s\n" "${!fruits[*]}"
+printf "  last  = %s\n" "${fruits[-1]}"
+for i in "${!fruits[@]}"; do
+    printf "  fruits[%s] = %s\n" "$i" "${fruits[$i]}"
+done
+
+echo
+echo "2. Element-wise trimming:"
+files=(alpha.c beta.c gamma.c)
+printf "  stems = %s\n" "${files[*]%.c}"
+
+echo
+echo "3. Associative arrays (declare -A):"
+declare -A colors=([sky]=blue [grass]=green)
+colors[sun]=yellow
+colors[sky]+="-bright"
+printf "  count = %s\n" "${#colors[@]}"
+for k in "${!colors[@]}"; do
+    printf "  colors[%s] = %s\n" "$k" "${colors[$k]}"
+done
+
+echo
+echo "4. Arithmetic indexing:"
+nums=(10 20 30)
+sum=$(( nums[0] + nums[1] + nums[2] ))
+nums[1]=$(( nums[1] + 5 ))
+printf "  sum = %s, updated nums[1] = %s\n" "$sum" "${nums[1]}"
+
+echo
+echo "5. read -a and declare -p:"
+printf "red green blue\n" | {
+    read -a palette
+    declare -p palette
+}
+'

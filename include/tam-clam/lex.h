@@ -53,6 +53,8 @@ enum {
 	TC_WORD_CMDSUB = 1 << 6,  /* $(...) command substitution */
 	TC_WORD_ARITH  = 1 << 7,  /* $((...)) arithmetic expansion */
 	TC_WORD_ANSI_Q = 1 << 8,  /* $'...' ANSI-C quoting */
+	TC_WORD_ASSIGN_PLUS = 1 << 9,  /* NAME+= or NAME[sub]+= */
+	TC_WORD_FOLLOWED_LP = 1 << 10, /* word terminated immediately by '(' */
 };
 
 struct tc_token {

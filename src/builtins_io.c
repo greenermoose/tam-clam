@@ -336,6 +336,7 @@ int tc_bi_read(struct tc_shell *sh, int argc, char **argv, unsigned long line)
 {
 	bool raw = false;
 	char delim = '\n';
+	const char *arr_name = NULL;
 	int i = 1;
 	for (; i < argc && argv[i][0] == '-' && argv[i][1] != '\0'; i++) {
 		if (strcmp(argv[i], "--") == 0) {
@@ -345,6 +346,18 @@ int tc_bi_read(struct tc_shell *sh, int argc, char **argv, unsigned long line)
 		for (const char *p = argv[i] + 1; *p; p++) {
 			if (*p == 'r') {
 				raw = true;
+			} else if (*p == 'a') {
+				const char *aarg = p[1] ? p + 1 : NULL;
+				if (!aarg) {
+					if (i + 1 >= argc) {
+						tc_error(sh, line,
+							 "read: -a: option requires an argument");
+						return TC_STATUS_USAGE;
+					}
+					aarg = argv[++i];
+				}
+				arr_name = aarg;
+				break;
 			} else if (*p == 'd') {
 				const char *darg = p[1] ? p + 1 : NULL;
 				if (!darg) {
@@ -368,10 +381,17 @@ int tc_bi_read(struct tc_shell *sh, int argc, char **argv, unsigned long line)
 	char **vars = (i < argc) ? argv + i : default_vars;
 	int nvars = (i < argc) ? (argc - i) : 1;
 
-	for (int v = 0; v < nvars; v++) {
-		if (!tc_var_valid_name(vars[v], strlen(vars[v]))) {
-			tc_error(sh, line, "read: `%s': not a valid identifier", vars[v]);
+	if (arr_name) {
+		if (!tc_var_valid_name(arr_name, strlen(arr_name))) {
+			tc_error(sh, line, "read: `%s': not a valid identifier", arr_name);
 			return TC_STATUS_USAGE;
+		}
+	} else {
+		for (int v = 0; v < nvars; v++) {
+			if (!tc_var_valid_name(vars[v], strlen(vars[v]))) {
+				tc_error(sh, line, "read: `%s': not a valid identifier", vars[v]);
+				return TC_STATUS_USAGE;
+			}
 		}
 	}
 
@@ -473,6 +493,76 @@ int tc_bi_read(struct tc_shell *sh, int argc, char **argv, unsigned long line)
 		ifs = " \t\n";
 
 	int status = eof ? 1 : 0;
+	if (arr_name) {
+		unsigned fl = sh->opt_allexport ? TC_VAR_EXPORT : 0;
+		int rr = tc_var_reset_array(&sh->vars, arr_name, fl);
+		if (rr != TC_VAR_OK) {
+			if (rr == TC_VAR_ERR_READONLY)
+				tc_error(sh, line, "read: %s: readonly variable", arr_name);
+			else if (rr == TC_VAR_ERR_TYPE)
+				tc_error(sh, line, "read: %s: cannot convert associative to indexed array", arr_name);
+			else
+				tc_error(sh, line, "read: out of memory");
+			free(buf);
+			free(esc);
+			return 2;
+		}
+		if (ifs[0] == '\0') {
+			if (len > 0) {
+				char *tmp = malloc(len + 1);
+				if (!tmp) {
+					tc_error(sh, line, "read: out of memory");
+					status = 2;
+				} else {
+					memcpy(tmp, buf, len);
+					tmp[len] = '\0';
+					if (tc_var_append_elem(&sh->vars, arr_name, tmp, fl) != TC_VAR_OK) {
+						tc_error(sh, line, "read: out of memory");
+						status = 2;
+					}
+					free(tmp);
+				}
+			}
+			free(buf);
+			free(esc);
+			return status;
+		}
+		size_t pos = 0;
+		while (pos < len && !esc[pos] && is_ifs_ws(ifs, buf[pos]))
+			pos++;
+		while (pos < len) {
+			size_t start = pos;
+			while (pos < len && (esc[pos] || (!is_ifs_ws(ifs, buf[pos]) &&
+							  !is_ifs_nws(ifs, buf[pos]))))
+				pos++;
+			size_t flen = pos - start;
+			char *tmp = malloc(flen + 1);
+			if (!tmp) {
+				tc_error(sh, line, "read: out of memory");
+				status = 2;
+				break;
+			}
+			memcpy(tmp, buf + start, flen);
+			tmp[flen] = '\0';
+			if (tc_var_append_elem(&sh->vars, arr_name, tmp, fl) != TC_VAR_OK) {
+				free(tmp);
+				tc_error(sh, line, "read: out of memory");
+				status = 2;
+				break;
+			}
+			free(tmp);
+			while (pos < len && !esc[pos] && is_ifs_ws(ifs, buf[pos]))
+				pos++;
+			if (pos < len && !esc[pos] && is_ifs_nws(ifs, buf[pos])) {
+				pos++;
+				while (pos < len && !esc[pos] && is_ifs_ws(ifs, buf[pos]))
+					pos++;
+			}
+		}
+		free(buf);
+		free(esc);
+		return status;
+	}
 	if (ifs[0] == '\0') {
 		if (set_read_var(sh, vars[0], buf, len, line) != 0)
 			status = 2;

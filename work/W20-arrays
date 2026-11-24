@@ -1,0 +1,47 @@
+W20 INDEXED AND ASSOCIATIVE ARRAYS (0.3.0, PHASE P4 STARTED)
+
+Date: 2026-11-24
+AI harness: agy 1.5.16
+AI model: Gemini 4 Neon (Medium)
+Continues: W19
+
+GUIDANCE
+
+  Fred: "/plan Do the work for tam-clam 0.3.0"
+  Fred: "Approved. Proceed."
+
+DONE
+
+  - Added sparse indexed arrays (sorted int64_t -> char*) and associative
+    arrays (open-addressed FNV-1a hash table) in include/tam-clam/array.h
+    and src/array.c, integrated into src/var.c (scalar<->array conversion,
+    readonly enforcement, envp exclusion, safe prefix-override save/restore).
+  - Extended AST (include/tam-clam/ast.h), deep cloning (src/func.c), and
+    lint traversal (src/lint.c) for subscripts and compound assignments.
+  - Updated src/lex.c and src/parse.c for ${a[sub]}, ${a[@]}, ${a[*]},
+    ${#a[@]}, ${!a[@]}, ${!a[*]}, a[sub]=v, a+=v, a=(...), a+=(...), and
+    compound assignment arguments to declare/typeset/readonly/export.
+  - Updated src/expand.c for array/key multi-word expansion, element-wise
+    pattern trimming (${a[@]#pat}, ${a[@]%pat}), and all POSIX parameter
+    operators on array elements.
+  - Updated src/arith.c for array indexing ($((a[i])), a[i]+=1, ++a[i]).
+  - Added src/bi_declare.c (declare/typeset -a/-A/-p/-r/-x/-g/+x, refusing
+    unsupported flags cleanly), unset 'a[sub]' and array set printing in
+    src/builtins_special.c, and read -a in src/builtins_io.c.
+  - Added tests/test_array.c (123 checks), tests/spec/arrays.test.sh (22
+    cases verified against bash --posix), fuzz corpus seeds, and
+    sandbox/demo-0.3.0-arrays; bumped VERSION to 0.3.0 and updated
+    ROADMAP.md, plans/P4-extras.md, and work/WHATNOW.
+  - Verified make test, make sanitize (ASan+UBSan), make fuzz
+    FUZZ_ITERS=5000 (0 crashes), demo output, and readelf -d (only
+    libc.so.6).
+
+FAILED
+
+  - Nothing.
+
+HANDOFF
+
+  - Phase P4 started: 0.3.0 (indexed and associative arrays) landed on dev.
+  - Next: 0.3.1 ([[ ]] with == patterns and linear-time POSIX ERE =~,
+    local and full declare, brace expansion {a,b} and {1..9}).

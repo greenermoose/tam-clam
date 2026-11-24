@@ -50,8 +50,17 @@ int tc_bi_history(struct tc_shell *sh, int argc, char **argv, unsigned long line
 int tc_bi_jobs(struct tc_shell *sh, int argc, char **argv, unsigned long line);
 int tc_bi_fg(struct tc_shell *sh, int argc, char **argv, unsigned long line);
 int tc_bi_bg(struct tc_shell *sh, int argc, char **argv, unsigned long line);
+int tc_bi_declare(struct tc_shell *sh, int argc, char **argv, unsigned long line);
+
+/* Execute a declaration builtin (declare/typeset/readonly/export) that has
+ * compound array assignment arguments (decl_assign). */
+int tc_exec_decl_builtin(struct tc_shell *sh, const char *cmd,
+			 const struct tc_word *words, size_t nwords,
+			 unsigned long line);
 
 /* Write s in POSIX single-quoted form to fd. 0 or -1. */
 int tc_write_shell_quoted(int fd, const char *s);
+/* Write an indexed or associative array value as ([k]='v' ...). 0 or -1. */
+int tc_write_array_value(int fd, const struct tc_var_entry *e);
 
 #endif

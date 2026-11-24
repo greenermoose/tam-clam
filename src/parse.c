@@ -232,6 +232,7 @@ static void tok_to_word(const struct tc_token *t, struct tc_word *w)
 	w->len = t->len;
 	w->parts = t->parts;
 	w->flags = t->flags;
+	w->decl_assign = NULL;
 	w->line = t->line;
 	w->col = t->col;
 }
@@ -306,49 +307,325 @@ static int parse_and_or(struct tc_parser *p, struct tc_node **out);
 static int parse_compound_list(struct tc_parser *p, struct tc_node **out);
 static int parse_compound_with_redirs(struct tc_parser *p, struct tc_node **out);
 
+static int slice_wparts_range(struct tc_arena *a,
+			      const struct tc_wpart *start_wp, size_t start_off,
+			      const struct tc_wpart *end_wp, size_t end_off,
+			      struct tc_wpart **out)
+{
+	*out = NULL;
+	struct tc_wpart *head = NULL, **tail = &head;
+	for (const struct tc_wpart *wp = start_wp; wp; wp = wp->next) {
+		size_t lo = (wp == start_wp) ? start_off : 0;
+		size_t hi = (wp == end_wp) ? end_off : wp->len;
+		if (wp->kind == TC_WPART_LITERAL) {
+			if (hi > lo) {
+				struct tc_wpart *c = tc_arena_alloc(a, sizeof(*c));
+				if (!c)
+					return TC_ERR_NOMEM;
+				*c = *wp;
+				c->text = wp->text + lo;
+				c->len = hi - lo;
+				c->next = NULL;
+				*tail = c;
+				tail = &c->next;
+			}
+		} else {
+			struct tc_wpart *c = tc_arena_alloc(a, sizeof(*c));
+			if (!c)
+				return TC_ERR_NOMEM;
+			*c = *wp;
+			c->next = NULL;
+			*tail = c;
+			tail = &c->next;
+		}
+		if (wp == end_wp)
+			break;
+	}
+	*out = head;
+	return TC_OK;
+}
+
+static int slice_wparts_after(struct tc_arena *a,
+			      const struct tc_wpart *wp, size_t off,
+			      struct tc_wpart **out)
+{
+	if (!wp) {
+		*out = NULL;
+		return TC_OK;
+	}
+	if (off < wp->len) {
+		struct tc_wpart *head = tc_arena_alloc(a, sizeof(*head));
+		if (!head)
+			return TC_ERR_NOMEM;
+		*head = *wp;
+		head->text = wp->text + off;
+		head->len = wp->len - off;
+		*out = head;
+		return TC_OK;
+	}
+	*out = wp->next;
+	return TC_OK;
+}
+
 static int split_assign(struct tc_parser *p, const struct tc_token *t,
 			struct tc_assign *out)
 {
+	memset(out, 0, sizeof(*out));
 	struct tc_arena *a = &p->sh->arena;
 	const struct tc_wpart *first = t->parts;
-	const char *eq = first ? memchr(first->text, '=', first->len) : NULL;
-	if (!eq) {
+	if (!first || first->kind != TC_WPART_LITERAL || first->len == 0) {
 		tc_error(p->sh, t->line, "internal error: malformed assignment");
 		return TC_ERR_SYNTAX;
 	}
-	size_t nlen = (size_t)(eq - first->text);
+
+	size_t nlen = 0;
+	while (nlen < first->len &&
+	       tc_var_valid_name(first->text, nlen + 1))
+		nlen++;
+	if (nlen == 0 || nlen >= first->len) {
+		tc_error(p->sh, t->line, "internal error: malformed assignment");
+		return TC_ERR_SYNTAX;
+	}
 	char *name = tc_arena_strndup(a, first->text, nlen);
 	if (!name) {
 		tc_error(p->sh, t->line, "out of memory");
 		return TC_ERR_NOMEM;
 	}
 
-	struct tc_wpart *vparts = NULL;
-	size_t rem = first->len - nlen - 1;
-	if (rem > 0) {
-		struct tc_wpart *head = tc_arena_alloc(a, sizeof(*head));
-		if (!head) {
-			tc_error(p->sh, t->line, "out of memory");
-			return TC_ERR_NOMEM;
+	const struct tc_wpart *eq_wp = first;
+	size_t eq_off = nlen;
+	bool has_sub = false;
+	struct tc_wpart *sub_parts = NULL;
+	bool append = false;
+
+	if (first->text[nlen] == '[') {
+		has_sub = true;
+		int bdepth = 1;
+		const struct tc_wpart *wp = first;
+		size_t pos = nlen + 1;
+		bool found = false;
+		while (wp && !found) {
+			if (wp->kind == TC_WPART_LITERAL) {
+				while (pos < wp->len) {
+					if (wp->text[pos] == '[') {
+						bdepth++;
+					} else if (wp->text[pos] == ']') {
+						bdepth--;
+						if (bdepth == 0) {
+							if (slice_wparts_range(a, first, nlen + 1,
+									       wp, pos, &sub_parts) != TC_OK) {
+								tc_error(p->sh, t->line, "out of memory");
+								return TC_ERR_NOMEM;
+							}
+							eq_wp = wp;
+							eq_off = pos + 1;
+							found = true;
+							break;
+						}
+					}
+					pos++;
+				}
+			}
+			if (!found) {
+				wp = wp->next;
+				pos = 0;
+			}
 		}
-		*head = *first;
-		head->text = eq + 1;
-		head->len = rem;
-		vparts = head;
-	} else {
-		vparts = first->next;
+		if (!found || eq_off >= eq_wp->len) {
+			tc_error(p->sh, t->line, "internal error: malformed subscript assignment");
+			return TC_ERR_SYNTAX;
+		}
 	}
 
+	if (eq_wp->text[eq_off] == '+' && eq_off + 1 < eq_wp->len &&
+	    eq_wp->text[eq_off + 1] == '=') {
+		append = true;
+		eq_off += 2;
+	} else if (eq_wp->text[eq_off] == '=') {
+		eq_off += 1;
+	} else {
+		tc_error(p->sh, t->line, "internal error: malformed assignment");
+		return TC_ERR_SYNTAX;
+	}
+
+	struct tc_wpart *vparts = NULL;
+	if (slice_wparts_after(a, eq_wp, eq_off, &vparts) != TC_OK) {
+		tc_error(p->sh, t->line, "out of memory");
+		return TC_ERR_NOMEM;
+	}
+
+	/* Compute raw RHS offset in t->text (find first '=' after prefix). */
+	const char *raw_eq = memchr(t->text + nlen, '=', t->len - nlen);
+	size_t raw_off = raw_eq ? (size_t)(raw_eq - t->text) + 1 : t->len;
+
 	out->name = name;
-	out->value.text = t->text + nlen + 1;
-	out->value.len = t->len - nlen - 1;
+	out->append = append;
+	out->has_sub = has_sub;
+	out->sub = sub_parts;
+	out->is_compound = false;
+	out->value.text = t->text + raw_off;
+	out->value.len = t->len - raw_off;
 	out->value.parts = vparts;
-	out->value.flags = t->flags & ~TC_WORD_ASSIGN;
+	out->value.flags = t->flags & ~(TC_WORD_ASSIGN | TC_WORD_ASSIGN_PLUS |
+					TC_WORD_FOLLOWED_LP);
+	out->value.decl_assign = NULL;
 	out->value.line = t->line;
-	out->value.col = t->col + nlen + 1;
+	out->value.col = t->col + raw_off;
 	out->line = t->line;
 	out->col = t->col;
 	return TC_OK;
+}
+
+/* Split a compound array item word of the form [sub]=val or [sub]+=val. */
+static int split_array_item(struct tc_parser *p, const struct tc_token *t,
+			    struct tc_array_item *item)
+{
+	memset(item, 0, sizeof(*item));
+	item->line = t->line;
+	item->col = t->col;
+
+	struct tc_arena *a = &p->sh->arena;
+	const struct tc_wpart *first = t->parts;
+	if (first && first->kind == TC_WPART_LITERAL && first->len > 0 &&
+	    first->text[0] == '[') {
+		int bdepth = 1;
+		const struct tc_wpart *wp = first;
+		size_t pos = 1;
+		bool has_content = false;
+		while (wp) {
+			if (wp->kind == TC_WPART_LITERAL) {
+				while (pos < wp->len) {
+					if (wp->text[pos] == '[') {
+						bdepth++;
+						has_content = true;
+					} else if (wp->text[pos] == ']') {
+						bdepth--;
+						if (bdepth == 0) {
+							size_t after = pos + 1;
+							bool is_eq = (after < wp->len && wp->text[after] == '=');
+							bool is_peq = (after + 1 < wp->len &&
+								       wp->text[after] == '+' &&
+								       wp->text[after + 1] == '=');
+							if (has_content && (is_eq || is_peq)) {
+								if (slice_wparts_range(a, first, 1, wp, pos,
+										       &item->sub) != TC_OK) {
+									tc_error(p->sh, t->line, "out of memory");
+									return TC_ERR_NOMEM;
+								}
+								size_t voff = after + (is_peq ? 2 : 1);
+								struct tc_wpart *vparts = NULL;
+								if (slice_wparts_after(a, wp, voff, &vparts) != TC_OK) {
+									tc_error(p->sh, t->line, "out of memory");
+									return TC_ERR_NOMEM;
+								}
+								const char *raw_eq = memchr(t->text, '=', t->len);
+								size_t raw_off = raw_eq ? (size_t)(raw_eq - t->text) + 1 : t->len;
+								item->has_sub = true;
+								item->append = is_peq;
+								item->value.text = t->text + raw_off;
+								item->value.len = t->len - raw_off;
+								item->value.parts = vparts;
+								item->value.flags = t->flags & ~(TC_WORD_ASSIGN | TC_WORD_ASSIGN_PLUS |
+												 TC_WORD_FOLLOWED_LP);
+								item->value.decl_assign = NULL;
+								item->value.line = t->line;
+								item->value.col = t->col + raw_off;
+								return TC_OK;
+							}
+							goto plain_word;
+						}
+						has_content = true;
+					} else {
+						has_content = true;
+					}
+					pos++;
+				}
+			} else {
+				has_content = true;
+			}
+			wp = wp->next;
+			pos = 0;
+		}
+	}
+
+plain_word:
+	tok_to_word(t, &item->value);
+	return TC_OK;
+}
+
+struct item_link {
+	struct tc_array_item item;
+	struct item_link *next;
+};
+
+/* Parse compound array initializer '(' [NEWLINE | word]* ')' after NAME=/NAME+=.
+ * Caller has already consumed the NAME= token; p->tok is TC_TOK_LPAREN. */
+static int parse_compound_assign(struct tc_parser *p, struct tc_assign *out)
+{
+	struct tc_arena *a = &p->sh->arena;
+	int r = advance(p); /* consume '(' */
+	if (r != TC_OK)
+		return r;
+
+	struct item_link *ihead = NULL, **itail = &ihead;
+	size_t ni = 0;
+	for (;;) {
+		while (p->tok.kind == TC_TOK_NEWLINE) {
+			if ((r = advance(p)) != TC_OK)
+				return r;
+		}
+		if (p->tok.kind == TC_TOK_RPAREN)
+			break;
+		if (p->tok.kind != TC_TOK_WORD)
+			return unexpected(p);
+		if (ni == TC_WORDS_MAX) {
+			tc_error(p->sh, p->tok.line,
+				 "more than %d elements in one array assignment",
+				 TC_WORDS_MAX);
+			return TC_ERR_NOMEM;
+		}
+		struct item_link *il = tc_arena_alloc(a, sizeof(*il));
+		if (!il) {
+			tc_error(p->sh, p->tok.line, "out of memory");
+			return TC_ERR_NOMEM;
+		}
+		if ((r = split_array_item(p, &p->tok, &il->item)) != TC_OK)
+			return r;
+		il->next = NULL;
+		*itail = il;
+		itail = &il->next;
+		ni++;
+		if ((r = advance(p)) != TC_OK)
+			return r;
+	}
+
+	if ((r = advance(p)) != TC_OK) /* consume ')' */
+		return r;
+
+	struct tc_array_item *items = ni ? tc_arena_alloc(a, ni * sizeof(*items)) : NULL;
+	if (ni && !items) {
+		tc_error(p->sh, out->line, "out of memory");
+		return TC_ERR_NOMEM;
+	}
+	size_t idx = 0;
+	for (struct item_link *il = ihead; il; il = il->next)
+		items[idx++] = il->item;
+
+	out->is_compound = true;
+	out->items = items;
+	out->nitems = ni;
+	return TC_OK;
+}
+
+static bool is_decl_builtin_word(const struct tc_word *w)
+{
+	if (w->flags & (TC_WORD_QUOTED | TC_WORD_DOLLAR | TC_WORD_CMDSUB |
+			TC_WORD_BACKQ | TC_WORD_ARITH))
+		return false;
+	return strcmp(w->text, "declare") == 0 ||
+	       strcmp(w->text, "typeset") == 0 ||
+	       strcmp(w->text, "readonly") == 0 ||
+	       strcmp(w->text, "export") == 0;
 }
 
 static int parse_redir(struct tc_parser *p, struct redir_link **out)
@@ -445,6 +722,7 @@ static int parse_simple(struct tc_parser *p, struct tc_node **out)
 				struct assign_link *al = tc_arena_alloc(a, sizeof(*al));
 				if (!al)
 					goto nomem;
+				bool followed_lp = (p->tok.flags & TC_WORD_FOLLOWED_LP) != 0;
 				if ((r = split_assign(p, &p->tok, &al->a)) != TC_OK)
 					return r;
 				al->next = NULL;
@@ -453,6 +731,11 @@ static int parse_simple(struct tc_parser *p, struct tc_node **out)
 				na++;
 				if ((r = advance(p)) != TC_OK)
 					return r;
+				if (followed_lp && p->tok.kind == TC_TOK_LPAREN &&
+				    al->a.value.len == 0 && !al->a.has_sub) {
+					if ((r = parse_compound_assign(p, &al->a)) != TC_OK)
+						return r;
+				}
 				continue;
 			}
 			if (nw == 0 && na == 0 && nr == 0 && is_reserved(&p->tok))
@@ -468,11 +751,28 @@ static int parse_simple(struct tc_parser *p, struct tc_node **out)
 				goto nomem;
 			tok_to_word(&p->tok, &wl->w);
 			wl->next = NULL;
+			bool decl_compound = (nw > 0 && whead &&
+					      is_decl_builtin_word(&whead->w) &&
+					      (p->tok.flags & TC_WORD_ASSIGN) &&
+					      (p->tok.flags & TC_WORD_FOLLOWED_LP));
+			struct tc_token saved_tok = p->tok;
 			*wtail = wl;
 			wtail = &wl->next;
 			nw++;
 			if ((r = advance(p)) != TC_OK)
 				return r;
+			if (decl_compound && p->tok.kind == TC_TOK_LPAREN) {
+				struct tc_assign *da = tc_arena_alloc(a, sizeof(*da));
+				if (!da)
+					goto nomem;
+				if ((r = split_assign(p, &saved_tok, da)) != TC_OK)
+					return r;
+				if (da->value.len == 0 && !da->has_sub) {
+					if ((r = parse_compound_assign(p, da)) != TC_OK)
+						return r;
+					wl->w.decl_assign = da;
+				}
+			}
 			if (p->lx.in->alias_ended_blank) {
 				p->lx.in->alias_ended_blank = false;
 				if ((r = expand_alias_at_tok(p)) != TC_OK)

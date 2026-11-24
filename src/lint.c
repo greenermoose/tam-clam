@@ -293,6 +293,8 @@ static void collect_defs_parts(struct lint_ctx *ctx, const struct tc_wpart *wp,
 		if (wp->kind == TC_WPART_PARAM) {
 			if (wp->op == TC_PARAM_ASSIGN_DEFAULT && wp->text)
 				add_def(ctx, wp->text, strlen(wp->text));
+			if (wp->sub)
+				collect_defs_parts(ctx, wp->sub, depth + 1);
 			if (wp->arg)
 				collect_defs_parts(ctx, wp->arg, depth + 1);
 		} else if (wp->kind == TC_WPART_ARITH) {
@@ -325,15 +327,32 @@ static void collect_defs_redirs(struct lint_ctx *ctx, const struct tc_redir *r,
 	}
 }
 
+static void collect_defs_assign(struct lint_ctx *ctx, const struct tc_assign *a)
+{
+	add_def(ctx, a->name, strlen(a->name));
+	if (a->sub)
+		collect_defs_parts(ctx, a->sub, 0);
+	if (a->is_compound) {
+		for (size_t j = 0; j < a->nitems; j++) {
+			if (a->items[j].sub)
+				collect_defs_parts(ctx, a->items[j].sub, 0);
+			collect_defs_parts(ctx, a->items[j].value.parts, 0);
+		}
+	} else {
+		collect_defs_parts(ctx, a->value.parts, 0);
+	}
+}
+
 static void collect_defs_simple(struct lint_ctx *ctx, const struct tc_node *n)
 {
-	for (size_t i = 0; i < n->u.simple.nassigns; i++) {
-		add_def(ctx, n->u.simple.assigns[i].name,
-			strlen(n->u.simple.assigns[i].name));
-		collect_defs_parts(ctx, n->u.simple.assigns[i].value.parts, 0);
+	for (size_t i = 0; i < n->u.simple.nassigns; i++)
+		collect_defs_assign(ctx, &n->u.simple.assigns[i]);
+	for (size_t i = 0; i < n->u.simple.nwords; i++) {
+		if (n->u.simple.words[i].decl_assign)
+			collect_defs_assign(ctx, n->u.simple.words[i].decl_assign);
+		else
+			collect_defs_parts(ctx, n->u.simple.words[i].parts, 0);
 	}
-	for (size_t i = 0; i < n->u.simple.nwords; i++)
-		collect_defs_parts(ctx, n->u.simple.words[i].parts, 0);
 	collect_defs_redirs(ctx, n->u.simple.redirs, n->u.simple.nredirs);
 
 	if (n->u.simple.nwords == 0)
@@ -341,13 +360,19 @@ static void collect_defs_simple(struct lint_ctx *ctx, const struct tc_node *n)
 	const struct tc_word *cmd = &n->u.simple.words[0];
 	size_t nw = n->u.simple.nwords;
 
-	if (word_is_literal(cmd, "export") || word_is_literal(cmd, "readonly")) {
+	if (word_is_literal(cmd, "export") || word_is_literal(cmd, "readonly") ||
+	    word_is_literal(cmd, "declare") || word_is_literal(cmd, "typeset")) {
 		for (size_t i = 1; i < nw; i++) {
+			if (n->u.simple.words[i].decl_assign)
+				continue;
 			const char *t = n->u.simple.words[i].text;
-			if (t[0] == '-')
+			if (t[0] == '-' || t[0] == '+')
 				continue;
 			const char *eq = strchr(t, '=');
-			add_def(ctx, t, eq ? (size_t)(eq - t) : strlen(t));
+			size_t nlen = eq ? (size_t)(eq - t) : strlen(t);
+			if (nlen > 0 && t[nlen - 1] == '+')
+				nlen--;
+			add_def(ctx, t, nlen);
 		}
 	} else if (word_is_literal(cmd, "read")) {
 		size_t i = 1;
@@ -543,6 +568,8 @@ static void check_parts(struct lint_ctx *ctx, const struct tc_wpart *wp,
 					  "variable '%s' is used but never set in this file",
 					  wp->text);
 			}
+			if (wp->sub)
+				check_parts(ctx, wp->sub, line, col, false, depth + 1);
 			if (wp->arg)
 				check_parts(ctx, wp->arg, line, col, false, depth + 1);
 		} else if (wp->kind == TC_WPART_ARITH && wp->arg) {
@@ -600,13 +627,38 @@ static void check_simple(struct lint_ctx *ctx, const struct tc_node *n,
 {
 	for (size_t i = 0; i < n->u.simple.nassigns; i++) {
 		const struct tc_assign *a = &n->u.simple.assigns[i];
-		check_parts(ctx, a->value.parts, a->value.line, a->value.col, false, 0);
+		if (a->sub)
+			check_parts(ctx, a->sub, a->line, a->col, false, 0);
+		if (a->is_compound) {
+			for (size_t j = 0; j < a->nitems; j++) {
+				if (a->items[j].sub)
+					check_parts(ctx, a->items[j].sub, a->items[j].line,
+						    a->items[j].col, false, 0);
+				check_parts(ctx, a->items[j].value.parts,
+					    a->items[j].value.line, a->items[j].value.col,
+					    false, 0);
+			}
+		} else {
+			check_parts(ctx, a->value.parts, a->value.line, a->value.col, false, 0);
+		}
 	}
 
 	size_t nw = n->u.simple.nwords;
 	for (size_t i = 0; i < nw; i++) {
 		const struct tc_word *w = &n->u.simple.words[i];
-		check_parts(ctx, w->parts, w->line, w->col, false, 0);
+		if (w->decl_assign) {
+			const struct tc_assign *a = w->decl_assign;
+			for (size_t j = 0; j < a->nitems; j++) {
+				if (a->items[j].sub)
+					check_parts(ctx, a->items[j].sub, a->items[j].line,
+						    a->items[j].col, false, 0);
+				check_parts(ctx, a->items[j].value.parts,
+					    a->items[j].value.line, a->items[j].value.col,
+					    false, 0);
+			}
+		} else {
+			check_parts(ctx, w->parts, w->line, w->col, false, 0);
+		}
 	}
 	check_redirs(ctx, n->u.simple.redirs, n->u.simple.nredirs);
 

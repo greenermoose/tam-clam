@@ -5,9 +5,10 @@ of versions. Versions follow semantic versioning: during 0.x, the minor
 number marks a phase's big step and the patch number marks each
 milestone inside it.
 
-**Current version:** 0.2.5 (Phase P3 complete: safe `PS1`/`PS2`/`RPS1`/`PS0`
-prompt escapes, right-aligned `RPS1`, and `precmd`/`PROMPT_COMMAND` +
-`preexec`/`PS0` hooks, 2026-11-24; development continues on branch `dev`).
+**Current version:** 0.3.0 (Phase P4 started: indexed and associative
+arrays with bash syntax, `declare -a`/`-A`/`-p`, `+=`, `${!a[@]}`,
+arithmetic indexing, `unset 'a[i]'`, and `read -a`, 2026-11-24;
+development continues on branch `dev`).
 
 ## Decided
 

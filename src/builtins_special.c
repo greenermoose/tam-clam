@@ -12,6 +12,7 @@
 #include <sys/times.h>
 #include <unistd.h>
 
+#include "tam-clam/arith.h"
 #include "tam-clam/bg.h"
 #include "tam-clam/builtins.h"
 #include "tam-clam/exec.h"
@@ -62,10 +63,19 @@ static int print_all_vars(struct tc_shell *sh, unsigned long line)
 	int status = 0;
 	for (size_t i = 0; i < n; i++) {
 		const struct tc_var_entry *e = list[i];
-		if (tc_write_all(STDOUT_FILENO, e->name, strlen(e->name)) < 0 ||
-		    tc_write_all(STDOUT_FILENO, "=", 1) < 0 ||
-		    tc_write_shell_quoted(STDOUT_FILENO, e->value) < 0 ||
-		    tc_write_all(STDOUT_FILENO, "\n", 1) < 0) {
+		int wr;
+		if (e->flags & (TC_VAR_ARRAY | TC_VAR_ASSOC)) {
+			wr = (tc_write_all(STDOUT_FILENO, e->name, strlen(e->name)) < 0 ||
+			      tc_write_all(STDOUT_FILENO, "=", 1) < 0 ||
+			      tc_write_array_value(STDOUT_FILENO, e) < 0 ||
+			      tc_write_all(STDOUT_FILENO, "\n", 1) < 0) ? -1 : 0;
+		} else {
+			wr = (tc_write_all(STDOUT_FILENO, e->name, strlen(e->name)) < 0 ||
+			      tc_write_all(STDOUT_FILENO, "=", 1) < 0 ||
+			      tc_write_shell_quoted(STDOUT_FILENO, e->value) < 0 ||
+			      tc_write_all(STDOUT_FILENO, "\n", 1) < 0) ? -1 : 0;
+		}
+		if (wr < 0) {
 			tc_error(sh, line, "set: write error: %s", strerror(errno));
 			status = 1;
 			break;
@@ -476,8 +486,53 @@ int tc_bi_unset(struct tc_shell *sh, int argc, char **argv, unsigned long line)
 
 	int status = 0;
 	for (; i < argc; i++) {
-		const char *name = argv[i];
-		if (!tc_var_valid_name(name, strlen(name))) {
+		const char *arg = argv[i];
+		size_t alen = strlen(arg);
+		const char *lb = !do_funcs ? strchr(arg, '[') : NULL;
+		if (lb && alen > 2 && arg[alen - 1] == ']') {
+			size_t nlen = (size_t)(lb - arg);
+			size_t slen = alen - nlen - 2;
+			if (!tc_var_valid_name(arg, nlen) || slen == 0) {
+				tc_error(sh, line, "unset: `%s': not a valid identifier", arg);
+				status = 1;
+				continue;
+			}
+			char *vname = tc_arena_strndup(&sh->arena, arg, nlen);
+			char *sub = tc_arena_strndup(&sh->arena, lb + 1, slen);
+			if (!vname || !sub) {
+				tc_error(sh, line, "unset: out of memory");
+				return special_fail(sh, 1);
+			}
+			int r;
+			if (strcmp(sub, "@") == 0 || strcmp(sub, "*") == 0) {
+				r = tc_var_unset(&sh->vars, vname);
+			} else {
+				const struct tc_var_entry *e = tc_var_find(&sh->vars, vname);
+				if (e && (e->flags & TC_VAR_ASSOC)) {
+					r = tc_var_unset_elem_key(&sh->vars, vname, sub);
+				} else {
+					int64_t idx = 0;
+					int ar = tc_arith_eval(sh, sub, line, &idx);
+					if (ar != TC_ARITH_OK) {
+						status = 1;
+						continue;
+					}
+					r = tc_var_unset_elem_idx(&sh->vars, vname, idx);
+				}
+			}
+			if (r == TC_VAR_ERR_READONLY) {
+				tc_error(sh, line, "unset: %s: readonly variable", vname);
+				status = 1;
+				if (!sh->interactive)
+					return special_fail(sh, status);
+			} else if (r == TC_VAR_ERR_BADSUB) {
+				tc_error(sh, line, "unset: %s: bad array subscript", vname);
+				status = 1;
+			}
+			continue;
+		}
+		const char *name = arg;
+		if (!tc_var_valid_name(name, alen)) {
 			tc_error(sh, line, "unset: `%s': not a valid identifier", name);
 			status = 1;
 			continue;

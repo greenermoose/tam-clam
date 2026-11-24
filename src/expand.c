@@ -121,8 +121,9 @@ static int append_str(struct tc_shell *sh, unsigned long line,
 	return TC_EXP_OK;
 }
 
-/* Join positional parameters with IFS[0] (or ' ' if IFS unset, "" if empty). */
-static int join_star(struct tc_shell *sh, unsigned long line, tam_str_t *out)
+/* Join an array of strings with IFS[0] (or ' ' if IFS unset, "" if empty). */
+static int join_items_ifs(struct tc_shell *sh, unsigned long line,
+			  char *const *items, size_t n, tam_str_t *out)
 {
 	const char *ifs = tc_var_get(&sh->vars, "IFS");
 	char sep = ' ';
@@ -133,17 +134,23 @@ static int join_star(struct tc_shell *sh, unsigned long line, tam_str_t *out)
 		else
 			sep = ifs[0];
 	}
-	for (size_t i = 0; i < sh->nparams; i++) {
+	for (size_t i = 0; i < n; i++) {
 		if (i > 0 && has_sep) {
 			int r = append_str(sh, line, out, &sep, 1);
 			if (r != TC_EXP_OK)
 				return r;
 		}
-		int r = append_str(sh, line, out, sh->params[i], strlen(sh->params[i]));
+		int r = append_str(sh, line, out, items[i], strlen(items[i]));
 		if (r != TC_EXP_OK)
 			return r;
 	}
 	return TC_EXP_OK;
+}
+
+/* Join positional parameters with IFS[0] (or ' ' if IFS unset, "" if empty). */
+static int join_star(struct tc_shell *sh, unsigned long line, tam_str_t *out)
+{
+	return join_items_ifs(sh, line, sh->params, sh->nparams, out);
 }
 
 /* Lookup a parameter's value into *out_val (NULL if unset). Returns
@@ -334,6 +341,193 @@ static bool is_nounset_exempt(const char *name)
 	       c == '-' || c == '$' || c == '!' || c == '0';
 }
 
+/* Evaluate an array subscript (TC_SUB_EXPR) for variable entry e (which may be
+ * NULL if unset). Sets *is_assoc to true for associative arrays (populating
+ * *out_key in sh->arena), or false for indexed/scalar (populating *out_idx). */
+static int eval_array_sub(struct tc_shell *sh, const struct tc_wpart *wp,
+			  const struct tc_var_entry *e, unsigned long line,
+			  int depth, bool *is_assoc, int64_t *out_idx,
+			  char **out_key)
+{
+	*is_assoc = (e != NULL && (e->flags & TC_VAR_ASSOC) != 0);
+	*out_idx = 0;
+	*out_key = NULL;
+	char *sub_s = NULL;
+	int r = expand_parts_single(sh, wp->sub, line, false, false, depth + 1, &sub_s);
+	if (r != TC_EXP_OK)
+		return r;
+	if (*is_assoc) {
+		*out_key = sub_s;
+		return TC_EXP_OK;
+	}
+	int ar = tc_arith_eval(sh, sub_s, line, out_idx);
+	if (ar == TC_ARITH_NOMEM)
+		return TC_EXP_NOMEM;
+	if (ar != TC_ARITH_OK)
+		return TC_EXP_ERR;
+	return TC_EXP_OK;
+}
+
+/* Lookup a single element ${name[sub]}. */
+static int lookup_array_elem(struct tc_shell *sh, const struct tc_wpart *wp,
+			     unsigned long line, int depth,
+			     const char **out_val, bool *out_is_assoc,
+			     int64_t *out_idx, char **out_key)
+{
+	*out_val = NULL;
+	const struct tc_var_entry *e = tc_var_find(&sh->vars, wp->text);
+	int r = eval_array_sub(sh, wp, e, line, depth, out_is_assoc, out_idx, out_key);
+	if (r != TC_EXP_OK)
+		return r;
+	if (!e)
+		return TC_EXP_OK;
+	if (*out_is_assoc) {
+		*out_val = e->assoc ? tc_assoc_get(e->assoc, *out_key) : NULL;
+		return TC_EXP_OK;
+	}
+	if (e->flags & TC_VAR_ARRAY) {
+		int ar = tc_array_get(e->arr, *out_idx, out_val);
+		if (ar == TC_ARR_BADSUB) {
+			tc_error(sh, line, "%s: bad array subscript", wp->text);
+			return TC_EXP_ERR;
+		}
+		return TC_EXP_OK;
+	}
+	/* Scalar variable indexed with [0] or [-1]. */
+	if (*out_idx == 0 || *out_idx == -1) {
+		*out_val = e->value;
+	} else if (*out_idx < -1) {
+		tc_error(sh, line, "%s: bad array subscript", wp->text);
+		return TC_EXP_ERR;
+	}
+	return TC_EXP_OK;
+}
+
+/* Collect all values (${a[@]}/${a[*]}) or keys (${!a[@]}/${!a[*]}) into an
+ * arena-allocated string array. Also checks opt_nounset when check_nounset. */
+static int collect_array_items(struct tc_shell *sh, const struct tc_wpart *wp,
+			       unsigned long line, bool keys_only,
+			       bool check_nounset, char ***out_items,
+			       size_t *out_n)
+{
+	*out_items = NULL;
+	*out_n = 0;
+	const struct tc_var_entry *e = tc_var_find(&sh->vars, wp->text);
+	if (!e) {
+		if (check_nounset && sh->opt_nounset) {
+			tc_error(sh, line, "%s: unbound variable", wp->text);
+			return TC_EXP_ERR;
+		}
+		return TC_EXP_OK;
+	}
+	if (e->flags & TC_VAR_ARRAY) {
+		size_t n = e->arr ? e->arr->len : 0;
+		if (n == 0)
+			return TC_EXP_OK;
+		char **items = tc_arena_alloc(&sh->arena, n * sizeof(*items));
+		if (!items) {
+			tc_error(sh, line, "out of memory");
+			return TC_EXP_NOMEM;
+		}
+		for (size_t i = 0; i < n; i++) {
+			if (keys_only) {
+				char num[32];
+				snprintf(num, sizeof(num), "%" PRId64, e->arr->elems[i].idx);
+				items[i] = tc_arena_strndup(&sh->arena, num, strlen(num));
+			} else {
+				const char *v = e->arr->elems[i].val;
+				items[i] = tc_arena_strndup(&sh->arena, v, strlen(v));
+			}
+			if (!items[i]) {
+				tc_error(sh, line, "out of memory");
+				return TC_EXP_NOMEM;
+			}
+		}
+		*out_items = items;
+		*out_n = n;
+		return TC_EXP_OK;
+	}
+	if (e->flags & TC_VAR_ASSOC) {
+		const struct tc_assoc_slot **slots = NULL;
+		size_t n = 0;
+		if (e->assoc && tc_assoc_list(e->assoc, &slots, &n) != TC_ARR_OK) {
+			tc_error(sh, line, "out of memory");
+			return TC_EXP_NOMEM;
+		}
+		if (n == 0) {
+			free(slots);
+			return TC_EXP_OK;
+		}
+		char **items = tc_arena_alloc(&sh->arena, n * sizeof(*items));
+		if (!items) {
+			free(slots);
+			tc_error(sh, line, "out of memory");
+			return TC_EXP_NOMEM;
+		}
+		for (size_t i = 0; i < n; i++) {
+			const char *s = keys_only ? slots[i]->key : slots[i]->val;
+			items[i] = tc_arena_strndup(&sh->arena, s, strlen(s));
+			if (!items[i]) {
+				free(slots);
+				tc_error(sh, line, "out of memory");
+				return TC_EXP_NOMEM;
+			}
+		}
+		free(slots);
+		*out_items = items;
+		*out_n = n;
+		return TC_EXP_OK;
+	}
+	/* Scalar variable: 1 element (value or "0") if set, 0 if declared unset. */
+	if (e->value == NULL) {
+		if (check_nounset && sh->opt_nounset) {
+			tc_error(sh, line, "%s: unbound variable", wp->text);
+			return TC_EXP_ERR;
+		}
+		return TC_EXP_OK;
+	}
+	char **items = tc_arena_alloc(&sh->arena, sizeof(*items));
+	if (!items) {
+		tc_error(sh, line, "out of memory");
+		return TC_EXP_NOMEM;
+	}
+	const char *s = keys_only ? "0" : e->value;
+	items[0] = tc_arena_strndup(&sh->arena, s, strlen(s));
+	if (!items[0]) {
+		tc_error(sh, line, "out of memory");
+		return TC_EXP_NOMEM;
+	}
+	*out_items = items;
+	*out_n = 1;
+	return TC_EXP_OK;
+}
+
+static bool is_trim_op(enum tc_param_op op)
+{
+	return op == TC_PARAM_TRIM_PREFIX_S || op == TC_PARAM_TRIM_PREFIX_L ||
+	       op == TC_PARAM_TRIM_SUFFIX_S || op == TC_PARAM_TRIM_SUFFIX_L;
+}
+
+static char *apply_trim_arena(struct tc_shell *sh, const struct tc_pat *pat,
+			      enum tc_param_op op, const char *val,
+			      unsigned long line)
+{
+	size_t vlen = strlen(val);
+	char *res;
+	if (op == TC_PARAM_TRIM_PREFIX_S || op == TC_PARAM_TRIM_PREFIX_L) {
+		size_t cut = tc_pat_trim_prefix(pat, val, vlen,
+						op == TC_PARAM_TRIM_PREFIX_L);
+		res = tc_arena_strndup(&sh->arena, val + cut, vlen - cut);
+	} else {
+		size_t cut = tc_pat_trim_suffix(pat, val, vlen,
+						op == TC_PARAM_TRIM_SUFFIX_L);
+		res = tc_arena_strndup(&sh->arena, val, vlen - cut);
+	}
+	if (!res)
+		tc_error(sh, line, "out of memory");
+	return res;
+}
+
 static int eval_param_single(struct tc_shell *sh, const struct tc_wpart *wp,
 			     unsigned long line, int depth, char **out)
 {
@@ -342,8 +536,149 @@ static int eval_param_single(struct tc_shell *sh, const struct tc_wpart *wp,
 		return TC_EXP_ERR;
 	}
 
+	/* ${!arr[@]} / ${!arr[*]} in single-word context: join with IFS[0]. */
+	if (wp->op == TC_PARAM_KEYS) {
+		char **items = NULL;
+		size_t n = 0;
+		int r = collect_array_items(sh, wp, line, true, true, &items, &n);
+		if (r != TC_EXP_OK)
+			return r;
+		tam_str_t tmp = tam_str_new("");
+		if (!tmp) {
+			tc_error(sh, line, "out of memory");
+			return TC_EXP_NOMEM;
+		}
+		r = join_items_ifs(sh, line, items, n, &tmp);
+		if (r == TC_EXP_OK) {
+			*out = tc_arena_strndup(&sh->arena, tmp, tam_str_len(tmp));
+			if (!*out) {
+				tc_error(sh, line, "out of memory");
+				r = TC_EXP_NOMEM;
+			}
+		}
+		tam_str_free(tmp);
+		return r;
+	}
+
+	/* ${#arr[@]} / ${#arr[*]}: element count. */
+	if (wp->op == TC_PARAM_LEN &&
+	    (wp->sub_kind == TC_SUB_AT || wp->sub_kind == TC_SUB_STAR)) {
+		const struct tc_var_entry *e = tc_var_find(&sh->vars, wp->text);
+		size_t n = 0;
+		if (!e) {
+			if (sh->opt_nounset) {
+				tc_error(sh, line, "%s: unbound variable", wp->text);
+				return TC_EXP_ERR;
+			}
+		} else if (e->flags & TC_VAR_ARRAY) {
+			n = tc_array_len(e->arr);
+		} else if (e->flags & TC_VAR_ASSOC) {
+			n = tc_assoc_len(e->assoc);
+		} else if (e->value != NULL) {
+			n = 1;
+		}
+		char num[32];
+		snprintf(num, sizeof(num), "%zu", n);
+		*out = tc_arena_strndup(&sh->arena, num, strlen(num));
+		if (!*out) {
+			tc_error(sh, line, "out of memory");
+			return TC_EXP_NOMEM;
+		}
+		return TC_EXP_OK;
+	}
+
+	/* ${arr[@]...} / ${arr[*]...} in single-word context. */
+	if (wp->sub_kind == TC_SUB_AT || wp->sub_kind == TC_SUB_STAR) {
+		char **items = NULL;
+		size_t n = 0;
+		bool check_nu = (wp->op == TC_PARAM_PLAIN || is_trim_op(wp->op));
+		int r = collect_array_items(sh, wp, line, false, check_nu, &items, &n);
+		if (r != TC_EXP_OK)
+			return r;
+		if (is_trim_op(wp->op)) {
+			struct tc_pat pat;
+			r = expand_parts_pat(sh, wp->arg, line, !wp->quoted, depth + 1, &pat);
+			if (r != TC_EXP_OK)
+				return r;
+			for (size_t i = 0; i < n; i++) {
+				items[i] = apply_trim_arena(sh, &pat, wp->op, items[i], line);
+				if (!items[i])
+					return TC_EXP_NOMEM;
+			}
+		}
+		tam_str_t tmp = tam_str_new("");
+		if (!tmp) {
+			tc_error(sh, line, "out of memory");
+			return TC_EXP_NOMEM;
+		}
+		r = join_items_ifs(sh, line, items, n, &tmp);
+		if (r != TC_EXP_OK) {
+			tam_str_free(tmp);
+			return r;
+		}
+		if (wp->op == TC_PARAM_PLAIN || is_trim_op(wp->op)) {
+			*out = tc_arena_strndup(&sh->arena, tmp, tam_str_len(tmp));
+			tam_str_free(tmp);
+			if (!*out) {
+				tc_error(sh, line, "out of memory");
+				return TC_EXP_NOMEM;
+			}
+			return TC_EXP_OK;
+		}
+		bool is_set = (n > 0);
+		bool is_nonempty = (n > 0 && tam_str_len(tmp) > 0);
+		bool active = wp->colon ? is_nonempty : is_set;
+		if (wp->op == TC_PARAM_USE_DEFAULT) {
+			if (active) {
+				*out = tc_arena_strndup(&sh->arena, tmp, tam_str_len(tmp));
+				tam_str_free(tmp);
+				return *out ? TC_EXP_OK : (tc_error(sh, line, "out of memory"), TC_EXP_NOMEM);
+			}
+			tam_str_free(tmp);
+			return expand_parts_single(sh, wp->arg, line, false, !wp->quoted, depth + 1, out);
+		}
+		if (wp->op == TC_PARAM_USE_ALT) {
+			tam_str_free(tmp);
+			if (!active) {
+				*out = tc_arena_strndup(&sh->arena, "", 0);
+				return *out ? TC_EXP_OK : (tc_error(sh, line, "out of memory"), TC_EXP_NOMEM);
+			}
+			return expand_parts_single(sh, wp->arg, line, false, !wp->quoted, depth + 1, out);
+		}
+		if (wp->op == TC_PARAM_ERROR) {
+			if (active) {
+				*out = tc_arena_strndup(&sh->arena, tmp, tam_str_len(tmp));
+				tam_str_free(tmp);
+				return *out ? TC_EXP_OK : (tc_error(sh, line, "out of memory"), TC_EXP_NOMEM);
+			}
+			tam_str_free(tmp);
+			char *msg = NULL;
+			r = expand_parts_single(sh, wp->arg, line, false, !wp->quoted, depth + 1, &msg);
+			if (r != TC_EXP_OK)
+				return r;
+			if (msg && msg[0] != '\0')
+				tc_error(sh, line, "%s: %s", wp->text, msg);
+			else
+				tc_error(sh, line, "%s: parameter %s", wp->text,
+					 is_set ? "null or not set" : "not set");
+			return TC_EXP_ERR;
+		}
+		tam_str_free(tmp);
+		tc_error(sh, line, "%s: cannot assign to array slice", wp->text);
+		return TC_EXP_ERR;
+	}
+
 	const char *val = NULL;
-	int r = lookup_param(sh, wp->text, line, &val);
+	bool sub_is_assoc = false;
+	int64_t sub_idx = 0;
+	char *sub_key = NULL;
+	int r;
+	if (wp->sub_kind == TC_SUB_EXPR) {
+		r = lookup_array_elem(sh, wp, line, depth, &val,
+				      &sub_is_assoc, &sub_idx, &sub_key);
+	} else {
+		r = lookup_param(sh, wp->text, line, &val);
+	}
 	if (r != TC_EXP_OK)
 		return r;
 
@@ -353,7 +688,8 @@ static int eval_param_single(struct tc_shell *sh, const struct tc_wpart *wp,
 			return TC_EXP_ERR;
 		}
 		size_t n;
-		if (strcmp(wp->text, "@") == 0 || strcmp(wp->text, "*") == 0)
+		if (wp->sub_kind == TC_SUB_NONE &&
+		    (strcmp(wp->text, "@") == 0 || strcmp(wp->text, "*") == 0))
 			n = sh->nparams;
 		else
 			n = val ? strlen(val) : 0;
@@ -398,7 +734,7 @@ static int eval_param_single(struct tc_shell *sh, const struct tc_wpart *wp,
 			*out = tc_arena_strndup(&sh->arena, val, strlen(val));
 			return *out ? TC_EXP_OK : (tc_error(sh, line, "out of memory"), TC_EXP_NOMEM);
 		}
-		if (is_special_or_pos(wp->text)) {
+		if (wp->sub_kind == TC_SUB_NONE && is_special_or_pos(wp->text)) {
 			tc_error(sh, line, "%s: cannot assign to special or positional parameter",
 				 wp->text);
 			return TC_EXP_ERR;
@@ -408,9 +744,21 @@ static int eval_param_single(struct tc_shell *sh, const struct tc_wpart *wp,
 			r = expand_parts_single(sh, wp->arg, line, false, !wp->quoted, depth + 1, &def);
 			if (r != TC_EXP_OK)
 				return r;
-			int sr = tc_var_set(&sh->vars, wp->text, def, 0);
+			int sr;
+			if (wp->sub_kind == TC_SUB_EXPR) {
+				if (sub_is_assoc)
+					sr = tc_var_set_elem_key(&sh->vars, wp->text, sub_key, def, false, 0);
+				else
+					sr = tc_var_set_elem_idx(&sh->vars, wp->text, sub_idx, def, false, 0);
+			} else {
+				sr = tc_var_set(&sh->vars, wp->text, def, 0);
+			}
 			if (sr == TC_VAR_ERR_READONLY) {
 				tc_error(sh, line, "%s: readonly variable", wp->text);
+				return TC_EXP_ERR;
+			}
+			if (sr == TC_VAR_ERR_BADSUB) {
+				tc_error(sh, line, "%s: bad array subscript", wp->text);
 				return TC_EXP_ERR;
 			}
 			if (sr != TC_VAR_OK) {
@@ -462,21 +810,8 @@ static int eval_param_single(struct tc_shell *sh, const struct tc_wpart *wp,
 		r = expand_parts_pat(sh, wp->arg, line, !wp->quoted, depth + 1, &pat);
 		if (r != TC_EXP_OK)
 			return r;
-		size_t vlen = strlen(val);
-		if (wp->op == TC_PARAM_TRIM_PREFIX_S || wp->op == TC_PARAM_TRIM_PREFIX_L) {
-			size_t cut = tc_pat_trim_prefix(&pat, val, vlen,
-							wp->op == TC_PARAM_TRIM_PREFIX_L);
-			*out = tc_arena_strndup(&sh->arena, val + cut, vlen - cut);
-		} else {
-			size_t cut = tc_pat_trim_suffix(&pat, val, vlen,
-							wp->op == TC_PARAM_TRIM_SUFFIX_L);
-			*out = tc_arena_strndup(&sh->arena, val, vlen - cut);
-		}
-		if (!*out) {
-			tc_error(sh, line, "out of memory");
-			return TC_EXP_NOMEM;
-		}
-		return TC_EXP_OK;
+		*out = apply_trim_arena(sh, &pat, wp->op, val, line);
+		return *out ? TC_EXP_OK : TC_EXP_NOMEM;
 	}
 
 	default:
@@ -872,18 +1207,49 @@ static int expand_parts_fields(struct field_state *fs,
 			fs->has_quoted = true;
 			r = pb_append(sh, line, &fs->cur, wp->text, wp->len, 1);
 		} else if (wp->kind == TC_WPART_PARAM) {
-			bool is_at = (strcmp(wp->text, "@") == 0);
-			bool is_star = (strcmp(wp->text, "*") == 0);
+			bool is_at = (wp->sub_kind == TC_SUB_NONE && strcmp(wp->text, "@") == 0);
+			bool is_star = (wp->sub_kind == TC_SUB_NONE && strcmp(wp->text, "*") == 0);
 			bool split_params = (wp->op == TC_PARAM_PLAIN) &&
 					    (is_at || (is_star && !wp->quoted));
-			if (split_params) {
-				if (sh->nparams == 0) {
+			bool split_array = (wp->sub_kind == TC_SUB_AT ||
+					    (wp->sub_kind == TC_SUB_STAR && !wp->quoted)) &&
+					   (wp->op == TC_PARAM_PLAIN || wp->op == TC_PARAM_KEYS ||
+					    is_trim_op(wp->op));
+			if (split_params || split_array) {
+				char *const *items = NULL;
+				size_t nitems = 0;
+				if (split_params) {
+					items = sh->params;
+					nitems = sh->nparams;
+				} else {
+					char **aitems = NULL;
+					r = collect_array_items(sh, wp, line,
+								wp->op == TC_PARAM_KEYS,
+								true, &aitems, &nitems);
+					if (r != TC_EXP_OK)
+						return r;
+					if (is_trim_op(wp->op) && nitems > 0) {
+						struct tc_pat pat;
+						r = expand_parts_pat(sh, wp->arg, line, !wp->quoted,
+								     depth + 1, &pat);
+						if (r != TC_EXP_OK)
+							return r;
+						for (size_t i = 0; i < nitems; i++) {
+							aitems[i] = apply_trim_arena(sh, &pat, wp->op,
+										     aitems[i], line);
+							if (!aitems[i])
+								return TC_EXP_NOMEM;
+						}
+					}
+					items = aitems;
+				}
+				if (nitems == 0) {
 					at_start = false;
 					continue;
 				}
 				if (wp->quoted) {
 					fs->seen_delim_ws = false;
-					for (size_t i = 0; i < sh->nparams; i++) {
+					for (size_t i = 0; i < nitems; i++) {
 						if (i > 0) {
 							r = fs_flush(fs);
 							if (r != TC_EXP_OK)
@@ -891,26 +1257,25 @@ static int expand_parts_fields(struct field_state *fs,
 						}
 						fs->has_quoted = true;
 						r = pb_append(sh, line, &fs->cur,
-							      sh->params[i],
-							      strlen(sh->params[i]), 1);
+							      items[i], strlen(items[i]), 1);
 						if (r != TC_EXP_OK)
 							break;
 					}
 				} else {
-					for (size_t i = 0; i < sh->nparams; i++) {
+					for (size_t i = 0; i < nitems; i++) {
 						if (i > 0 && (fs->cur.len > 0 || fs->has_quoted)) {
 							r = fs_flush(fs);
 							if (r != TC_EXP_OK)
 								break;
 							fs->seen_delim_ws = false;
 						}
-						r = fs_feed_splittable(fs, sh->params[i],
-								       strlen(sh->params[i]));
+						r = fs_feed_splittable(fs, items[i],
+								       strlen(items[i]));
 						if (r != TC_EXP_OK)
 							break;
 					}
 				}
-			} else if (!wp->quoted &&
+			} else if (!wp->quoted && wp->sub_kind == TC_SUB_NONE &&
 				   (wp->op == TC_PARAM_USE_DEFAULT ||
 				    wp->op == TC_PARAM_USE_ALT)) {
 				const char *val = NULL;

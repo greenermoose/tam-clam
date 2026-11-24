@@ -1,6 +1,6 @@
 # P4: The extras (0.3.x)
 
-**Status:** not started.
+**Status:** in progress (0.3.0 landed 2026-11-24).
 
 ## Goal
 

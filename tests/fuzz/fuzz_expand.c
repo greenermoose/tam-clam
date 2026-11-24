@@ -63,7 +63,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 			    !parts_have_cmdsub(tok.parts, 0)) {
 				struct tc_word w = {
 					tok.text, tok.len, tok.parts,
-					tok.flags, tok.line, tok.col,
+					tok.flags, NULL, tok.line, tok.col,
 				};
 				char *single = NULL;
 				(void)tc_expand_single(&sh, &w, false, &single);

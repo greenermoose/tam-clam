@@ -41,4 +41,9 @@ char *tc_exec_find_in_path(struct tc_shell *sh, const char *name,
 int tc_exec_command_builtin(struct tc_shell *sh, int argc, char **argv,
 			    bool default_path, unsigned long line);
 
+/* Apply a single assignment (scalar, subscripted, or compound array) into
+ * sh->vars. Returns 0 on success or an exit status on error. */
+int tc_exec_apply_assign(struct tc_shell *sh, const struct tc_assign *a,
+			 unsigned extra_flags);
+
 #endif

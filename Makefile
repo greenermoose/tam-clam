@@ -28,16 +28,16 @@ override CFLAGS += -std=c11 -Wall -Wextra -Wpedantic -Wshadow -Wvla \
 LIBTAM := $(LIBTAM_PREFIX)/lib/libtam.a
 
 # Everything but main.c, so the unit tests can link it.
-CORE_SRCS = src/arena.c src/var.c src/func.c src/alias.c src/hash.c \
+CORE_SRCS = src/arena.c src/array.c src/var.c src/func.c src/alias.c src/hash.c \
 	src/options.c src/pattern.c src/arith.c src/glob.c src/shell.c \
 	src/signals.c src/trap.c src/bg.c src/jobs.c src/input.c src/lex.c src/parse.c \
 	src/expand.c src/lint.c src/builtins.c src/builtins_special.c \
-	src/bi_test.c src/bi_printf.c src/builtins_io.c src/builtins_cmd.c \
+	src/bi_declare.c src/bi_test.c src/bi_printf.c src/builtins_io.c src/builtins_cmd.c \
 	src/exec.c src/prompt.c src/history/history.c src/complete/complete.c \
 	src/edit/buf.c src/edit/keymap.c src/edit/highlight.c \
 	src/edit/render.c src/edit/edit.c
 CORE_OBJS = $(patsubst src/%.c,$(B)/%.o,$(CORE_SRCS))
-TESTS = $(B)/tests/test_var $(B)/tests/test_func $(B)/tests/test_alias \
+TESTS = $(B)/tests/test_array $(B)/tests/test_var $(B)/tests/test_func $(B)/tests/test_alias \
 	$(B)/tests/test_hash $(B)/tests/test_options $(B)/tests/test_test \
 	$(B)/tests/test_pattern $(B)/tests/test_arith $(B)/tests/test_glob \
 	$(B)/tests/test_trap $(B)/tests/test_lex $(B)/tests/test_parse \

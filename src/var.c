@@ -80,6 +80,8 @@ void tc_var_finish(struct tc_vars *v)
 		for (size_t i = 0; i < v->cap; i++) {
 			free(v->slots[i].name);
 			free(v->slots[i].value);
+			tc_array_free(v->slots[i].arr);
+			tc_assoc_free(v->slots[i].assoc);
 		}
 		free(v->slots);
 		v->slots = NULL;
@@ -129,12 +131,28 @@ static int ensure_cap(struct tc_vars *v)
 	return TC_VAR_OK;
 }
 
-const char *tc_var_get(const struct tc_vars *v, const char *name)
+const struct tc_var_entry *tc_var_find(const struct tc_vars *v, const char *name)
 {
 	if (v->cap == 0)
 		return NULL;
 	struct tc_var_entry *e = find_slot(v->slots, v->cap, name);
-	return e->name ? e->value : NULL;
+	return e->name ? e : NULL;
+}
+
+const char *tc_var_get(const struct tc_vars *v, const char *name)
+{
+	const struct tc_var_entry *e = tc_var_find(v, name);
+	if (!e)
+		return NULL;
+	if (e->flags & TC_VAR_ARRAY) {
+		const char *val = NULL;
+		if (e->arr)
+			(void)tc_array_get(e->arr, 0, &val);
+		return val;
+	}
+	if (e->flags & TC_VAR_ASSOC)
+		return e->assoc ? tc_assoc_get(e->assoc, "0") : NULL;
+	return e->value;
 }
 
 bool tc_var_is_readonly(const struct tc_vars *v, const char *name)
@@ -143,6 +161,108 @@ bool tc_var_is_readonly(const struct tc_vars *v, const char *name)
 		return false;
 	struct tc_var_entry *e = find_slot(v->slots, v->cap, name);
 	return e->name && (e->flags & TC_VAR_READONLY) != 0;
+}
+
+static char *xstrcat(const char *a, const char *b)
+{
+	size_t al = a ? strlen(a) : 0;
+	size_t bl = b ? strlen(b) : 0;
+	char *p = malloc(al + bl + 1);
+	if (!p)
+		return NULL;
+	if (al)
+		memcpy(p, a, al);
+	if (bl)
+		memcpy(p + al, b, bl);
+	p[al + bl] = '\0';
+	return p;
+}
+
+static struct tc_var_entry *ensure_entry(struct tc_vars *v, const char *name,
+					 int *err)
+{
+	if (!tc_var_valid_name(name, strlen(name))) {
+		*err = TC_VAR_ERR_NAME;
+		return NULL;
+	}
+	if (ensure_cap(v) != TC_VAR_OK) {
+		*err = TC_VAR_ERR_NOMEM;
+		return NULL;
+	}
+	struct tc_var_entry *e = find_slot(v->slots, v->cap, name);
+	if (e->name) {
+		*err = TC_VAR_OK;
+		return e;
+	}
+	char *ncopy = xstrdup(name);
+	if (!ncopy) {
+		*err = TC_VAR_ERR_NOMEM;
+		return NULL;
+	}
+	e->name = ncopy;
+	e->value = NULL;
+	e->arr = NULL;
+	e->assoc = NULL;
+	e->flags = 0;
+	v->count++;
+	*err = TC_VAR_OK;
+	return e;
+}
+
+static int convert_to_array(struct tc_var_entry *e)
+{
+	if (e->flags & TC_VAR_ASSOC)
+		return TC_VAR_ERR_TYPE;
+	if (e->flags & TC_VAR_ARRAY) {
+		if (!e->arr) {
+			e->arr = tc_array_new();
+			if (!e->arr)
+				return TC_VAR_ERR_NOMEM;
+		}
+		return TC_VAR_OK;
+	}
+	struct tc_array *a = tc_array_new();
+	if (!a)
+		return TC_VAR_ERR_NOMEM;
+	if (e->value != NULL) {
+		if (tc_array_set(a, 0, e->value) != TC_ARR_OK) {
+			tc_array_free(a);
+			return TC_VAR_ERR_NOMEM;
+		}
+		free(e->value);
+		e->value = NULL;
+	}
+	e->arr = a;
+	e->flags |= TC_VAR_ARRAY;
+	return TC_VAR_OK;
+}
+
+static int convert_to_assoc(struct tc_var_entry *e)
+{
+	if (e->flags & TC_VAR_ARRAY)
+		return TC_VAR_ERR_TYPE;
+	if (e->flags & TC_VAR_ASSOC) {
+		if (!e->assoc) {
+			e->assoc = tc_assoc_new();
+			if (!e->assoc)
+				return TC_VAR_ERR_NOMEM;
+		}
+		return TC_VAR_OK;
+	}
+	struct tc_assoc *m = tc_assoc_new();
+	if (!m)
+		return TC_VAR_ERR_NOMEM;
+	if (e->value != NULL) {
+		if (tc_assoc_set(m, "0", e->value) != TC_ARR_OK) {
+			tc_assoc_free(m);
+			return TC_VAR_ERR_NOMEM;
+		}
+		free(e->value);
+		e->value = NULL;
+	}
+	e->assoc = m;
+	e->flags |= TC_VAR_ASSOC;
+	return TC_VAR_OK;
 }
 
 int tc_var_set(struct tc_vars *v, const char *name, const char *val,
@@ -158,11 +278,29 @@ int tc_var_set(struct tc_vars *v, const char *name, const char *val,
 		if (val != NULL && (e->flags & TC_VAR_READONLY))
 			return TC_VAR_ERR_READONLY;
 		if (val != NULL) {
-			char *copy = xstrdup(val);
-			if (!copy)
-				return TC_VAR_ERR_NOMEM;
-			free(e->value);
-			e->value = copy;
+			if (e->flags & TC_VAR_ARRAY) {
+				if (!e->arr) {
+					e->arr = tc_array_new();
+					if (!e->arr)
+						return TC_VAR_ERR_NOMEM;
+				}
+				if (tc_array_set(e->arr, 0, val) != TC_ARR_OK)
+					return TC_VAR_ERR_NOMEM;
+			} else if (e->flags & TC_VAR_ASSOC) {
+				if (!e->assoc) {
+					e->assoc = tc_assoc_new();
+					if (!e->assoc)
+						return TC_VAR_ERR_NOMEM;
+				}
+				if (tc_assoc_set(e->assoc, "0", val) != TC_ARR_OK)
+					return TC_VAR_ERR_NOMEM;
+			} else {
+				char *copy = xstrdup(val);
+				if (!copy)
+					return TC_VAR_ERR_NOMEM;
+				free(e->value);
+				e->value = copy;
+			}
 			if (strcmp(name, "PATH") == 0)
 				v->path_gen++;
 		}
@@ -181,12 +319,246 @@ int tc_var_set(struct tc_vars *v, const char *name, const char *val,
 	}
 	e->name = ncopy;
 	e->value = vcopy;
+	e->arr = NULL;
+	e->assoc = NULL;
 	e->flags = add_flags;
 	v->count++;
 	if (val != NULL && strcmp(name, "PATH") == 0)
 		v->path_gen++;
 	if (e->flags & TC_VAR_EXPORT)
 		v->env_dirty = true;
+	return TC_VAR_OK;
+}
+
+int tc_var_append_scalar(struct tc_vars *v, const char *name, const char *val,
+			 unsigned add_flags)
+{
+	const char *cur = tc_var_get(v, name);
+	char *joined = xstrcat(cur, val);
+	if (!joined)
+		return TC_VAR_ERR_NOMEM;
+	int r = tc_var_set(v, name, joined, add_flags);
+	free(joined);
+	return r;
+}
+
+int tc_var_declare(struct tc_vars *v, const char *name, unsigned add_flags,
+		   unsigned clear_flags)
+{
+	if ((add_flags & TC_VAR_ARRAY) && (add_flags & TC_VAR_ASSOC))
+		return TC_VAR_ERR_TYPE;
+	int err = TC_VAR_OK;
+	struct tc_var_entry *e = ensure_entry(v, name, &err);
+	if (!e)
+		return err;
+	if ((clear_flags & TC_VAR_READONLY) && (e->flags & TC_VAR_READONLY))
+		return TC_VAR_ERR_READONLY;
+	if (add_flags & TC_VAR_ARRAY) {
+		int cr = convert_to_array(e);
+		if (cr != TC_VAR_OK)
+			return cr;
+	} else if (add_flags & TC_VAR_ASSOC) {
+		int cr = convert_to_assoc(e);
+		if (cr != TC_VAR_OK)
+			return cr;
+	}
+	unsigned old_flags = e->flags;
+	e->flags = (e->flags | (add_flags & ~(TC_VAR_ARRAY | TC_VAR_ASSOC))) &
+		   ~(clear_flags & ~(TC_VAR_ARRAY | TC_VAR_ASSOC));
+	if ((old_flags ^ e->flags) & TC_VAR_EXPORT)
+		v->env_dirty = true;
+	if (e->flags & (TC_VAR_ARRAY | TC_VAR_ASSOC))
+		v->env_dirty = true;
+	return TC_VAR_OK;
+}
+
+int tc_var_reset_array(struct tc_vars *v, const char *name, unsigned add_flags)
+{
+	int err = TC_VAR_OK;
+	struct tc_var_entry *e = ensure_entry(v, name, &err);
+	if (!e)
+		return err;
+	if (e->flags & TC_VAR_READONLY)
+		return TC_VAR_ERR_READONLY;
+	if (e->flags & TC_VAR_ASSOC)
+		return TC_VAR_ERR_TYPE;
+	struct tc_array *a = tc_array_new();
+	if (!a)
+		return TC_VAR_ERR_NOMEM;
+	free(e->value);
+	e->value = NULL;
+	tc_array_free(e->arr);
+	e->arr = a;
+	e->flags |= TC_VAR_ARRAY | add_flags;
+	if (e->flags & TC_VAR_EXPORT)
+		v->env_dirty = true;
+	if (strcmp(name, "PATH") == 0)
+		v->path_gen++;
+	return TC_VAR_OK;
+}
+
+int tc_var_reset_assoc(struct tc_vars *v, const char *name, unsigned add_flags)
+{
+	int err = TC_VAR_OK;
+	struct tc_var_entry *e = ensure_entry(v, name, &err);
+	if (!e)
+		return err;
+	if (e->flags & TC_VAR_READONLY)
+		return TC_VAR_ERR_READONLY;
+	if (e->flags & TC_VAR_ARRAY)
+		return TC_VAR_ERR_TYPE;
+	struct tc_assoc *m = tc_assoc_new();
+	if (!m)
+		return TC_VAR_ERR_NOMEM;
+	free(e->value);
+	e->value = NULL;
+	tc_assoc_free(e->assoc);
+	e->assoc = m;
+	e->flags |= TC_VAR_ASSOC | add_flags;
+	if (e->flags & TC_VAR_EXPORT)
+		v->env_dirty = true;
+	if (strcmp(name, "PATH") == 0)
+		v->path_gen++;
+	return TC_VAR_OK;
+}
+
+int tc_var_set_elem_idx(struct tc_vars *v, const char *name, int64_t idx,
+			const char *val, bool append, unsigned add_flags)
+{
+	int err = TC_VAR_OK;
+	struct tc_var_entry *e = ensure_entry(v, name, &err);
+	if (!e)
+		return err;
+	if (e->flags & TC_VAR_READONLY)
+		return TC_VAR_ERR_READONLY;
+	int cr = convert_to_array(e);
+	if (cr != TC_VAR_OK)
+		return cr;
+	int64_t ridx = 0;
+	if (tc_array_resolve_idx(e->arr, idx, &ridx) != TC_ARR_OK)
+		return TC_VAR_ERR_BADSUB;
+	int ar;
+	if (append) {
+		const char *cur = NULL;
+		(void)tc_array_get(e->arr, ridx, &cur);
+		char *joined = xstrcat(cur, val);
+		if (!joined)
+			return TC_VAR_ERR_NOMEM;
+		ar = tc_array_set(e->arr, ridx, joined);
+		free(joined);
+	} else {
+		ar = tc_array_set(e->arr, ridx, val);
+	}
+	if (ar == TC_ARR_BADSUB)
+		return TC_VAR_ERR_BADSUB;
+	if (ar != TC_ARR_OK)
+		return TC_VAR_ERR_NOMEM;
+	e->flags |= add_flags;
+	if (e->flags & TC_VAR_EXPORT)
+		v->env_dirty = true;
+	return TC_VAR_OK;
+}
+
+int tc_var_append_elem(struct tc_vars *v, const char *name, const char *val,
+		       unsigned add_flags)
+{
+	int err = TC_VAR_OK;
+	struct tc_var_entry *e = ensure_entry(v, name, &err);
+	if (!e)
+		return err;
+	if (e->flags & TC_VAR_READONLY)
+		return TC_VAR_ERR_READONLY;
+	int cr = convert_to_array(e);
+	if (cr != TC_VAR_OK)
+		return cr;
+	int ar = tc_array_append(e->arr, val);
+	if (ar == TC_ARR_BADSUB)
+		return TC_VAR_ERR_BADSUB;
+	if (ar != TC_ARR_OK)
+		return TC_VAR_ERR_NOMEM;
+	e->flags |= add_flags;
+	if (e->flags & TC_VAR_EXPORT)
+		v->env_dirty = true;
+	return TC_VAR_OK;
+}
+
+int tc_var_set_elem_key(struct tc_vars *v, const char *name, const char *key,
+			const char *val, bool append, unsigned add_flags)
+{
+	int err = TC_VAR_OK;
+	struct tc_var_entry *e = ensure_entry(v, name, &err);
+	if (!e)
+		return err;
+	if (e->flags & TC_VAR_READONLY)
+		return TC_VAR_ERR_READONLY;
+	if (!(e->flags & TC_VAR_ASSOC))
+		return TC_VAR_ERR_TYPE;
+	if (!e->assoc) {
+		e->assoc = tc_assoc_new();
+		if (!e->assoc)
+			return TC_VAR_ERR_NOMEM;
+	}
+	int ar;
+	if (append) {
+		const char *cur = tc_assoc_get(e->assoc, key);
+		char *joined = xstrcat(cur, val);
+		if (!joined)
+			return TC_VAR_ERR_NOMEM;
+		ar = tc_assoc_set(e->assoc, key, joined);
+		free(joined);
+	} else {
+		ar = tc_assoc_set(e->assoc, key, val);
+	}
+	if (ar != TC_ARR_OK)
+		return TC_VAR_ERR_NOMEM;
+	e->flags |= add_flags;
+	if (e->flags & TC_VAR_EXPORT)
+		v->env_dirty = true;
+	return TC_VAR_OK;
+}
+
+int tc_var_unset_elem_idx(struct tc_vars *v, const char *name, int64_t idx)
+{
+	if (!tc_var_valid_name(name, strlen(name)))
+		return TC_VAR_ERR_NAME;
+	if (v->cap == 0)
+		return TC_VAR_OK;
+	struct tc_var_entry *e = find_slot(v->slots, v->cap, name);
+	if (!e->name)
+		return TC_VAR_OK;
+	if (e->flags & TC_VAR_READONLY)
+		return TC_VAR_ERR_READONLY;
+	if (e->flags & TC_VAR_ARRAY) {
+		if (!e->arr)
+			return TC_VAR_OK;
+		int ar = tc_array_unset(e->arr, idx);
+		return ar == TC_ARR_BADSUB ? TC_VAR_ERR_BADSUB : TC_VAR_OK;
+	}
+	if (e->flags & TC_VAR_ASSOC)
+		return TC_VAR_ERR_TYPE;
+	/* Scalar variable: unsetting [0] or [-1] unsets the scalar. */
+	if (idx == 0 || idx == -1)
+		return tc_var_unset(v, name);
+	if (idx < -1)
+		return TC_VAR_ERR_BADSUB;
+	return TC_VAR_OK;
+}
+
+int tc_var_unset_elem_key(struct tc_vars *v, const char *name, const char *key)
+{
+	if (!tc_var_valid_name(name, strlen(name)))
+		return TC_VAR_ERR_NAME;
+	if (v->cap == 0)
+		return TC_VAR_OK;
+	struct tc_var_entry *e = find_slot(v->slots, v->cap, name);
+	if (!e->name)
+		return TC_VAR_OK;
+	if (e->flags & TC_VAR_READONLY)
+		return TC_VAR_ERR_READONLY;
+	if (!(e->flags & TC_VAR_ASSOC))
+		return TC_VAR_ERR_TYPE;
+	if (e->assoc)
+		tc_assoc_unset(e->assoc, key);
 	return TC_VAR_OK;
 }
 
@@ -212,17 +584,15 @@ int tc_var_unset(struct tc_vars *v, const char *name)
 				v->path_gen++;
 			free(e->name);
 			free(e->value);
-			e->name = NULL;
-			e->value = NULL;
-			e->flags = 0;
+			tc_array_free(e->arr);
+			tc_assoc_free(e->assoc);
+			memset(e, 0, sizeof(*e));
 			v->count--;
 			/* Rehash subsequent cluster entries to preserve probing. */
 			size_t next = (idx + 1) & mask;
 			while (v->slots[next].name) {
 				struct tc_var_entry tmp = v->slots[next];
-				v->slots[next].name = NULL;
-				v->slots[next].value = NULL;
-				v->slots[next].flags = 0;
+				memset(&v->slots[next], 0, sizeof(v->slots[next]));
 				struct tc_var_entry *dst =
 					find_slot(v->slots, v->cap, tmp.name);
 				*dst = tmp;
@@ -264,6 +634,7 @@ char **tc_var_envp(struct tc_vars *v)
 	size_t n = 0;
 	for (size_t i = 0; i < v->cap; i++) {
 		if (v->slots[i].name && (v->slots[i].flags & TC_VAR_EXPORT) &&
+		    !(v->slots[i].flags & (TC_VAR_ARRAY | TC_VAR_ASSOC)) &&
 		    v->slots[i].value != NULL)
 			n++;
 	}
@@ -274,7 +645,8 @@ char **tc_var_envp(struct tc_vars *v)
 	size_t out = 0;
 	for (size_t i = 0; i < v->cap; i++) {
 		const struct tc_var_entry *e = &v->slots[i];
-		if (!e->name || !(e->flags & TC_VAR_EXPORT) || !e->value)
+		if (!e->name || !(e->flags & TC_VAR_EXPORT) ||
+		    (e->flags & (TC_VAR_ARRAY | TC_VAR_ASSOC)) || !e->value)
 			continue;
 		size_t nlen = strlen(e->name);
 		size_t vlen = strlen(e->value);
@@ -313,7 +685,8 @@ char **tc_var_envp_override(const struct tc_vars *v,
 	size_t total = 0;
 	for (size_t i = 0; i < v->cap; i++) {
 		const struct tc_var_entry *e = &v->slots[i];
-		if (e->name && (e->flags & TC_VAR_EXPORT) && e->value &&
+		if (e->name && (e->flags & TC_VAR_EXPORT) &&
+		    !(e->flags & (TC_VAR_ARRAY | TC_VAR_ASSOC)) && e->value &&
 		    !name_in_kvs(kvs, n, e->name))
 			total++;
 	}
@@ -335,7 +708,8 @@ char **tc_var_envp_override(const struct tc_vars *v,
 	size_t out = 0;
 	for (size_t i = 0; i < v->cap; i++) {
 		const struct tc_var_entry *e = &v->slots[i];
-		if (!e->name || !(e->flags & TC_VAR_EXPORT) || !e->value)
+		if (!e->name || !(e->flags & TC_VAR_EXPORT) ||
+		    (e->flags & (TC_VAR_ARRAY | TC_VAR_ASSOC)) || !e->value)
 			continue;
 		if (name_in_kvs(kvs, n, e->name))
 			continue;
@@ -403,6 +777,8 @@ int tc_var_push_overrides(struct tc_vars *v, const struct tc_var_kv *kvs,
 			return TC_VAR_ERR_NOMEM;
 		}
 		sv->value = NULL;
+		sv->arr = NULL;
+		sv->assoc = NULL;
 		sv->flags = 0;
 		sv->existed = false;
 		if (v->cap > 0) {
@@ -410,7 +786,13 @@ int tc_var_push_overrides(struct tc_vars *v, const struct tc_var_kv *kvs,
 			if (e->name) {
 				sv->existed = true;
 				sv->flags = e->flags;
-				if (e->value) {
+				if (e->flags & (TC_VAR_ARRAY | TC_VAR_ASSOC)) {
+					sv->arr = e->arr;
+					sv->assoc = e->assoc;
+					e->arr = NULL;
+					e->assoc = NULL;
+					e->flags &= ~(TC_VAR_ARRAY | TC_VAR_ASSOC);
+				} else if (e->value) {
 					sv->value = xstrdup(e->value);
 					if (!sv->value) {
 						free(sv->name);
@@ -446,8 +828,14 @@ void tc_var_pop_overrides(struct tc_vars *v, struct tc_var_save *saves,
 					find_slot(v->slots, v->cap, sv->name);
 				if (e->name) {
 					free(e->value);
+					tc_array_free(e->arr);
+					tc_assoc_free(e->assoc);
 					e->value = sv->value;
+					e->arr = sv->arr;
+					e->assoc = sv->assoc;
 					sv->value = NULL;
+					sv->arr = NULL;
+					sv->assoc = NULL;
 					e->flags = sv->flags;
 					v->env_dirty = true;
 					if (strcmp(sv->name, "PATH") == 0)
@@ -457,6 +845,8 @@ void tc_var_pop_overrides(struct tc_vars *v, struct tc_var_save *saves,
 		}
 		free(sv->name);
 		free(sv->value);
+		tc_array_free(sv->arr);
+		tc_assoc_free(sv->assoc);
 	}
 }
 
@@ -478,7 +868,7 @@ int tc_var_list(const struct tc_vars *v, unsigned filter_flag,
 		if (!e->name)
 			continue;
 		if (filter_flag == 0) {
-			if (e->value != NULL)
+			if (e->value != NULL || (e->flags & (TC_VAR_ARRAY | TC_VAR_ASSOC)))
 				count++;
 		} else if (e->flags & filter_flag) {
 			count++;
@@ -496,7 +886,7 @@ int tc_var_list(const struct tc_vars *v, unsigned filter_flag,
 		if (!e->name)
 			continue;
 		if (filter_flag == 0) {
-			if (e->value != NULL)
+			if (e->value != NULL || (e->flags & (TC_VAR_ARRAY | TC_VAR_ASSOC)))
 				arr[pos++] = e;
 		} else if (e->flags & filter_flag) {
 			arr[pos++] = e;

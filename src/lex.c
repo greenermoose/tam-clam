@@ -599,6 +599,113 @@ out:
 	return r;
 }
 
+static int lex_brace_subscript(struct tc_lexer *lx, bool record_raw, int depth,
+			       unsigned long start, enum tc_sub_kind *out_kind,
+			       struct tc_wpart **out_sub)
+{
+	*out_kind = TC_SUB_NONE;
+	*out_sub = NULL;
+
+	struct wpart_buf wb;
+	int r = wb_init(&wb, lx);
+	if (r != TC_OK)
+		return r;
+
+	unsigned dummy_flags = 0;
+	int bdepth = 1;
+	bool saw_any = false;
+	for (;;) {
+		int c = getch_cont(lx);
+		if (c == TC_IN_EOF) {
+			tc_error(lx->sh, start, "unterminated `[...]' in `${...}'");
+			r = TC_ERR_SYNTAX;
+			goto out;
+		}
+		if (c < TC_IN_EOF) {
+			r = input_failure(lx, c);
+			goto out;
+		}
+		if (c == 0) {
+			r = nul_byte(lx);
+			goto out;
+		}
+		if (record_raw && (r = raw_add(lx, c)) != TC_OK)
+			goto out;
+		if (c == ']') {
+			bdepth--;
+			if (bdepth == 0)
+				break;
+			saw_any = true;
+			r = wb_add_char(&wb, TC_WPART_LITERAL, c);
+		} else if (c == '[') {
+			bdepth++;
+			saw_any = true;
+			r = wb_add_char(&wb, TC_WPART_LITERAL, c);
+		} else if (c == '\'') {
+			saw_any = true;
+			r = lex_single(lx, &wb, record_raw, start);
+		} else if (c == '"') {
+			saw_any = true;
+			r = lex_double(lx, &wb, record_raw, &dummy_flags, depth + 1, start);
+		} else if (c == '\\') {
+			saw_any = true;
+			int d = getch(lx);
+			if (d == TC_IN_EOF) {
+				tc_error(lx->sh, start, "unterminated `[...]' in `${...}'");
+				r = TC_ERR_SYNTAX;
+				goto out;
+			}
+			if (d < TC_IN_EOF) {
+				r = input_failure(lx, d);
+				goto out;
+			}
+			if (d == 0) {
+				r = nul_byte(lx);
+				goto out;
+			}
+			if (record_raw && (r = raw_add(lx, d)) != TC_OK)
+				goto out;
+			r = wb_add_char(&wb, TC_WPART_QUOTED, d);
+		} else if (c == '$') {
+			saw_any = true;
+			r = lex_dollar(lx, &wb, false, record_raw, &dummy_flags, depth + 1, start);
+		} else if (c == '`') {
+			saw_any = true;
+			r = lex_backquote(lx, &wb, false, record_raw, &dummy_flags, start);
+		} else {
+			saw_any = true;
+			r = wb_add_char(&wb, TC_WPART_LITERAL, c);
+		}
+		if (r != TC_OK)
+			goto out;
+	}
+
+	if (!saw_any) {
+		tc_error(lx->sh, start, "bad substitution");
+		r = TC_ERR_SYNTAX;
+		goto out;
+	}
+	if ((r = wb_flush(&wb)) != TC_OK)
+		goto out;
+
+	if (wb.head && !wb.head->next && wb.head->kind == TC_WPART_LITERAL &&
+	    wb.head->len == 1) {
+		if (wb.head->text[0] == '@') {
+			*out_kind = TC_SUB_AT;
+			goto out;
+		}
+		if (wb.head->text[0] == '*') {
+			*out_kind = TC_SUB_STAR;
+			goto out;
+		}
+	}
+	*out_kind = TC_SUB_EXPR;
+	*out_sub = wb.head;
+out:
+	wb_finish(&wb);
+	return r;
+}
+
 static int lex_param_brace(struct tc_lexer *lx, struct wpart_buf *wb,
 			   bool in_dquote, bool record_raw, int depth,
 			   unsigned long start)
@@ -627,11 +734,71 @@ static int lex_param_brace(struct tc_lexer *lx, struct wpart_buf *wb,
 	size_t nlen = 0;
 	enum tc_param_op op = TC_PARAM_PLAIN;
 	bool colon = false;
+	enum tc_sub_kind sub_kind = TC_SUB_NONE;
+	struct tc_wpart *sub = NULL;
 	struct tc_wpart *arg = NULL;
 	unsigned arg_flags = 0;
 	int r;
 
-	if (c == '#') {
+	if (c == '!') {
+		int d = getch_cont(lx);
+		if (d == TC_IN_EOF) {
+			tc_error(lx->sh, start, "unterminated `${...}' at end of input");
+			return TC_ERR_SYNTAX;
+		}
+		if (d < TC_IN_EOF)
+			return input_failure(lx, d);
+		if (is_name_char(d, 1)) {
+			if (record_raw && (r = raw_add(lx, d)) != TC_OK)
+				return r;
+			r = read_brace_name(lx, d, record_raw, start, &name, &nlen);
+			if (r != TC_OK)
+				return r;
+			int lb = getch_cont(lx);
+			if (lb == TC_IN_EOF) {
+				tc_error(lx->sh, start, "unterminated `${...}' at end of input");
+				return TC_ERR_SYNTAX;
+			}
+			if (lb < TC_IN_EOF)
+				return input_failure(lx, lb);
+			if (lb != '[') {
+				tc_error(lx->sh, start,
+					 "indirect/prefix expansion `${!...}' is not supported yet; see ROADMAP.md");
+				return TC_ERR_SYNTAX;
+			}
+			if (record_raw && (r = raw_add(lx, lb)) != TC_OK)
+				return r;
+			r = lex_brace_subscript(lx, record_raw, depth, start, &sub_kind, &sub);
+			if (r != TC_OK)
+				return r;
+			if (sub_kind != TC_SUB_AT && sub_kind != TC_SUB_STAR) {
+				tc_error(lx->sh, start, "bad substitution");
+				return TC_ERR_SYNTAX;
+			}
+			int end = getch_cont(lx);
+			if (end == TC_IN_EOF) {
+				tc_error(lx->sh, start, "unterminated `${...}' at end of input");
+				return TC_ERR_SYNTAX;
+			}
+			if (end < TC_IN_EOF)
+				return input_failure(lx, end);
+			if (end != '}') {
+				tc_error(lx->sh, start, "bad substitution");
+				return TC_ERR_SYNTAX;
+			}
+			if (record_raw && (r = raw_add(lx, end)) != TC_OK)
+				return r;
+			op = TC_PARAM_KEYS;
+			goto emit;
+		}
+		ungetch(lx, d);
+		name = tc_arena_strndup(&lx->sh->arena, "!", 1);
+		if (!name) {
+			tc_error(lx->sh, start, "out of memory");
+			return TC_ERR_NOMEM;
+		}
+		nlen = 1;
+	} else if (c == '#') {
 		int d = getch_cont(lx);
 		if (d == TC_IN_EOF) {
 			tc_error(lx->sh, start, "unterminated `${...}' at end of input");
@@ -661,7 +828,7 @@ static int lex_param_brace(struct tc_lexer *lx, struct wpart_buf *wb,
 			}
 			nlen = 1;
 		} else {
-			/* ${#parameter} string length */
+			/* ${#parameter} or ${#array[sub]} */
 			if (record_raw && (r = raw_add(lx, d)) != TC_OK)
 				return r;
 			r = read_brace_name(lx, d, record_raw, start, &name, &nlen);
@@ -674,6 +841,20 @@ static int lex_param_brace(struct tc_lexer *lx, struct wpart_buf *wb,
 			}
 			if (end < TC_IN_EOF)
 				return input_failure(lx, end);
+			if (end == '[' && tc_var_valid_name(name, nlen)) {
+				if (record_raw && (r = raw_add(lx, end)) != TC_OK)
+					return r;
+				r = lex_brace_subscript(lx, record_raw, depth, start, &sub_kind, &sub);
+				if (r != TC_OK)
+					return r;
+				end = getch_cont(lx);
+				if (end == TC_IN_EOF) {
+					tc_error(lx->sh, start, "unterminated `${...}' at end of input");
+					return TC_ERR_SYNTAX;
+				}
+				if (end < TC_IN_EOF)
+					return input_failure(lx, end);
+			}
 			if (end != '}') {
 				tc_error(lx->sh, start, "bad substitution");
 				return TC_ERR_SYNTAX;
@@ -700,6 +881,23 @@ static int lex_param_brace(struct tc_lexer *lx, struct wpart_buf *wb,
 		return nul_byte(lx);
 	if (record_raw && (r = raw_add(lx, op1)) != TC_OK)
 		return r;
+
+	if (op1 == '[' && tc_var_valid_name(name, nlen)) {
+		r = lex_brace_subscript(lx, record_raw, depth, start, &sub_kind, &sub);
+		if (r != TC_OK)
+			return r;
+		op1 = getch_cont(lx);
+		if (op1 == TC_IN_EOF) {
+			tc_error(lx->sh, start, "unterminated `${...}' at end of input");
+			return TC_ERR_SYNTAX;
+		}
+		if (op1 < TC_IN_EOF)
+			return input_failure(lx, op1);
+		if (op1 == 0)
+			return nul_byte(lx);
+		if (record_raw && (r = raw_add(lx, op1)) != TC_OK)
+			return r;
+	}
 
 	if (op1 == '}') {
 		op = TC_PARAM_PLAIN;
@@ -791,6 +989,8 @@ emit:
 		wp->len = nlen;
 		wp->op = op;
 		wp->colon = colon;
+		wp->sub_kind = sub_kind;
+		wp->sub = sub;
 		wp->arg = arg;
 		wp->arg_flags = arg_flags;
 		return wb_add_part(wb, wp);
@@ -1547,10 +1747,73 @@ static int lex_dollar(struct tc_lexer *lx, struct wpart_buf *wb,
 	return wb_add_char(wb, in_dquote ? TC_WPART_QUOTED : TC_WPART_LITERAL, '$');
 }
 
+/* Detect NAME=, NAME+=, NAME[sub]=, NAME[sub]+= from the structured wparts. */
+static unsigned detect_assign_flags(const struct tc_wpart *parts)
+{
+	if (!parts || parts->kind != TC_WPART_LITERAL || parts->len == 0)
+		return 0;
+	const char *s = parts->text;
+	size_t n = parts->len;
+	if (!is_name_char((unsigned char)s[0], 1))
+		return 0;
+	size_t i = 1;
+	while (i < n && is_name_char((unsigned char)s[i], 0))
+		i++;
+	if (i < n) {
+		if (s[i] == '=')
+			return TC_WORD_ASSIGN;
+		if (s[i] == '+' && i + 1 < n && s[i + 1] == '=')
+			return TC_WORD_ASSIGN | TC_WORD_ASSIGN_PLUS;
+		if (s[i] != '[')
+			return 0;
+		/* Walk unquoted brackets across parts to find matching ']'. */
+		int bdepth = 1;
+		const struct tc_wpart *wp = parts;
+		size_t pos = i + 1;
+		bool has_sub_content = false;
+		while (wp) {
+			if (wp->kind == TC_WPART_LITERAL) {
+				while (pos < wp->len) {
+					char ch = wp->text[pos];
+					if (ch == '[') {
+						bdepth++;
+						has_sub_content = true;
+					} else if (ch == ']') {
+						bdepth--;
+						if (bdepth == 0) {
+							if (!has_sub_content)
+								return 0;
+							size_t after = pos + 1;
+							if (after < wp->len) {
+								if (wp->text[after] == '=')
+									return TC_WORD_ASSIGN;
+								if (wp->text[after] == '+' &&
+								    after + 1 < wp->len &&
+								    wp->text[after + 1] == '=')
+									return TC_WORD_ASSIGN | TC_WORD_ASSIGN_PLUS;
+							}
+							return 0;
+						}
+						has_sub_content = true;
+					} else {
+						has_sub_content = true;
+					}
+					pos++;
+				}
+			} else {
+				has_sub_content = true;
+			}
+			wp = wp->next;
+			pos = 0;
+		}
+	}
+	return 0;
+}
+
 static int lex_word(struct tc_lexer *lx, int c, struct tc_token *tok)
 {
 	unsigned flags = 0;
-	int name_so_far = 1;
+	bool followed_lp = false;
 	tam_str_clear(lx->word);
 
 	struct wpart_buf wb;
@@ -1565,6 +1828,8 @@ static int lex_word(struct tc_lexer *lx, int c, struct tc_token *tok)
 		}
 		if (c == TC_IN_EOF || c == ' ' || c == '\t' || c == '\n' ||
 		    is_operator_start(c)) {
+			if (c == '(')
+				followed_lp = true;
 			if (c != TC_IN_EOF)
 				ungetch(lx, c);
 			break;
@@ -1574,10 +1839,6 @@ static int lex_word(struct tc_lexer *lx, int c, struct tc_token *tok)
 			goto out;
 		}
 		size_t len = tam_str_len(lx->word);
-		if (c == '=' && name_so_far && len > 0 && !(flags & TC_WORD_QUOTED))
-			flags |= TC_WORD_ASSIGN;
-		if (!is_name_char(c, len == 0))
-			name_so_far = 0;
 
 		if ((r = raw_add(lx, c)) != TC_OK)
 			goto out;
@@ -1634,6 +1895,10 @@ static int lex_word(struct tc_lexer *lx, int c, struct tc_token *tok)
 
 	if ((r = wb_flush(&wb)) != TC_OK)
 		goto out;
+
+	flags |= detect_assign_flags(wb.head);
+	if (followed_lp && (flags & TC_WORD_ASSIGN))
+		flags |= TC_WORD_FOLLOWED_LP;
 
 	size_t len = tam_str_len(lx->word);
 	enum tc_token_kind kind = TC_TOK_WORD;

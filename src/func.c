@@ -22,6 +22,9 @@ static uint64_t hash_str(const char *s)
 static struct tc_node *clone_node(struct tc_arena *a,
 				  const struct tc_node *src, unsigned depth);
 
+static int clone_assign(struct tc_arena *a, const struct tc_assign *src,
+			struct tc_assign *dst);
+
 static struct tc_wpart *clone_wparts(struct tc_arena *a,
 				     const struct tc_wpart *src,
 				     unsigned depth)
@@ -38,6 +41,11 @@ static struct tc_wpart *clone_wparts(struct tc_arena *a,
 		if (wp->text) {
 			c->text = tc_arena_strndup(a, wp->text, wp->len);
 			if (!c->text)
+				return NULL;
+		}
+		if (wp->sub) {
+			c->sub = clone_wparts(a, wp->sub, depth + 1);
+			if (!c->sub)
 				return NULL;
 		}
 		if (wp->arg) {
@@ -68,6 +76,51 @@ static int clone_word(struct tc_arena *a, const struct tc_word *src,
 	if (src->parts) {
 		dst->parts = clone_wparts(a, src->parts, 0);
 		if (!dst->parts)
+			return -1;
+	}
+	if (src->decl_assign) {
+		dst->decl_assign = tc_arena_alloc(a, sizeof(*dst->decl_assign));
+		if (!dst->decl_assign)
+			return -1;
+		if (clone_assign(a, src->decl_assign, dst->decl_assign) < 0)
+			return -1;
+	}
+	return 0;
+}
+
+static int clone_assign(struct tc_arena *a, const struct tc_assign *src,
+			struct tc_assign *dst)
+{
+	*dst = *src;
+	if (src->name) {
+		dst->name = tc_arena_strndup(a, src->name, strlen(src->name));
+		if (!dst->name)
+			return -1;
+	}
+	if (src->sub) {
+		dst->sub = clone_wparts(a, src->sub, 0);
+		if (!dst->sub)
+			return -1;
+	}
+	if (src->is_compound) {
+		dst->items = NULL;
+		if (src->nitems > 0) {
+			dst->items = tc_arena_alloc(a, src->nitems * sizeof(*dst->items));
+			if (!dst->items)
+				return -1;
+			for (size_t i = 0; i < src->nitems; i++) {
+				dst->items[i] = src->items[i];
+				if (src->items[i].sub) {
+					dst->items[i].sub = clone_wparts(a, src->items[i].sub, 0);
+					if (!dst->items[i].sub)
+						return -1;
+				}
+				if (clone_word(a, &src->items[i].value, &dst->items[i].value) < 0)
+					return -1;
+			}
+		}
+	} else {
+		if (clone_word(a, &src->value, &dst->value) < 0)
 			return -1;
 	}
 	return 0;
@@ -159,15 +212,8 @@ static struct tc_node *clone_node(struct tc_arena *a,
 			if (!as)
 				return NULL;
 			for (size_t i = 0; i < na; i++) {
-				as[i].name = tc_arena_strndup(
-					a, src->u.simple.assigns[i].name,
-					strlen(src->u.simple.assigns[i].name));
-				if (!as[i].name)
+				if (clone_assign(a, &src->u.simple.assigns[i], &as[i]) < 0)
 					return NULL;
-				if (clone_word(a, &src->u.simple.assigns[i].value,
-					       &as[i].value) < 0)
-					return NULL;
-				as[i].line = src->u.simple.assigns[i].line;
 			}
 			dst->u.simple.assigns = as;
 		}

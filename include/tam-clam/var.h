@@ -10,10 +10,13 @@
 #include <stdint.h>
 
 #include "tam-clam/arena.h"
+#include "tam-clam/array.h"
 
 enum {
 	TC_VAR_EXPORT   = 1 << 0,
 	TC_VAR_READONLY = 1 << 1,
+	TC_VAR_ARRAY    = 1 << 2,
+	TC_VAR_ASSOC    = 1 << 3,
 };
 
 enum tc_var_err {
@@ -21,11 +24,15 @@ enum tc_var_err {
 	TC_VAR_ERR_NAME     = -1,
 	TC_VAR_ERR_READONLY = -2,
 	TC_VAR_ERR_NOMEM    = -3,
+	TC_VAR_ERR_TYPE     = -4,
+	TC_VAR_ERR_BADSUB   = -5,
 };
 
 struct tc_var_entry {
 	char *name;
-	char *value;   /* NULL if declared without a value */
+	char *value;            /* scalar value, or NULL */
+	struct tc_array *arr;   /* non-NULL when TC_VAR_ARRAY */
+	struct tc_assoc *assoc; /* non-NULL when TC_VAR_ASSOC */
 	unsigned flags;
 };
 
@@ -46,6 +53,8 @@ struct tc_var_kv {
 struct tc_var_save {
 	char *name;
 	char *value;
+	struct tc_array *arr;
+	struct tc_assoc *assoc;
 	unsigned flags;
 	bool existed;
 };
@@ -59,13 +68,38 @@ bool tc_var_valid_name(const char *name, size_t len);
 /* Import valid NAME=VALUE entries from environ as exported variables. */
 int tc_var_import_environ(struct tc_vars *v, char **envp);
 
-/* Value of name, or NULL if unset (or declared without a value). */
+/* Read-only lookup of the variable entry, or NULL if not present. */
+const struct tc_var_entry *tc_var_find(const struct tc_vars *v, const char *name);
+
+/* Value of name (element 0 / key "0" for arrays), or NULL if unset. */
 const char *tc_var_get(const struct tc_vars *v, const char *name);
 bool tc_var_is_readonly(const struct tc_vars *v, const char *name);
 
 /* Set name to val (if val != NULL) and OR add_flags into its flags. */
 int tc_var_set(struct tc_vars *v, const char *name, const char *val,
 	       unsigned add_flags);
+/* Append val to scalar name (or element 0 / key "0" if array/assoc). */
+int tc_var_append_scalar(struct tc_vars *v, const char *name, const char *val,
+			 unsigned add_flags);
+/* Declare name with add_flags and clear_flags (handles array/assoc creation
+ * and scalar->array conversion; rejects array<->assoc conversion). */
+int tc_var_declare(struct tc_vars *v, const char *name, unsigned add_flags,
+		   unsigned clear_flags);
+/* Reset name to an empty indexed or associative array (respects readonly). */
+int tc_var_reset_array(struct tc_vars *v, const char *name, unsigned add_flags);
+int tc_var_reset_assoc(struct tc_vars *v, const char *name, unsigned add_flags);
+/* Set or append an indexed array element (converts scalar to array if needed). */
+int tc_var_set_elem_idx(struct tc_vars *v, const char *name, int64_t idx,
+			const char *val, bool append, unsigned add_flags);
+/* Append a new element at max_idx + 1 (converts scalar to array if needed). */
+int tc_var_append_elem(struct tc_vars *v, const char *name, const char *val,
+		       unsigned add_flags);
+/* Set or append an associative array element (name must be TC_VAR_ASSOC). */
+int tc_var_set_elem_key(struct tc_vars *v, const char *name, const char *key,
+			const char *val, bool append, unsigned add_flags);
+/* Unset a single element from an indexed or associative array. */
+int tc_var_unset_elem_idx(struct tc_vars *v, const char *name, int64_t idx);
+int tc_var_unset_elem_key(struct tc_vars *v, const char *name, const char *key);
 int tc_var_unset(struct tc_vars *v, const char *name);
 
 /* Return cached NULL-terminated envp for execve; NULL on OOM. */

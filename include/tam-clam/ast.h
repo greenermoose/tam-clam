@@ -17,7 +17,8 @@ enum tc_wpart_kind {
 
 enum tc_param_op {
 	TC_PARAM_PLAIN = 0,       /* $x, ${x} */
-	TC_PARAM_LEN,             /* ${#x} */
+	TC_PARAM_LEN,             /* ${#x}, ${#a[@]}, ${#a[i]} */
+	TC_PARAM_KEYS,            /* ${!a[@]}, ${!a[*]} */
 	TC_PARAM_USE_DEFAULT,     /* ${x-w}, ${x:-w} */
 	TC_PARAM_ASSIGN_DEFAULT,  /* ${x=w}, ${x:=w} */
 	TC_PARAM_ERROR,           /* ${x?w}, ${x:?w} */
@@ -28,7 +29,15 @@ enum tc_param_op {
 	TC_PARAM_TRIM_PREFIX_L,   /* ${x##pat} */
 };
 
+enum tc_sub_kind {
+	TC_SUB_NONE = 0,
+	TC_SUB_EXPR,              /* [expr] or [key] */
+	TC_SUB_AT,                /* [@] */
+	TC_SUB_STAR,              /* [*] */
+};
+
 struct tc_node;
+struct tc_assign;
 
 struct tc_wpart {
 	enum tc_wpart_kind kind;
@@ -37,6 +46,8 @@ struct tc_wpart {
 	size_t len;
 	enum tc_param_op op;      /* TC_WPART_PARAM only */
 	bool colon;               /* TC_WPART_PARAM only: :- := :? :+ */
+	enum tc_sub_kind sub_kind;/* TC_WPART_PARAM only: subscript kind */
+	struct tc_wpart *sub;     /* TC_WPART_PARAM only: subscript parts when TC_SUB_EXPR */
 	struct tc_wpart *arg;     /* PARAM arg or ARITH inner word parts */
 	unsigned arg_flags;       /* TC_WPART_PARAM only: TC_WORD_* flags of arg */
 	struct tc_node *cmd;      /* TC_WPART_CMDSUB only: parsed AST subtree */
@@ -48,13 +59,29 @@ struct tc_word {
 	size_t len;
 	struct tc_wpart *parts;   /* structured parts for expansion */
 	unsigned flags;           /* TC_WORD_* from lex.h */
+	struct tc_assign *decl_assign; /* compound assign arg for declare/readonly/export */
+	unsigned long line;
+	unsigned long col;
+};
+
+struct tc_array_item {
+	bool has_sub;             /* [key]=val or [key]+=val */
+	bool append;              /* [key]+=val */
+	struct tc_wpart *sub;     /* subscript parts when has_sub */
+	struct tc_word value;     /* element word */
 	unsigned long line;
 	unsigned long col;
 };
 
 struct tc_assign {
 	const char *name;
-	struct tc_word value;     /* word parts after '=' */
+	bool append;              /* += instead of = */
+	bool has_sub;             /* name[sub]=val or name[sub]+=val */
+	struct tc_wpart *sub;     /* subscript parts when has_sub */
+	bool is_compound;         /* name=(...) or name+=(...) */
+	struct tc_word value;     /* scalar RHS when !is_compound */
+	struct tc_array_item *items; /* compound items when is_compound */
+	size_t nitems;
 	unsigned long line;
 	unsigned long col;
 };

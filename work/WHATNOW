@@ -3,24 +3,30 @@ WHATNOW
 What tam-clam is doing now and what comes next. Read this first; revise
 it at the end of every session (work/README-work).
 
-Updated: 2026-11-24, with W19 (0.2.5)
+Updated: 2026-11-24, with W20 (0.3.0)
 
 
 STATE
 
-  Version 0.2.5, Phase P3 COMPLETE (line editor, shared O_APPEND
-  history, POSIX job control, completion, syntax highlighting &
-  suggestions, and prompts/hooks), on branch dev. 0.2.5 adds:
-  - safe prompt escape expansion in include/tam-clam/prompt.h and
-    src/prompt.c (\u, \h, \H, \w, \W, \$, \?, \j, \t, \T, \A, \d, \s,
-    \v, \n, \r, \e, \\, \[/\]; never re-parsed as code, zero timers);
-  - right-aligned RPS1 / RPROMPT in src/edit/render.c (auto-hides when
-    buffer approaches, transient on Enter);
-  - precmd / PROMPT_COMMAND before each prompt and preexec ($1=cmd) /
-    PS0 before each command (preserving $?);
-  - tests/test_prompt.c unit tests, live PTY prompt/hook tests in
-    tests/pty/test_pty.c, and sandbox/demo-0.2.5-prompts.
-  readelf -d lists only libc.so.6. make test and make sanitize pass.
+  Version 0.3.0, Phase P4 in progress (indexed and associative arrays),
+  on branch dev. 0.3.0 adds:
+  - sparse indexed arrays and hashed associative arrays in
+    include/tam-clam/array.h, src/array.c, and src/var.c (never exported
+    to envp, readonly-protected, scalar-to-array conversion);
+  - bash array syntax in src/lex.c, src/parse.c, src/func.c, src/lint.c,
+    src/exec.c: a=(...), a+=(...), a[sub]=v, a[sub]+=v, scalar +=, and
+    compound args to declare/typeset/readonly/export;
+  - parameter expansions in src/expand.c: ${a[sub]}, ${a[@]}, ${a[*]},
+    ${#a[@]}, ${#a[sub]}, ${!a[@]}, ${!a[*]}, POSIX ops on elements, and
+    element-wise pattern trimming (${a[@]#pat}, ${a[@]%pat});
+  - arithmetic indexing in src/arith.c ($((a[i])), a[i]+=1, ++a[i]);
+  - declare/typeset (-a/-A/-p/-r/-x/-g/+x) in src/bi_declare.c, unset
+    'a[sub]' and array printing in src/builtins_special.c, and read -a
+    in src/builtins_io.c;
+  - tests/test_array.c (123 checks), tests/spec/arrays.test.sh (22 cases
+    against bash --posix), fuzz seeds, and sandbox/demo-0.3.0-arrays.
+  readelf -d lists only libc.so.6. make test, make sanitize, and make
+  fuzz pass.
 
   Fred's decisions so far are in ROADMAP.md and the plans: POSIX.1-2024
   is the target; the Tamlinux-wide keybinding standard lives in
@@ -34,17 +40,17 @@ STATE
 
 NEXT
 
-  1. Phase P4 — 0.3.0 (plans/P4-extras.md):
-     - Indexed and associative arrays (`declare -a`/`-A`, `arr=(...)`,
-       `${arr[i]}`, `${arr[@]}`, `${#arr[@]}`, `${!arr[@]}`, `+=`).
-     Bump VERSION to 0.3.0 in the first code commit.
+  1. Phase P4 -- 0.3.1 (plans/P4-extras.md):
+     - [[ ]] with == patterns and =~ using our own linear-time POSIX ERE
+       engine (no pcre or libc regcomp);
+     - local and full declare;
+     - brace expansion {a,b} and {1..9}.
+     Bump VERSION to 0.3.1 in the first code commit.
 
 
 WAITING FOR FRED
 
-  - Trying Phase P3 (0.2.5): ./sandbox/demo-0.2.5-prompts,
-    ./sandbox/play, or ./build/tam-clam on a terminal and on the Linux
-    console (TERM=linux).
+  - Trying 0.3.0 arrays: ./sandbox/demo-0.3.0-arrays or ./build/tam-clam.
   - Optional: installing dash / mksh / busybox for multi-shell spec
     comparisons and clang for a 24-hour libFuzzer run.
 

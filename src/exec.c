@@ -14,6 +14,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include "tam-clam/arith.h"
 #include "tam-clam/bg.h"
 #include "tam-clam/builtins.h"
 #include "tam-clam/edit.h"
@@ -609,33 +610,210 @@ static int apply_redirs(struct tc_shell *sh, const struct tc_redir *redirs,
 	return 0;
 }
 
+static int report_var_err(struct tc_shell *sh, unsigned long line,
+			  const char *name, int sr)
+{
+	if (sr == TC_VAR_ERR_READONLY) {
+		tc_error(sh, line, "%s: readonly variable", name);
+		return fatal_exp_error(sh);
+	}
+	if (sr == TC_VAR_ERR_BADSUB) {
+		tc_error(sh, line, "%s: bad array subscript", name);
+		return 1;
+	}
+	if (sr == TC_VAR_ERR_TYPE) {
+		tc_error(sh, line, "%s: cannot convert between indexed and associative array",
+			 name);
+		return 1;
+	}
+	tc_error(sh, line, "out of memory");
+	return TC_STATUS_USAGE;
+}
+
+static int expand_sub_word(struct tc_shell *sh, const struct tc_wpart *sub,
+			   unsigned long line, char **out)
+{
+	struct tc_word w;
+	memset(&w, 0, sizeof(w));
+	w.parts = (struct tc_wpart *)sub;
+	w.line = line;
+	return tc_expand_single(sh, &w, false, out);
+}
+
+int tc_exec_apply_assign(struct tc_shell *sh, const struct tc_assign *a,
+			 unsigned extra_flags)
+{
+	unsigned fl = extra_flags | (sh->opt_allexport ? TC_VAR_EXPORT : 0);
+
+	if (a->is_compound) {
+		const struct tc_var_entry *e = tc_var_find(&sh->vars, a->name);
+		bool is_assoc = (e && (e->flags & TC_VAR_ASSOC)) ||
+				((extra_flags & TC_VAR_ASSOC) != 0);
+		if (is_assoc) {
+			if (!a->append) {
+				int sr = tc_var_reset_assoc(&sh->vars, a->name, fl);
+				if (sr != TC_VAR_OK)
+					return report_var_err(sh, a->line, a->name, sr);
+			} else if (!e) {
+				int sr = tc_var_reset_assoc(&sh->vars, a->name, fl);
+				if (sr != TC_VAR_OK)
+					return report_var_err(sh, a->line, a->name, sr);
+			}
+			for (size_t j = 0; j < a->nitems; j++) {
+				const struct tc_array_item *it = &a->items[j];
+				if (!it->has_sub) {
+					/* Support bash alternating key value pairs if unsubscripted. */
+					char *key = NULL;
+					int er = tc_expand_single(sh, &it->value, false, &key);
+					if (er != TC_EXP_OK)
+						return er == TC_EXP_ERR ? fatal_exp_error(sh) : TC_STATUS_USAGE;
+					char *val = "";
+					if (j + 1 < a->nitems && !a->items[j + 1].has_sub) {
+						j++;
+						er = tc_expand_single(sh, &a->items[j].value, false, &val);
+						if (er != TC_EXP_OK)
+							return er == TC_EXP_ERR ? fatal_exp_error(sh) : TC_STATUS_USAGE;
+					}
+					int sr = tc_var_set_elem_key(&sh->vars, a->name, key, val, false, fl);
+					if (sr != TC_VAR_OK)
+						return report_var_err(sh, it->line, a->name, sr);
+					continue;
+				}
+				char *key = NULL;
+				int er = expand_sub_word(sh, it->sub, it->line, &key);
+				if (er != TC_EXP_OK)
+					return er == TC_EXP_ERR ? fatal_exp_error(sh) : TC_STATUS_USAGE;
+				char *val = NULL;
+				er = tc_expand_single(sh, &it->value, true, &val);
+				if (er != TC_EXP_OK)
+					return er == TC_EXP_ERR ? fatal_exp_error(sh) : TC_STATUS_USAGE;
+				int sr = tc_var_set_elem_key(&sh->vars, a->name, key, val,
+							     it->append, fl);
+				if (sr != TC_VAR_OK)
+					return report_var_err(sh, it->line, a->name, sr);
+			}
+			return 0;
+		}
+
+		/* Indexed array compound assignment. */
+		if (!a->append) {
+			int sr = tc_var_reset_array(&sh->vars, a->name, fl);
+			if (sr != TC_VAR_OK)
+				return report_var_err(sh, a->line, a->name, sr);
+		} else {
+			int sr = tc_var_declare(&sh->vars, a->name, TC_VAR_ARRAY | fl, 0);
+			if (sr != TC_VAR_OK)
+				return report_var_err(sh, a->line, a->name, sr);
+		}
+		const struct tc_var_entry *cur = tc_var_find(&sh->vars, a->name);
+		int64_t next_idx = (a->append && cur && cur->arr && cur->arr->len > 0)
+					   ? tc_array_max_idx(cur->arr) + 1
+					   : 0;
+		for (size_t j = 0; j < a->nitems; j++) {
+			const struct tc_array_item *it = &a->items[j];
+			if (it->has_sub) {
+				char *sub_s = NULL;
+				int er = expand_sub_word(sh, it->sub, it->line, &sub_s);
+				if (er != TC_EXP_OK)
+					return er == TC_EXP_ERR ? fatal_exp_error(sh) : TC_STATUS_USAGE;
+				int64_t idx = 0;
+				int ar = tc_arith_eval(sh, sub_s, it->line, &idx);
+				if (ar != TC_ARITH_OK)
+					return ar == TC_ARITH_NOMEM ? TC_STATUS_USAGE : 1;
+				char *val = NULL;
+				er = tc_expand_single(sh, &it->value, true, &val);
+				if (er != TC_EXP_OK)
+					return er == TC_EXP_ERR ? fatal_exp_error(sh) : TC_STATUS_USAGE;
+				int sr = tc_var_set_elem_idx(&sh->vars, a->name, idx, val,
+							     it->append, fl);
+				if (sr != TC_VAR_OK)
+					return report_var_err(sh, it->line, a->name, sr);
+				cur = tc_var_find(&sh->vars, a->name);
+				int64_t ridx = idx;
+				if (cur && cur->arr)
+					(void)tc_array_resolve_idx(cur->arr, idx, &ridx);
+				next_idx = ridx + 1;
+			} else {
+				char **ewords = NULL;
+				size_t ecount = 0;
+				int er = tc_expand_words(sh, &it->value, 1, &ewords, &ecount);
+				if (er != TC_EXP_OK)
+					return er == TC_EXP_ERR ? fatal_exp_error(sh) : TC_STATUS_USAGE;
+				for (size_t k = 0; k < ecount; k++) {
+					int sr = tc_var_set_elem_idx(&sh->vars, a->name,
+								     next_idx, ewords[k],
+								     false, fl);
+					if (sr != TC_VAR_OK)
+						return report_var_err(sh, it->line, a->name, sr);
+					next_idx++;
+				}
+			}
+		}
+		return 0;
+	}
+
+	if (a->has_sub) {
+		const struct tc_var_entry *e = tc_var_find(&sh->vars, a->name);
+		bool is_assoc = (e != NULL && (e->flags & TC_VAR_ASSOC) != 0);
+		char *sub_s = NULL;
+		int er = expand_sub_word(sh, a->sub, a->line, &sub_s);
+		if (er != TC_EXP_OK)
+			return er == TC_EXP_ERR ? fatal_exp_error(sh) : TC_STATUS_USAGE;
+		char *val = NULL;
+		er = tc_expand_single(sh, &a->value, true, &val);
+		if (er != TC_EXP_OK)
+			return er == TC_EXP_ERR ? fatal_exp_error(sh) : TC_STATUS_USAGE;
+		int sr;
+		if (is_assoc) {
+			sr = tc_var_set_elem_key(&sh->vars, a->name, sub_s, val,
+						 a->append, fl);
+		} else {
+			int64_t idx = 0;
+			int ar = tc_arith_eval(sh, sub_s, a->line, &idx);
+			if (ar != TC_ARITH_OK)
+				return ar == TC_ARITH_NOMEM ? TC_STATUS_USAGE : 1;
+			sr = tc_var_set_elem_idx(&sh->vars, a->name, idx, val,
+						 a->append, fl);
+		}
+		if (sr != TC_VAR_OK)
+			return report_var_err(sh, a->line, a->name, sr);
+		return 0;
+	}
+
+	char *val = NULL;
+	int er = tc_expand_single(sh, &a->value, true, &val);
+	if (er != TC_EXP_OK)
+		return er == TC_EXP_ERR ? fatal_exp_error(sh) : TC_STATUS_USAGE;
+	int sr = a->append ? tc_var_append_scalar(&sh->vars, a->name, val, fl)
+			   : tc_var_set(&sh->vars, a->name, val, fl);
+	if (sr != TC_VAR_OK)
+		return report_var_err(sh, a->line, a->name, sr);
+	return 0;
+}
+
 /* Apply assignments directly to sh->vars (left-to-right). */
 static int apply_assigns_persist(struct tc_shell *sh,
 				 const struct tc_assign *assigns, size_t n)
 {
 	struct tc_var_kv *traced = NULL;
-	if (sh->opt_xtrace && n > 0)
+	bool can_trace = sh->opt_xtrace && n > 0;
+	for (size_t i = 0; i < n; i++) {
+		if (assigns[i].is_compound || assigns[i].has_sub || assigns[i].append) {
+			can_trace = false;
+			break;
+		}
+	}
+	if (can_trace)
 		traced = tc_arena_alloc(&sh->arena, n * sizeof(*traced));
 
 	for (size_t i = 0; i < n; i++) {
-		char *val = NULL;
-		int er = tc_expand_single(sh, &assigns[i].value, true, &val);
-		if (er != TC_EXP_OK)
-			return er == TC_EXP_ERR ? fatal_exp_error(sh) : TC_STATUS_USAGE;
+		int ar = tc_exec_apply_assign(sh, &assigns[i], 0);
+		if (ar != 0)
+			return ar;
 		if (traced) {
 			traced[i].name = assigns[i].name;
-			traced[i].value = val;
-		}
-		int sr = tc_var_set(&sh->vars, assigns[i].name, val,
-				    sh->opt_allexport ? TC_VAR_EXPORT : 0);
-		if (sr == TC_VAR_ERR_READONLY) {
-			tc_error(sh, assigns[i].line, "%s: readonly variable",
-				 assigns[i].name);
-			return fatal_exp_error(sh);
-		}
-		if (sr != TC_VAR_OK) {
-			tc_error(sh, assigns[i].line, "out of memory");
-			return TC_STATUS_USAGE;
+			const char *v = tc_var_get(&sh->vars, assigns[i].name);
+			traced[i].value = v ? v : "";
 		}
 	}
 	if (traced)
@@ -658,6 +836,12 @@ static int expand_assigns_kv(struct tc_shell *sh,
 		return TC_STATUS_USAGE;
 	}
 	for (size_t i = 0; i < n; i++) {
+		if (assigns[i].is_compound || assigns[i].has_sub) {
+			tc_error(sh, assigns[i].line,
+				 "%s: cannot use array assignment as command prefix",
+				 assigns[i].name);
+			return 1;
+		}
 		if (tc_var_is_readonly(&sh->vars, assigns[i].name)) {
 			tc_error(sh, assigns[i].line, "%s: readonly variable",
 				 assigns[i].name);
@@ -667,6 +851,20 @@ static int expand_assigns_kv(struct tc_shell *sh,
 		int er = tc_expand_single(sh, &assigns[i].value, true, &val);
 		if (er != TC_EXP_OK)
 			return er == TC_EXP_ERR ? fatal_exp_error(sh) : TC_STATUS_USAGE;
+		if (assigns[i].append) {
+			const char *cur = tc_var_get(&sh->vars, assigns[i].name);
+			size_t cl = cur ? strlen(cur) : 0;
+			size_t vl = strlen(val);
+			char *joined = tc_arena_alloc(&sh->arena, cl + vl + 1);
+			if (!joined) {
+				tc_error(sh, assigns[i].line, "out of memory");
+				return TC_STATUS_USAGE;
+			}
+			if (cl)
+				memcpy(joined, cur, cl);
+			memcpy(joined + cl, val, vl + 1);
+			val = joined;
+		}
 		kvs[i].name = assigns[i].name;
 		kvs[i].value = val;
 	}
@@ -813,6 +1011,57 @@ static int exec_simple_body(struct tc_shell *sh, const struct tc_node *n)
 
 	sh->cmdsub_ran = false;
 	sh->cmdsub_status = 0;
+
+	/* Fast path for declaration builtins carrying compound decl_assign args. */
+	bool has_decl_assign = false;
+	for (size_t i = 1; i < nw; i++) {
+		if (n->u.simple.words[i].decl_assign) {
+			has_decl_assign = true;
+			break;
+		}
+	}
+	if (has_decl_assign) {
+		char **cmd_argv = NULL;
+		size_t cmd_argc = 0;
+		int er = tc_expand_words(sh, &n->u.simple.words[0], 1, &cmd_argv, &cmd_argc);
+		if (er != TC_EXP_OK)
+			return er == TC_EXP_ERR ? fatal_exp_error(sh) : TC_STATUS_USAGE;
+		struct tc_var_kv *kvs = NULL;
+		if (na > 0) {
+			int ar = expand_assigns_kv(sh, n->u.simple.assigns, na, &kvs);
+			if (ar != 0)
+				return ar;
+		}
+		struct fd_save *saves = NULL;
+		size_t nsaves = 0;
+		pid_t *writers = NULL;
+		size_t nwriters = 0;
+		if (apply_redirs(sh, n->u.simple.redirs, nr,
+				 &saves, &nsaves, &writers, &nwriters) < 0)
+			return 1;
+		const struct tc_builtin *bi = cmd_argc > 0 ? tc_builtin_find(cmd_argv[0]) : NULL;
+		struct tc_var_save *vsaves = NULL;
+		size_t nvsaves = 0;
+		if (na > 0) {
+			if (bi && bi->special) {
+				unsigned fl = sh->opt_allexport ? TC_VAR_EXPORT : 0;
+				for (size_t i = 0; i < na; i++)
+					(void)tc_var_set(&sh->vars, kvs[i].name, kvs[i].value, fl);
+			} else {
+				vsaves = tc_arena_alloc(&sh->arena, na * sizeof(*vsaves));
+				if (vsaves)
+					(void)tc_var_push_overrides(&sh->vars, kvs, na, vsaves, &nvsaves);
+			}
+		}
+		int status = tc_exec_decl_builtin(sh, cmd_argc > 0 ? cmd_argv[0] : "declare",
+						  n->u.simple.words, nw, n->line);
+		if (vsaves)
+			tc_var_pop_overrides(&sh->vars, vsaves, nvsaves);
+		restore_fds(saves, nsaves);
+		for (size_t i = 0; i < nwriters; i++)
+			wait_child(writers[i]);
+		return status;
+	}
 
 	if (nw > 0) {
 		int er = tc_expand_words(sh, n->u.simple.words, nw, &argv, &argc);

@@ -17,6 +17,7 @@ enum atok_kind {
 	AT_NUM,
 	AT_IDENT,
 	AT_LPAREN, AT_RPAREN,
+	AT_LBRACKET, AT_RBRACKET,
 	AT_COMMA, AT_QUEST, AT_COLON,
 	AT_OROR, AT_ANDAND,
 	AT_PIPE, AT_CARET, AT_AMP,
@@ -184,6 +185,8 @@ static int next_tok(struct arith_ctx *c)
 	switch (a) {
 	case '(': c->tok.kind = AT_LPAREN; return TC_ARITH_OK;
 	case ')': c->tok.kind = AT_RPAREN; return TC_ARITH_OK;
+	case '[': c->tok.kind = AT_LBRACKET; return TC_ARITH_OK;
+	case ']': c->tok.kind = AT_RBRACKET; return TC_ARITH_OK;
 	case ',': c->tok.kind = AT_COMMA; return TC_ARITH_OK;
 	case '?': c->tok.kind = AT_QUEST; return TC_ARITH_OK;
 	case ':': c->tok.kind = AT_COLON; return TC_ARITH_OK;
@@ -298,15 +301,21 @@ static int checked_rshift(struct arith_ctx *c, int64_t a, int64_t b, int64_t *ou
 	return TC_ARITH_OK;
 }
 
-static int read_var(struct arith_ctx *c, const char *name, size_t len, int64_t *out)
+struct arith_lval {
+	const char *name;
+	size_t nlen;
+	bool has_sub;
+	bool is_assoc;
+	int64_t idx;
+	const char *key;
+};
+
+static int parse_comma(struct arith_ctx *c, bool noeval, int64_t *out);
+static int parse_assign(struct arith_ctx *c, bool noeval, int64_t *out);
+
+static int parse_int_val(struct arith_ctx *c, const char *n, const char *val,
+			 int64_t *out)
 {
-	char *n = tc_arena_strndup(&c->sh->arena, name, len);
-	if (!n) {
-		tc_error(c->sh, c->line, "out of memory");
-		c->err = TC_ARITH_NOMEM;
-		return TC_ARITH_NOMEM;
-	}
-	const char *val = tc_var_get(&c->sh->vars, n);
 	if (!val) {
 		if (c->sh->opt_nounset) {
 			tc_error(c->sh, c->line, "%s: unbound variable", n);
@@ -335,7 +344,6 @@ static int read_var(struct arith_ctx *c, const char *name, size_t len, int64_t *
 		c->err = TC_ARITH_ERR;
 		return TC_ARITH_ERR;
 	}
-	/* Allow INT64_MIN (-9223372036854775808) cleanly. */
 	if (neg && strcmp(val, "9223372036854775808") == 0) {
 		*out = INT64_MIN;
 		return TC_ARITH_OK;
@@ -356,9 +364,112 @@ static int read_var(struct arith_ctx *c, const char *name, size_t len, int64_t *
 	return TC_ARITH_OK;
 }
 
-static int write_var(struct arith_ctx *c, const char *name, size_t len, int64_t val)
+/* Parse optional [subscript] right after an AT_IDENT token has been consumed. */
+static int parse_lval_sub(struct arith_ctx *c, const char *name, size_t nlen,
+			  bool noeval, struct arith_lval *lv)
 {
-	char *n = tc_arena_strndup(&c->sh->arena, name, len);
+	memset(lv, 0, sizeof(*lv));
+	lv->name = name;
+	lv->nlen = nlen;
+	if (c->tok.kind != AT_LBRACKET)
+		return TC_ARITH_OK;
+
+	if (c->depth >= TC_ARITH_DEPTH_MAX) {
+		tc_error(c->sh, c->line, "arithmetic nesting exceeds limit (%d)",
+			 TC_ARITH_DEPTH_MAX);
+		c->err = TC_ARITH_ERR;
+		return TC_ARITH_ERR;
+	}
+	lv->has_sub = true;
+
+	char *n = tc_arena_strndup(&c->sh->arena, name, nlen);
+	if (!n) {
+		tc_error(c->sh, c->line, "out of memory");
+		c->err = TC_ARITH_NOMEM;
+		return TC_ARITH_NOMEM;
+	}
+	const struct tc_var_entry *e = tc_var_find(&c->sh->vars, n);
+	if (e && (e->flags & TC_VAR_ASSOC)) {
+		lv->is_assoc = true;
+		/* Capture raw key text up to matching ']'. */
+		const char *kstart = c->p;
+		int bdepth = 1;
+		while (*c->p && bdepth > 0) {
+			if (*c->p == '[')
+				bdepth++;
+			else if (*c->p == ']')
+				bdepth--;
+			if (bdepth > 0)
+				c->p++;
+		}
+		if (bdepth != 0) {
+			tc_error(c->sh, c->line, "arithmetic syntax error: expected `]'");
+			c->err = TC_ARITH_ERR;
+			return TC_ARITH_ERR;
+		}
+		size_t klen = (size_t)(c->p - kstart);
+		c->p++; /* consume ']' */
+		lv->key = tc_arena_strndup(&c->sh->arena, kstart, klen);
+		if (!lv->key) {
+			tc_error(c->sh, c->line, "out of memory");
+			c->err = TC_ARITH_NOMEM;
+			return TC_ARITH_NOMEM;
+		}
+		return next_tok(c);
+	}
+
+	c->depth++;
+	int r = next_tok(c);
+	if (r == TC_ARITH_OK)
+		r = parse_comma(c, noeval, &lv->idx);
+	c->depth--;
+	if (r != TC_ARITH_OK)
+		return r;
+	if (c->tok.kind != AT_RBRACKET) {
+		tc_error(c->sh, c->line, "arithmetic syntax error: expected `]'");
+		c->err = TC_ARITH_ERR;
+		return TC_ARITH_ERR;
+	}
+	return next_tok(c);
+}
+
+static int read_lval(struct arith_ctx *c, const struct arith_lval *lv, int64_t *out)
+{
+	char *n = tc_arena_strndup(&c->sh->arena, lv->name, lv->nlen);
+	if (!n) {
+		tc_error(c->sh, c->line, "out of memory");
+		c->err = TC_ARITH_NOMEM;
+		return TC_ARITH_NOMEM;
+	}
+	const char *val = NULL;
+	if (!lv->has_sub) {
+		val = tc_var_get(&c->sh->vars, n);
+	} else {
+		const struct tc_var_entry *e = tc_var_find(&c->sh->vars, n);
+		if (e) {
+			if (lv->is_assoc) {
+				val = e->assoc ? tc_assoc_get(e->assoc, lv->key) : NULL;
+			} else if (e->flags & TC_VAR_ARRAY) {
+				if (tc_array_get(e->arr, lv->idx, &val) == TC_ARR_BADSUB) {
+					tc_error(c->sh, c->line, "%s: bad array subscript", n);
+					c->err = TC_ARITH_ERR;
+					return TC_ARITH_ERR;
+				}
+			} else if (lv->idx == 0 || lv->idx == -1) {
+				val = e->value;
+			} else if (lv->idx < -1) {
+				tc_error(c->sh, c->line, "%s: bad array subscript", n);
+				c->err = TC_ARITH_ERR;
+				return TC_ARITH_ERR;
+			}
+		}
+	}
+	return parse_int_val(c, n, val, out);
+}
+
+static int write_lval(struct arith_ctx *c, const struct arith_lval *lv, int64_t val)
+{
+	char *n = tc_arena_strndup(&c->sh->arena, lv->name, lv->nlen);
 	if (!n) {
 		tc_error(c->sh, c->line, "out of memory");
 		c->err = TC_ARITH_NOMEM;
@@ -366,9 +477,21 @@ static int write_var(struct arith_ctx *c, const char *name, size_t len, int64_t 
 	}
 	char buf[32];
 	snprintf(buf, sizeof(buf), "%" PRId64, val);
-	int sr = tc_var_set(&c->sh->vars, n, buf, 0);
+	int sr;
+	if (!lv->has_sub) {
+		sr = tc_var_set(&c->sh->vars, n, buf, 0);
+	} else if (lv->is_assoc) {
+		sr = tc_var_set_elem_key(&c->sh->vars, n, lv->key, buf, false, 0);
+	} else {
+		sr = tc_var_set_elem_idx(&c->sh->vars, n, lv->idx, buf, false, 0);
+	}
 	if (sr == TC_VAR_ERR_READONLY) {
 		tc_error(c->sh, c->line, "%s: readonly variable", n);
+		c->err = TC_ARITH_ERR;
+		return TC_ARITH_ERR;
+	}
+	if (sr == TC_VAR_ERR_BADSUB) {
+		tc_error(c->sh, c->line, "%s: bad array subscript", n);
 		c->err = TC_ARITH_ERR;
 		return TC_ARITH_ERR;
 	}
@@ -379,9 +502,6 @@ static int write_var(struct arith_ctx *c, const char *name, size_t len, int64_t 
 	}
 	return TC_ARITH_OK;
 }
-
-static int parse_comma(struct arith_ctx *c, bool noeval, int64_t *out);
-static int parse_assign(struct arith_ctx *c, bool noeval, int64_t *out);
 
 static int parse_primary(struct arith_ctx *c, bool noeval, int64_t *out)
 {
@@ -395,6 +515,9 @@ static int parse_primary(struct arith_ctx *c, bool noeval, int64_t *out)
 		int r = next_tok(c);
 		if (r != TC_ARITH_OK)
 			return r;
+		struct arith_lval lv;
+		if ((r = parse_lval_sub(c, name, nlen, noeval, &lv)) != TC_ARITH_OK)
+			return r;
 		/* Postfix ++ / -- */
 		if (c->tok.kind == AT_PLUSPLUS || c->tok.kind == AT_MINUSMINUS) {
 			enum atok_kind op = c->tok.kind;
@@ -406,13 +529,13 @@ static int parse_primary(struct arith_ctx *c, bool noeval, int64_t *out)
 				return TC_ARITH_OK;
 			}
 			int64_t cur = 0, nxt = 0;
-			if ((r = read_var(c, name, nlen, &cur)) != TC_ARITH_OK)
+			if ((r = read_lval(c, &lv, &cur)) != TC_ARITH_OK)
 				return r;
 			r = (op == AT_PLUSPLUS) ? checked_add(c, cur, 1, &nxt)
 						: checked_sub(c, cur, 1, &nxt);
 			if (r != TC_ARITH_OK)
 				return r;
-			if ((r = write_var(c, name, nlen, nxt)) != TC_ARITH_OK)
+			if ((r = write_lval(c, &lv, nxt)) != TC_ARITH_OK)
 				return r;
 			*out = cur;
 			return TC_ARITH_OK;
@@ -421,7 +544,7 @@ static int parse_primary(struct arith_ctx *c, bool noeval, int64_t *out)
 			*out = 0;
 			return TC_ARITH_OK;
 		}
-		return read_var(c, name, nlen, out);
+		return read_lval(c, &lv, out);
 	}
 	if (c->tok.kind == AT_LPAREN) {
 		if (c->depth >= TC_ARITH_DEPTH_MAX) {
@@ -504,18 +627,21 @@ static int parse_unary(struct arith_ctx *c, bool noeval, int64_t *out)
 		r = next_tok(c);
 		if (r != TC_ARITH_OK)
 			return r;
+		struct arith_lval lv;
+		if ((r = parse_lval_sub(c, name, nlen, noeval, &lv)) != TC_ARITH_OK)
+			return r;
 		if (noeval) {
 			*out = 0;
 			return TC_ARITH_OK;
 		}
 		int64_t cur = 0, nxt = 0;
-		if ((r = read_var(c, name, nlen, &cur)) != TC_ARITH_OK)
+		if ((r = read_lval(c, &lv, &cur)) != TC_ARITH_OK)
 			return r;
 		r = (op == AT_PLUSPLUS) ? checked_add(c, cur, 1, &nxt)
 					: checked_sub(c, cur, 1, &nxt);
 		if (r != TC_ARITH_OK)
 			return r;
-		if ((r = write_var(c, name, nlen, nxt)) != TC_ARITH_OK)
+		if ((r = write_lval(c, &lv, nxt)) != TC_ARITH_OK)
 			return r;
 		*out = nxt;
 		return TC_ARITH_OK;
@@ -749,13 +875,51 @@ static bool is_assign_op(enum atok_kind k)
 
 static int parse_assign(struct arith_ctx *c, bool noeval, int64_t *out)
 {
-	/* Look ahead if current token is IDENT followed by an assignment op. */
+	/* Look ahead if current token is IDENT (with optional [sub]) followed by
+	 * an assignment op. */
 	if (c->tok.kind == AT_IDENT) {
 		const char *save_p = c->p;
 		struct atok save_tok = c->tok;
 		int r = next_tok(c);
 		if (r != TC_ARITH_OK)
 			return r;
+		struct arith_lval lv;
+		if (c->tok.kind == AT_LBRACKET) {
+			/* Probe past [...] without evaluating side effects first. */
+			const char *p2 = c->p;
+			int bdepth = 1;
+			while (*p2 && bdepth > 0) {
+				if (*p2 == '[') bdepth++;
+				else if (*p2 == ']') bdepth--;
+				p2++;
+			}
+			while (*p2 == ' ' || *p2 == '\t' || *p2 == '\n' ||
+			       *p2 == '\r' || *p2 == '\v' || *p2 == '\f')
+				p2++;
+			bool looks_assign = false;
+			if (bdepth == 0) {
+				if (p2[0] == '=' && p2[1] != '=')
+					looks_assign = true;
+				else if ((p2[0] == '+' || p2[0] == '-' || p2[0] == '*' ||
+					  p2[0] == '/' || p2[0] == '%' || p2[0] == '&' ||
+					  p2[0] == '^' || p2[0] == '|') && p2[1] == '=')
+					looks_assign = true;
+				else if (((p2[0] == '<' && p2[1] == '<') ||
+					  (p2[0] == '>' && p2[1] == '>')) && p2[2] == '=')
+					looks_assign = true;
+			}
+			if (!looks_assign) {
+				c->p = save_p;
+				c->tok = save_tok;
+				return parse_ternary(c, noeval, out);
+			}
+			if ((r = parse_lval_sub(c, save_tok.start, save_tok.len, noeval, &lv)) != TC_ARITH_OK)
+				return r;
+		} else {
+			memset(&lv, 0, sizeof(lv));
+			lv.name = save_tok.start;
+			lv.nlen = save_tok.len;
+		}
 		if (is_assign_op(c->tok.kind)) {
 			if (c->depth >= TC_ARITH_DEPTH_MAX) {
 				tc_error(c->sh, c->line,
@@ -780,7 +944,7 @@ static int parse_assign(struct arith_ctx *c, bool noeval, int64_t *out)
 			int64_t val = rhs;
 			if (op != AT_EQ) {
 				int64_t cur = 0;
-				if ((r = read_var(c, save_tok.start, save_tok.len, &cur)) != TC_ARITH_OK)
+				if ((r = read_lval(c, &lv, &cur)) != TC_ARITH_OK)
 					return r;
 				switch (op) {
 				case AT_PLUSEQ:    r = checked_add(c, cur, rhs, &val); break;
@@ -798,7 +962,7 @@ static int parse_assign(struct arith_ctx *c, bool noeval, int64_t *out)
 				if (r != TC_ARITH_OK)
 					return r;
 			}
-			if ((r = write_var(c, save_tok.start, save_tok.len, val)) != TC_ARITH_OK)
+			if ((r = write_lval(c, &lv, val)) != TC_ARITH_OK)
 				return r;
 			*out = val;
 			return TC_ARITH_OK;
