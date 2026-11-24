@@ -11,6 +11,7 @@ Things to try:
   Ctrl+G / Ctrl+E                        # 0.2.0 guidance & widget palette
   Alt+Enter                              # 0.2.0 multi-line editing
   bind                                   # 0.2.0 list/edit keybindings
+  Up / Down / Ctrl+F / Alt+L / history   # 0.2.1 prefix & incremental history
   PS1='clam> '                           # change the live prompt
   echo \$'\e[36m\U0001F41A hello!\e[0m'   # 0.1.0 ANSI-C + UTF-8
   echo \$((6 * 7))                        # 0.1.0 64-bit arithmetic

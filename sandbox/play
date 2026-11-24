@@ -23,9 +23,10 @@ while :; do
 	printf ' 10) 0.1.4 spec/fuzz   (POSIX spec table, fuzz mutations, self-dogfood)\n'
 	printf ' 11) 0.1.5 lint mode   (tam-clam --lint FILE..., # lint: allow)\n'
 	printf ' 12) 0.2.0 line editor (arch/keys.md, Ctrl+G/E, multi-line, bind)\n'
-	printf ' 13) interactive shell (try tam-clam live at a prompt)\n'
+	printf ' 13) 0.2.1 history     (Up/Down prefix, Ctrl+F search, Alt+L, history)\n'
+	printf ' 14) interactive shell (try tam-clam live at a prompt)\n'
 	printf '  q) quit\n'
-	printf 'Choose [1-13, q]: '
+	printf 'Choose [1-14, q]: '
 	IFS= read -r choice || break
 	printf '\n'
 	case "$choice" in
@@ -41,7 +42,8 @@ while :; do
 	10) "$ROOT/sandbox/demo-0.1.4-spec-fuzz" ;;
 	11) "$ROOT/sandbox/demo-0.1.5-lint" ;;
 	12) "$ROOT/sandbox/demo-0.2.0-edit" ;;
-	13) "$ROOT/sandbox/demo-interactive" ;;
+	13) "$ROOT/sandbox/demo-0.2.1-history" ;;
+	14) "$ROOT/sandbox/demo-interactive" ;;
 	q|Q) break ;;
 	*) echo "Unknown choice: $choice" ;;
 	esac

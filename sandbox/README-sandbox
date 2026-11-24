@@ -46,5 +46,7 @@ IN THIS REPOSITORY
                                      and # lint: allow suppressions
     ./sandbox/demo-0.2.0-edit        0.2.0: line editor, arch/keys.md
                                      bindings, multi-line, bind builtin
+    ./sandbox/demo-0.2.1-history     0.2.1: Up/Down prefix search, Ctrl+F
+                                     incremental search, Alt+L, history
     ./sandbox/demo-interactive       start an interactive tam-clam
                                      prompt with ideas to try live

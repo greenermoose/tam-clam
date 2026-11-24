@@ -16,12 +16,14 @@
 
 #include "tam-clam/edit.h"
 #include "tam-clam/exec.h"
+#include "tam-clam/history.h"
 #include "tam-clam/input.h"
 #include "tam-clam/lint.h"
 #include "tam-clam/options.h"
 #include "tam-clam/parse.h"
 #include "tam-clam/shell.h"
 #include "tam-clam/signals.h"
+#include "tam.h"
 
 #ifndef TC_VERSION
 #define TC_VERSION "unknown"
@@ -32,7 +34,7 @@ static void usage(int fd)
 	static const char text[] =
 		"usage: tam-clam -c COMMANDS [NAME [ARGS...]]\n"
 		"       tam-clam SCRIPT [ARGS...]\n"
-		"       tam-clam [-s] [ARGS...]\n"
+		"       tam-clam [--private] [-s] [ARGS...]\n"
 		"       tam-clam --lint FILE...\n"
 		"       tam-clam --version\n";
 	(void)tc_write_all(fd, text, sizeof(text) - 1);
@@ -55,8 +57,18 @@ static int run(struct tc_shell *sh, struct tc_input *in)
 		if (r == TC_END)
 			break;
 		if (r == TC_OK) {
+			const char *pre_pwd = tc_var_get(&sh->vars, "PWD");
+			char *cwd_copy = pre_pwd ? strdup(pre_pwd) : NULL;
 			if (node && !(sh->opt_noexec && !sh->interactive))
 				tc_exec(sh, node);
+			if (sh->hist && sh->editor && sh->editor->last_cmd) {
+				int st = sh->exit_requested ? sh->exit_status : sh->status;
+				(void)tc_hist_add(sh->hist, sh->editor->last_cmd,
+						  sh->editor->last_cmd_len, st,
+						  cwd_copy ? cwd_copy : "");
+				tc_editor_clear_last_cmd(sh->editor);
+			}
+			free(cwd_copy);
 			tc_arena_reset(&sh->arena);
 			tc_trap_run_pending(sh);
 			tc_bg_reap_nonblock(&sh->bg);
@@ -66,6 +78,8 @@ static int run(struct tc_shell *sh, struct tc_input *in)
 		}
 		tc_arena_reset(&sh->arena);
 		if (r == TC_ERR_INTR) {
+			if (sh->editor)
+				tc_editor_clear_last_cmd(sh->editor);
 			(void)tc_write_all(STDERR_FILENO, "\n", 1);
 			tc_parser_reset(&p);
 			sh->status = 130;
@@ -75,6 +89,13 @@ static int run(struct tc_shell *sh, struct tc_input *in)
 			continue;
 		}
 		sh->status = TC_STATUS_USAGE;
+		if (sh->hist && sh->editor && sh->editor->last_cmd) {
+			const char *pwd = tc_var_get(&sh->vars, "PWD");
+			(void)tc_hist_add(sh->hist, sh->editor->last_cmd,
+					  sh->editor->last_cmd_len, sh->status,
+					  pwd ? pwd : "");
+			tc_editor_clear_last_cmd(sh->editor);
+		}
 		/* A non-interactive shell stops at a syntax error (XCU 2.8.1). */
 		if (!sh->interactive || r == TC_ERR_IO)
 			break;
@@ -130,6 +151,10 @@ int main(int argc, char **argv)
 		}
 		if (strcmp(a, "--lint") == 0) {
 			lint_mode = true;
+			continue;
+		}
+		if (strcmp(a, "--private") == 0) {
+			sh.private_mode = true;
 			continue;
 		}
 		if (strcmp(a, "--version") == 0) {
@@ -266,13 +291,30 @@ int main(int argc, char **argv)
 		tc_input_from_fd(&in, STDIN_FILENO, true);
 		sh.interactive = isatty(STDIN_FILENO) && isatty(STDERR_FILENO);
 		struct tc_editor ed;
+		struct tc_history hist;
 		bool have_ed = false;
+		bool have_hist = false;
 		if (sh.interactive) {
 			in.prompt = true;
 			tc_traps_finish(&sh.traps);
 			tc_traps_init(&sh.traps, true);
 			if (tc_signals_interactive() < 0)
 				tc_error(&sh, 0, "cannot set up signals: %s", strerror(errno));
+			const char *hf = tc_var_get(&sh.vars, "HISTFILE");
+			char *xdg_hf = NULL;
+			bool priv = sh.private_mode || (hf != NULL && hf[0] == '\0');
+			if (!priv && !hf) {
+				xdg_hf = tam_xdg_path(TAM_XDG_STATE, "tam-clam",
+						      "history", true);
+				hf = xdg_hf;
+			}
+			tc_hist_init(&hist, priv ? NULL : hf, priv);
+			free(xdg_hf);
+			if (!priv)
+				(void)tc_hist_load(&hist);
+			sh.hist = &hist;
+			have_hist = true;
+
 			const char *term = getenv("TERM");
 			if (!term || strcmp(term, "dumb") != 0) {
 				tc_editor_init(&ed, STDIN_FILENO, STDERR_FILENO);
@@ -286,6 +328,10 @@ int main(int argc, char **argv)
 		if (have_ed) {
 			tc_editor_finish(&ed);
 			sh.editor = NULL;
+		}
+		if (have_hist) {
+			tc_hist_finish(&hist);
+			sh.hist = NULL;
 		}
 	}
 	tc_trap_run_exit(&sh);

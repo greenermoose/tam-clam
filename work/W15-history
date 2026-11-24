@@ -1,0 +1,50 @@
+W15 HISTORY (0.2.1)
+
+Date: 2026-11-24
+AI harness: agy 1.5.15
+AI model: Gemini 4 Neon (Medium)
+Continues: W14
+
+GUIDANCE
+
+  Fred: "/plan Plan and build 0.2.1"
+  Fred: "Plan approved. Proceed."
+
+DONE
+
+  - Implemented append-only command history in include/tam-clam/history.h
+    and src/history/history.c:
+    - Single-write O_APPEND records (`v1 <ts> <status> <cwd> <cmd>\n`)
+      defaulting to libtam's tam_xdg_path(TAM_XDG_STATE, "tam-clam",
+      "history", true), overridable via HISTFILE.
+    - Damage-tolerant reader (skips malformed or truncated lines) and
+      live incremental sync across concurrent open shells.
+    - Private mode (`tam-clam --private` or empty HISTFILE) and leading-
+      space ignore.
+    - `history` builtin (`history [N | -c]`).
+  - Wired history into src/edit/edit.c and src/main.c:
+    - Up/Down prefix-filtered history navigation (restoring draft line).
+    - Ctrl+F live incremental history search overlay (Ctrl+F/Alt+N next,
+      Alt+Shift+N prev, Enter accepts into buffer, Escape restores).
+    - Alt+L insert-last-arg with repeat cycling.
+    - Captures exact interactive command text with real exit status and
+      working directory after execution.
+  - Added tests/test_history.c (round-trip, damaged/truncated recovery,
+    2-process concurrent O_APPEND writers, /dev/full, private mode) and
+    extended tests/pty/test_pty.c (Up prefix, Ctrl+F, Alt+L, shared
+    HISTFILE, --private).
+  - Added sandbox/demo-0.2.1-history; bumped VERSION to 0.2.1; updated
+    ROADMAP.md, plans/P3-interactive.md, sandbox/, and work/WHATNOW.
+  - Verified make clean test, make sanitize, and readelf -d (only
+    libc.so.6).
+
+FAILED
+
+  - Nothing.
+
+HANDOFF
+
+  - 0.2.1 history is complete on dev.
+  - Next: 0.2.2 job control (plans/P3-interactive.md): process groups,
+    tcsetpgrp, Ctrl+P (VSUSP), Ctrl+\ (VINTR), fg, bg, jobs, %n job IDs,
+    and finished-job notifications before the prompt.

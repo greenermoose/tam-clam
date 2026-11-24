@@ -1,0 +1,32 @@
+#!/bin/sh
+# 0.2.1 demo: append-only shared history, Up/Down prefix search, Ctrl+F, Alt+L.
+set -eu
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+SH="$ROOT/build/tam-clam"
+[ -x "$SH" ] || make -C "$ROOT"
+
+TMPHIST=$(mktemp /tmp/tam-clam-demo-hist.XXXXXX)
+trap 'rm -f "$TMPHIST"' EXIT
+
+cat >"$TMPHIST" <<EOF
+v1 1795430001 0 /tmp echo hello-from-history
+v1 1795430002 0 /tmp git status
+v1 1795430003 0 /tmp git log --oneline -5
+v1 1795430004 0 /tmp printf 'tam-clam 0.2.1 history works!\n'
+EOF
+
+cat <<EOF
+=== tam-clam $(cat "$ROOT/VERSION") history demo ===
+Using temporary history file: $TMPHIST
+
+Things to try at the live prompt:
+  Up / Down           scroll history (type 'git ' then Up for prefix search!)
+  Ctrl+F              live incremental history search (Ctrl+F/Alt+N next,
+                      Alt+Shift+N prev, Enter accept into buffer, Esc cancel)
+  Alt+L               insert last argument of previous command (repeat to walk back)
+  history             list recorded commands (or: history 5 / history -c)
+  (leading space)     commands starting with a space are not saved to history
+  Ctrl+Q              exit on empty prompt
+
+EOF
+exec env HISTFILE="$TMPHIST" PS1='tam-clam$ ' PS2='tam-clam> ' "$SH"

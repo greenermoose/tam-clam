@@ -3,27 +3,26 @@ WHATNOW
 What tam-clam is doing now and what comes next. Read this first; revise
 it at the end of every session (work/README-work).
 
-Updated: 2026-11-24, with W14 (0.2.0)
+Updated: 2026-11-24, with W15 (0.2.1)
 
 
 STATE
 
-  Version 0.2.0, Phase P3 IN PROGRESS (line editor complete), on branch
-  dev. 0.2.0 adds:
-  - interactive line editor in include/tam-clam/edit.h and
-    src/edit/{buf.c,keymap.c,render.c,edit.c} on libtam's tam_tty,
-    tam_key, and tam_uni, implementing arch/keys.md (following
-    tamlinux/arch/keybindings.md);
-  - UTF-8 and wide-character editing, multi-line editing (Alt+Enter and
-    incomplete-syntax continuation), selection (Shift+Nav, Ctrl+A,
-    Alt+M), clipboard ring + OSC 52 write (Ctrl+X/C/V, Alt+V),
-    undo/redo (Ctrl+Z/Y), guidance overlay (Ctrl+G), widget palette
-    (Ctrl+E), $VISUAL/$EDITOR (Alt+E), bracketed paste (CSI 200~/201~),
-    SIGWINCH redraw, and the `bind` builtin;
-  - child-process termios (VINTR=Ctrl+\, VQUIT disabled, VSUSP=Ctrl+P)
-    with original termios restored on shell exit;
-  - tests/test_edit.c unit tests, tests/pty/test_pty.c C PTY tests
-    (xterm and TERM=linux), and sandbox/demo-0.2.0-edit.
+  Version 0.2.1, Phase P3 IN PROGRESS (line editor and history complete),
+  on branch dev. 0.2.1 adds:
+  - append-only command history in include/tam-clam/history.h and
+    src/history/history.c: single-write O_APPEND records with timestamp,
+    exit status, and cwd (default via libtam tam_xdg_path, overridable
+    with HISTFILE), damage-tolerant reader, live sync across concurrent
+    shells, `--private` mode, leading-space ignore, and `history`
+    builtin;
+  - line-editor integration in src/edit/edit.c: Up/Down prefix-filtered
+    history navigation, Ctrl+F live incremental search overlay (Ctrl+F /
+    Alt+N next, Alt+Shift+N prev, Enter accepts into buffer, Esc cancels),
+    and Alt+L insert-last-arg with repeat cycling;
+  - tests/test_history.c (round-trip, damaged/truncated recovery,
+    concurrent O_APPEND writers, /dev/full, private mode), extended
+    tests/pty/test_pty.c, and sandbox/demo-0.2.1-history.
   readelf -d lists only libc.so.6. make test and make sanitize pass.
 
   Fred's decisions so far are in ROADMAP.md and the plans: POSIX.1-2024
@@ -38,18 +37,18 @@ STATE
 
 NEXT
 
-  1. 0.2.1 (plans/P3-interactive.md):
-     - History (src/history/): append-only file with timestamps, exit
-       status, and working directory via single O_APPEND writes; reader
-       that skips damaged records; Ctrl+F incremental search, Up/Down
-       prefix search, Alt+L insert-last-arg, and private mode.
-     Bump VERSION to 0.2.1 in the first code commit.
+  1. 0.2.2 (plans/P3-interactive.md):
+     - Job control: process groups, tcsetpgrp, Ctrl+P (VSUSP), Ctrl+\
+       (VINTR), fg, bg, jobs, %n job IDs, and finished-job notifications
+       before the prompt.
+     Bump VERSION to 0.2.2 in the first code commit.
 
 
 WAITING FOR FRED
 
-  - Trying 0.2.0: ./sandbox/demo-0.2.0-edit or ./build/tam-clam on a
-    terminal and on the Linux console (TERM=linux).
+  - Trying 0.2.1: ./sandbox/demo-0.2.1-history or ./build/tam-clam
+    (Up/Down prefix search, Ctrl+F search, Alt+L last-arg, history,
+    --private).
   - Optional: installing dash / mksh / busybox for multi-shell spec
     comparisons and clang for a 24-hour libFuzzer run.
 

@@ -154,7 +154,12 @@ struct tc_editor {
 	struct termios orig_termios;
 	struct tc_keymap keymap;
 	struct tc_clip_ring clip;
+	char *last_cmd;       /* raw interactive command text for history */
+	size_t last_cmd_len;
 };
+
+void tc_editor_append_last_cmd(struct tc_editor *ed, const char *line, size_t len);
+void tc_editor_clear_last_cmd(struct tc_editor *ed);
 
 /* --- Buffer API (src/edit/buf.c) --- */
 void tc_ebuf_init(struct tc_edit_buf *b);

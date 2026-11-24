@@ -5,10 +5,11 @@ of versions. Versions follow semantic versioning: during 0.x, the minor
 number marks a phase's big step and the patch number marks each
 milestone inside it.
 
-**Current version:** 0.2.0 (Phase P3 started: our own line editor in
-`src/edit/` on libtam's `tam_tty`, `tam_key`, and `tam_uni`, implementing
-`arch/keys.md` and `tamlinux/arch/keybindings.md`, 2026-11-24; development
-continues on branch `dev`).
+**Current version:** 0.2.1 (Phase P3 in progress: append-only shared
+history with `O_APPEND` single writes, damaged-record recovery, `Up`/`Down`
+prefix search, `Ctrl+F` incremental search, `Alt+L` last-arg, `history`
+builtin, and `--private` mode, 2026-11-24; development continues on branch
+`dev`).
 
 ## Decided
 

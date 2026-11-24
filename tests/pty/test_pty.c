@@ -24,7 +24,8 @@ struct pty_sess {
 	size_t out_len;
 };
 
-static int pty_start(struct pty_sess *s, const char *shell_path, const char *term)
+static int pty_start_opts(struct pty_sess *s, const char *shell_path,
+			  const char *term, const char *histfile, bool priv)
 {
 	memset(s, 0, sizeof(*s));
 	int m = posix_openpt(O_RDWR | O_NOCTTY);
@@ -62,12 +63,24 @@ static int pty_start(struct pty_sess *s, const char *shell_path, const char *ter
 		setenv("PS1", "CLAM$ ", 1);
 		setenv("PS2", "CLAM> ", 1);
 		setenv("TERM", term ? term : "xterm-256color", 1);
-		execl(shell_path, "tam-clam", (char *)NULL);
+		if (histfile)
+			setenv("HISTFILE", histfile, 1);
+		else
+			setenv("HISTFILE", "", 1);
+		if (priv)
+			execl(shell_path, "tam-clam", "--private", (char *)NULL);
+		else
+			execl(shell_path, "tam-clam", (char *)NULL);
 		_exit(127);
 	}
 	s->master = m;
 	s->pid = pid;
 	return 0;
+}
+
+static int pty_start(struct pty_sess *s, const char *shell_path, const char *term)
+{
+	return pty_start_opts(s, shell_path, term, NULL, false);
 }
 
 static int pty_send(struct pty_sess *s, const char *data, size_t len)
@@ -239,10 +252,73 @@ static void test_interactive_linux_vt(const char *sh)
 	CHECK(pty_finish(&s) == 0);
 }
 
+static void test_interactive_history(const char *sh)
+{
+	char hf[128];
+	snprintf(hf, sizeof(hf), "/tmp/tam-clam-pty-hist-%ld", (long)getpid());
+	unlink(hf);
+
+	struct pty_sess s1, s2;
+	CHECK(pty_start_opts(&s1, sh, "xterm-256color", hf, false) == 0);
+	CHECK(pty_wait_for(&s1, "CLAM$ ", 2000));
+
+	/* Run two distinct commands. */
+	pty_clear_out(&s1);
+	CHECK(pty_send(&s1, "printf 'H1:%s\\n' alpha\r", 23) == 0);
+	CHECK(pty_wait_after(&s1, "H1:alpha", "CLAM$ ", 2000));
+
+	pty_clear_out(&s1);
+	CHECK(pty_send(&s1, "printf 'H2:%s\\n' omega\r", 23) == 0);
+	CHECK(pty_wait_after(&s1, "H2:omega", "CLAM$ ", 2000));
+
+	/* Prefix Up search: type "printf 'H1" then Up -> recalls H1 command. */
+	pty_clear_out(&s1);
+	const char *up = "printf 'H1\x1b[A\r";
+	CHECK(pty_send(&s1, up, strlen(up)) == 0);
+	CHECK(pty_wait_after(&s1, "H1:alpha", "CLAM$ ", 2000));
+
+	/* Ctrl+F incremental search for "omega", Enter accepts, Enter runs. */
+	pty_clear_out(&s1);
+	const char *srch = "\x06omega\r\r";
+	CHECK(pty_send(&s1, srch, strlen(srch)) == 0);
+	CHECK(pty_wait_after(&s1, "H2:omega", "CLAM$ ", 2000));
+
+	/* Alt+L inserts last arg ("omega") of previous command. */
+	pty_clear_out(&s1);
+	const char *la = "printf 'LA:%s\\n' \x1bl\r";
+	CHECK(pty_send(&s1, la, strlen(la)) == 0);
+	CHECK(pty_wait_after(&s1, "LA:omega", "CLAM$ ", 2000));
+
+	/* Second concurrent shell shares the same history file via live sync. */
+	CHECK(pty_start_opts(&s2, sh, "xterm-256color", hf, false) == 0);
+	CHECK(pty_wait_for(&s2, "CLAM$ ", 2000));
+	pty_clear_out(&s2);
+	CHECK(pty_send(&s2, "history 2\r", 10) == 0);
+	CHECK(pty_wait_after(&s2, "LA:%s", "CLAM$ ", 2000));
+
+	CHECK(pty_send(&s1, "\x11", 1) == 0);
+	CHECK(pty_finish(&s1) == 0);
+	CHECK(pty_send(&s2, "\x11", 1) == 0);
+	CHECK(pty_finish(&s2) == 0);
+	unlink(hf);
+
+	/* Private mode writes no history file. */
+	struct pty_sess sp;
+	CHECK(pty_start_opts(&sp, sh, "xterm-256color", hf, true) == 0);
+	CHECK(pty_wait_for(&sp, "CLAM$ ", 2000));
+	pty_clear_out(&sp);
+	CHECK(pty_send(&sp, "printf 'PRIV:ok\\n'\r", 19) == 0);
+	CHECK(pty_wait_after(&sp, "PRIV:ok", "CLAM$ ", 2000));
+	CHECK(pty_send(&sp, "\x11", 1) == 0);
+	CHECK(pty_finish(&sp) == 0);
+	CHECK(access(hf, F_OK) < 0);
+}
+
 int main(int argc, char **argv)
 {
 	const char *sh = argc > 1 ? argv[1] : "build/tam-clam";
 	test_interactive_xterm(sh);
 	test_interactive_linux_vt(sh);
+	test_interactive_history(sh);
 	CHECK_DONE("test_pty");
 }

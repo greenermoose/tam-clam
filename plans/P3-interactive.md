@@ -1,6 +1,6 @@
 # P3: Interactive (0.2.x)
 
-**Status:** in progress (0.2.0 line editor landed 2026-11-24).
+**Status:** in progress (0.2.0 line editor and 0.2.1 history landed 2026-11-24).
 
 ## Goal
 

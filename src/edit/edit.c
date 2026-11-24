@@ -12,6 +12,7 @@
 
 #include "tam-clam/builtins.h"
 #include "tam-clam/edit.h"
+#include "tam-clam/history.h"
 #include "tam-clam/shell.h"
 #include "tam-clam/signals.h"
 
@@ -53,12 +54,41 @@ void tc_editor_restore_orig_termios(struct tc_editor *ed)
 	(void)tcsetattr(ed->in_fd, TCSANOW, &ed->orig_termios);
 }
 
+void tc_editor_append_last_cmd(struct tc_editor *ed, const char *line, size_t len)
+{
+	if (!ed || !line)
+		return;
+	size_t add = (ed->last_cmd ? 1 : 0) + len;
+	if (ed->last_cmd_len > TC_EDIT_BUF_MAX || add > TC_EDIT_BUF_MAX - ed->last_cmd_len)
+		return;
+	char *nb = realloc(ed->last_cmd, ed->last_cmd_len + add + 1);
+	if (!nb)
+		return;
+	if (ed->last_cmd)
+		nb[ed->last_cmd_len++] = '\n';
+	if (len > 0)
+		memcpy(nb + ed->last_cmd_len, line, len);
+	ed->last_cmd_len += len;
+	nb[ed->last_cmd_len] = '\0';
+	ed->last_cmd = nb;
+}
+
+void tc_editor_clear_last_cmd(struct tc_editor *ed)
+{
+	if (!ed)
+		return;
+	free(ed->last_cmd);
+	ed->last_cmd = NULL;
+	ed->last_cmd_len = 0;
+}
+
 void tc_editor_finish(struct tc_editor *ed)
 {
 	if (!ed)
 		return;
 	tc_editor_restore_orig_termios(ed);
 	tc_clip_finish(&ed->clip);
+	tc_editor_clear_last_cmd(ed);
 	memset(ed, 0, sizeof(*ed));
 }
 
@@ -116,9 +146,9 @@ static bool buffer_incomplete(const char *s, size_t len)
 static const char guidance_text[] =
 	"--- tam-clam guidance (Escape to close) ---\n"
 	"Ctrl+X Cut   Ctrl+C Copy    Ctrl+V Paste (Alt+V prev)    Ctrl+Z Undo    Ctrl+Y Redo\n"
-	"Ctrl+A All    Ctrl+K Clear   Ctrl+L Redraw  Ctrl+E Run    Ctrl+Q Quit  Ctrl+\\ Cancel\n"
+	"Ctrl+A All   Ctrl+F History Ctrl+K Clear   Ctrl+L Redraw Ctrl+E Run     Ctrl+Q Quit\n"
 	"Ctrl+Left/Right (Alt+,/.) Word   Ctrl+Home/End (Alt+</>) Buffer   Alt+M Mark\n"
-	"Alt+Enter Newline   Alt+E $EDITOR   Alt+Q Verbatim   Alt+# Comment   Alt+K/Shift+K Del";
+	"Alt+Enter Newline  Alt+E $EDITOR  Alt+L Last-arg  Alt+Q Verbatim  Alt+# Comment";
 
 /* Build filtered widget palette text for Ctrl+E. */
 static enum tc_widget build_palette_overlay(const char *query, char *out, size_t cap)
@@ -292,6 +322,7 @@ enum overlay_mode {
 	OV_NONE = 0,
 	OV_GUIDANCE,
 	OV_PALETTE,
+	OV_SEARCH,
 };
 
 struct edit_ctx {
@@ -304,12 +335,187 @@ struct edit_ctx {
 	bool verbatim_next;
 	bool done;
 	enum tc_edit_status status;
+	/* Up/Down prefix history browsing state. */
+	bool hist_browsing;
+	ssize_t hist_idx;
+	char *hist_draft;
+	size_t hist_draft_len;
+	size_t hist_prefix_len;
+	/* Alt+L insert-last-arg cycling state. */
+	bool last_arg_active;
+	size_t last_arg_start;
+	size_t last_arg_end;
+	ssize_t last_arg_idx;
+	/* Ctrl+F incremental search saved buffer. */
+	char *srch_saved;
+	size_t srch_saved_len;
+	ssize_t srch_idx;
 };
+
+static void ctx_reset_hist_browse(struct edit_ctx *ctx)
+{
+	ctx->hist_browsing = false;
+	ctx->hist_idx = -1;
+	free(ctx->hist_draft);
+	ctx->hist_draft = NULL;
+	ctx->hist_draft_len = 0;
+	ctx->hist_prefix_len = 0;
+}
+
+static void ctx_reset_last_arg(struct edit_ctx *ctx)
+{
+	ctx->last_arg_active = false;
+	ctx->last_arg_idx = -1;
+}
+
+static void ctx_free_search_saved(struct edit_ctx *ctx)
+{
+	free(ctx->srch_saved);
+	ctx->srch_saved = NULL;
+	ctx->srch_saved_len = 0;
+	ctx->srch_idx = -1;
+}
+
+static void build_search_overlay(struct edit_ctx *ctx, const char *query,
+				 char *out, size_t cap)
+{
+	struct tc_history *h = ctx->sh ? ctx->sh->hist : NULL;
+	const char *match = NULL;
+	if (h && ctx->srch_idx >= 0 && (size_t)ctx->srch_idx < h->count)
+		match = h->entries[ctx->srch_idx].cmd;
+	if (match) {
+		(void)snprintf(out, cap,
+			       "--- history search: %s_ (Enter accept, Ctrl+F/Alt+N next, Alt+Shift+N prev, Esc cancel) ---",
+			       query);
+	} else {
+		(void)snprintf(out, cap,
+			       "--- history search: %s_ (no match; Esc cancel) ---",
+			       query);
+	}
+}
+
+static void search_apply(struct edit_ctx *ctx, const char *query, ssize_t start_idx, int step)
+{
+	struct tc_history *h = ctx->sh ? ctx->sh->hist : NULL;
+	if (!h || h->count == 0) {
+		ctx->srch_idx = -1;
+		return;
+	}
+	ssize_t idx = tc_hist_find_substr(h, query, start_idx, step);
+	if (idx >= 0) {
+		ctx->srch_idx = idx;
+		const struct tc_hist_entry *e = &h->entries[idx];
+		(void)tc_ebuf_set(ctx->buf, e->cmd, e->cmd_len);
+	} else if (start_idx == (ssize_t)h->count - 1 && step == -1) {
+		ctx->srch_idx = -1;
+	}
+}
+
+static void hist_step(struct edit_ctx *ctx, int step)
+{
+	struct tc_history *h = ctx->sh ? ctx->sh->hist : NULL;
+	if (!h)
+		return;
+	if (!ctx->hist_browsing) {
+		if (step > 0)
+			return;
+		(void)tc_hist_sync(h);
+		if (h->count == 0)
+			return;
+		ctx->hist_draft = malloc(ctx->buf->len + 1);
+		if (!ctx->hist_draft)
+			return;
+		if (ctx->buf->len > 0)
+			memcpy(ctx->hist_draft, ctx->buf->data, ctx->buf->len);
+		ctx->hist_draft[ctx->buf->len] = '\0';
+		ctx->hist_draft_len = ctx->buf->len;
+		ctx->hist_prefix_len = ctx->buf->cursor;
+		ssize_t idx = tc_hist_find_prefix(h, ctx->hist_draft,
+						  ctx->hist_prefix_len,
+						  (ssize_t)h->count - 1, -1);
+		if (idx < 0) {
+			ctx_reset_hist_browse(ctx);
+			return;
+		}
+		ctx->hist_browsing = true;
+		ctx->hist_idx = idx;
+		(void)tc_ebuf_set(ctx->buf, h->entries[idx].cmd, h->entries[idx].cmd_len);
+		return;
+	}
+
+	ssize_t next_start = ctx->hist_idx + step;
+	if (step > 0 && (next_start >= (ssize_t)h->count)) {
+		(void)tc_ebuf_set(ctx->buf, ctx->hist_draft, ctx->hist_draft_len);
+		ctx->buf->cursor = ctx->hist_prefix_len <= ctx->buf->len ?
+				   ctx->hist_prefix_len : ctx->buf->len;
+		ctx_reset_hist_browse(ctx);
+		return;
+	}
+	ssize_t idx = tc_hist_find_prefix(h, ctx->hist_draft,
+					  ctx->hist_prefix_len, next_start, step);
+	if (idx >= 0) {
+		ctx->hist_idx = idx;
+		(void)tc_ebuf_set(ctx->buf, h->entries[idx].cmd, h->entries[idx].cmd_len);
+	} else if (step > 0) {
+		(void)tc_ebuf_set(ctx->buf, ctx->hist_draft, ctx->hist_draft_len);
+		ctx->buf->cursor = ctx->hist_prefix_len <= ctx->buf->len ?
+				   ctx->hist_prefix_len : ctx->buf->len;
+		ctx_reset_hist_browse(ctx);
+	}
+}
+
+static void insert_last_arg(struct edit_ctx *ctx)
+{
+	struct tc_history *h = ctx->sh ? ctx->sh->hist : NULL;
+	if (!h)
+		return;
+	if (!ctx->last_arg_active) {
+		(void)tc_hist_sync(h);
+		if (h->count == 0)
+			return;
+		ctx->last_arg_idx = (ssize_t)h->count - 1;
+	} else {
+		if (ctx->last_arg_idx <= 0)
+			return;
+		ctx->last_arg_idx--;
+	}
+
+	while (ctx->last_arg_idx >= 0) {
+		const struct tc_hist_entry *e = &h->entries[ctx->last_arg_idx];
+		size_t wlen = 0;
+		char *word = tc_hist_last_arg(e->cmd, e->cmd_len, &wlen);
+		if (word && wlen > 0) {
+			if (ctx->last_arg_active &&
+			    ctx->last_arg_end <= ctx->buf->len &&
+			    ctx->last_arg_start <= ctx->last_arg_end) {
+				(void)tc_ebuf_delete_range(ctx->buf, ctx->last_arg_start,
+							   ctx->last_arg_end, true);
+			}
+			size_t s0 = 0, s1 = 0;
+			size_t start = tc_ebuf_sel_range(ctx->buf, &s0, &s1) ?
+				       s0 : ctx->buf->cursor;
+			if (tc_ebuf_insert(ctx->buf, word, wlen, true) == 0) {
+				ctx->last_arg_active = true;
+				ctx->last_arg_start = start;
+				ctx->last_arg_end = start + wlen;
+			}
+			free(word);
+			return;
+		}
+		free(word);
+		ctx->last_arg_idx--;
+	}
+}
 
 static void dispatch_widget(struct edit_ctx *ctx, enum tc_widget w)
 {
 	struct tc_edit_buf *b = ctx->buf;
 	struct tc_clip_ring *clip = &ctx->ed->clip;
+
+	if (w != TC_W_UP_OR_HIST && w != TC_W_DOWN_OR_HIST)
+		ctx_reset_hist_browse(ctx);
+	if (w != TC_W_INSERT_LAST_ARG)
+		ctx_reset_last_arg(ctx);
 
 	switch (w) {
 	case TC_W_CHAR_LEFT:
@@ -337,10 +543,12 @@ static void dispatch_widget(struct edit_ctx *ctx, enum tc_widget w)
 		tc_ebuf_move(b, b->len, b->has_mark);
 		break;
 	case TC_W_UP_OR_HIST:
-		(void)tc_ebuf_move_line_up(b, b->has_mark);
+		if (ctx->hist_browsing || !tc_ebuf_move_line_up(b, b->has_mark))
+			hist_step(ctx, -1);
 		break;
 	case TC_W_DOWN_OR_HIST:
-		(void)tc_ebuf_move_line_down(b, b->has_mark);
+		if (ctx->hist_browsing || !tc_ebuf_move_line_down(b, b->has_mark))
+			hist_step(ctx, 1);
 		break;
 	case TC_W_SEL_CHAR_LEFT:
 		tc_ebuf_move(b, tc_ebuf_prev_cp(b, b->cursor), true);
@@ -463,8 +671,27 @@ static void dispatch_widget(struct edit_ctx *ctx, enum tc_widget w)
 		ctx->done = true;
 		ctx->status = TC_EDIT_CANCEL;
 		break;
+	case TC_W_FIND: {
+		struct tc_history *h = ctx->sh ? ctx->sh->hist : NULL;
+		if (h)
+			(void)tc_hist_sync(h);
+		ctx_free_search_saved(ctx);
+		ctx->srch_saved = malloc(b->len + 1);
+		if (ctx->srch_saved) {
+			if (b->len > 0)
+				memcpy(ctx->srch_saved, b->data, b->len);
+			ctx->srch_saved[b->len] = '\0';
+			ctx->srch_saved_len = b->len;
+		}
+		ctx->srch_idx = (h && h->count > 0) ? (ssize_t)h->count - 1 : -1;
+		ctx->ov_mode = OV_SEARCH;
+		break;
+	}
+	case TC_W_INSERT_LAST_ARG:
+		insert_last_arg(ctx);
+		break;
 	default:
-		/* Future 0.2.1/0.2.3 widgets and TC_W_NOOP are clean no-ops. */
+		/* Future 0.2.3 widgets and TC_W_NOOP are clean no-ops. */
 		break;
 	}
 }
@@ -505,11 +732,17 @@ enum tc_edit_status tc_editor_readline(struct tc_editor *ed,
 		.verbatim_next = false,
 		.done = false,
 		.status = TC_EDIT_OK,
+		.hist_idx = -1,
+		.last_arg_idx = -1,
+		.srch_idx = -1,
 	};
 
 	char pal_query[64] = {0};
 	size_t pal_len = 0;
 	char pal_overlay[1024] = {0};
+	char srch_query[128] = {0};
+	size_t srch_len = 0;
+	char srch_overlay[256] = {0};
 	tam_key_event_t chord[TC_EDIT_CHORD_MAX];
 	size_t chord_len = 0;
 
@@ -553,7 +786,15 @@ enum tc_edit_status tc_editor_readline(struct tc_editor *ed,
 			}
 			tam_key_event_t tev;
 			if (tam_key_timeout(&kp, &tev) == 1) {
-				if (ctx.ov_mode != OV_NONE) {
+				if (ctx.ov_mode == OV_SEARCH) {
+					if (ctx.srch_saved)
+						(void)tc_ebuf_set(&buf, ctx.srch_saved,
+								  ctx.srch_saved_len);
+					ctx_free_search_saved(&ctx);
+					srch_len = 0;
+					srch_query[0] = '\0';
+					ctx.ov_mode = OV_NONE;
+				} else if (ctx.ov_mode != OV_NONE) {
 					ctx.ov_mode = OV_NONE;
 					pal_len = 0;
 					pal_query[0] = '\0';
@@ -615,8 +856,58 @@ enum tc_edit_status tc_editor_readline(struct tc_editor *ed,
 				continue;
 			}
 
+			if (ctx.ov_mode == OV_SEARCH) {
+				struct tc_history *h = sh ? sh->hist : NULL;
+				if (ev.type == TAM_KEY_ESC) {
+					if (ctx.srch_saved)
+						(void)tc_ebuf_set(&buf, ctx.srch_saved,
+								  ctx.srch_saved_len);
+					ctx_free_search_saved(&ctx);
+					srch_len = 0;
+					srch_query[0] = '\0';
+					ctx.ov_mode = OV_NONE;
+				} else if (ev.type == TAM_KEY_ENTER) {
+					ctx_free_search_saved(&ctx);
+					srch_len = 0;
+					srch_query[0] = '\0';
+					ctx.ov_mode = OV_NONE;
+				} else if ((ev.type == TAM_KEY_CHAR &&
+					    ev.mods == TAM_MOD_CTRL && ev.codepoint == 'f') ||
+					   (ev.type == TAM_KEY_CHAR &&
+					    ev.mods == TAM_MOD_ALT && ev.codepoint == 'n')) {
+					if (ctx.srch_idx > 0)
+						search_apply(&ctx, srch_query,
+							     ctx.srch_idx - 1, -1);
+				} else if (ev.type == TAM_KEY_CHAR &&
+					   ev.mods == TAM_MOD_ALT && ev.codepoint == 'N') {
+					if (h && ctx.srch_idx >= 0 &&
+					    (size_t)(ctx.srch_idx + 1) < h->count)
+						search_apply(&ctx, srch_query,
+							     ctx.srch_idx + 1, 1);
+				} else if (ev.type == TAM_KEY_BACKSPACE) {
+					if (srch_len > 0) {
+						srch_query[--srch_len] = '\0';
+						if (h && h->count > 0)
+							search_apply(&ctx, srch_query,
+								     (ssize_t)h->count - 1, -1);
+					}
+				} else if (ev.type == TAM_KEY_CHAR && ev.mods == 0 &&
+					   ev.codepoint >= 0x20 && ev.codepoint < 0x7F) {
+					if (srch_len + 1 < sizeof(srch_query)) {
+						srch_query[srch_len++] = (char)ev.codepoint;
+						srch_query[srch_len] = '\0';
+						if (h && h->count > 0)
+							search_apply(&ctx, srch_query,
+								     (ssize_t)h->count - 1, -1);
+					}
+				}
+				continue;
+			}
+
 			/* Plain printable characters insert directly when not in a chord. */
 			if (chord_len == 0 && ev.type == TAM_KEY_CHAR && ev.mods == 0) {
+				ctx_reset_hist_browse(&ctx);
+				ctx_reset_last_arg(&ctx);
 				if (ctx.ov_mode == OV_GUIDANCE)
 					ctx.ov_mode = OV_NONE;
 				(void)tc_ebuf_insert_cp(&buf, ev.codepoint, true);
@@ -643,6 +934,9 @@ enum tc_edit_status tc_editor_readline(struct tc_editor *ed,
 		} else if (ctx.ov_mode == OV_PALETTE) {
 			(void)build_palette_overlay(pal_query, pal_overlay, sizeof(pal_overlay));
 			ov = pal_overlay;
+		} else if (ctx.ov_mode == OV_SEARCH) {
+			build_search_overlay(&ctx, srch_query, srch_overlay, sizeof(srch_overlay));
+			ov = srch_overlay;
 		} else {
 			ov = NULL;
 		}
@@ -668,6 +962,8 @@ enum tc_edit_status tc_editor_readline(struct tc_editor *ed,
 		(void)tc_render_finish(&rs, &tty, &buf, ps1, ps2);
 	}
 
+	ctx_reset_hist_browse(&ctx);
+	ctx_free_search_saved(&ctx);
 	tc_ebuf_finish(&buf);
 	tam_tty_close(&tty);
 	return ctx.status;

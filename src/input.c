@@ -253,6 +253,7 @@ int tc_input_getc(struct tc_input *in)
 				in->err = ENOMEM;
 				return TC_IN_ERROR;
 			}
+			tc_editor_append_last_cmd(in->ed, nb, llen);
 			nb[llen] = '\n';
 			nb[llen + 1] = '\0';
 			in->ed_line = nb;

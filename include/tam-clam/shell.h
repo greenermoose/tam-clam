@@ -19,6 +19,7 @@
 
 struct tc_input;
 struct tc_editor;
+struct tc_history;
 
 /* Results shared by the lexer, parser and input layers. */
 enum tc_result {
@@ -102,6 +103,8 @@ struct tc_shell {
 	struct tc_arena arena;     /* memory for the command being run */
 	struct tc_input *in;       /* the input being read, for line numbers */
 	struct tc_editor *editor;  /* interactive line editor (0.2.0), or NULL */
+	struct tc_history *hist;   /* interactive history (0.2.1), or NULL */
+	bool private_mode;         /* --private: write no history to disk */
 };
 
 void tc_shell_init(struct tc_shell *sh, const char *name);

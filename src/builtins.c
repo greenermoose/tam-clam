@@ -457,6 +457,7 @@ static const struct tc_builtin builtins[] = {
 	{"false", bi_false, false},
 	{"getopts", tc_bi_getopts, false},
 	{"hash", tc_bi_hash, false},
+	{"history", tc_bi_history, false},
 	{"kill", tc_bi_kill, false},
 	{"printf", tc_bi_printf, false},
 	{"pwd", tc_bi_pwd, false},
