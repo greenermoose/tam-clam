@@ -5,8 +5,8 @@
 ## Goal
 
 A shell that is a pleasure to type in, with fish's helpfulness and
-bash's keys, written as our own line editor on libtam, and with a history
-that can never be lost or corrupted.
+Tamlinux's own ergonomic keybindings, written as our own line editor on
+libtam, and with a history that can never be lost or corrupted.
 
 ## Versions
 
@@ -41,8 +41,14 @@ Decided by Fred on 2026-11-17: tam-clam has its own set of key bindings,
 more ergonomic and mnemonic than readline's. There is no vi mode, and
 readline's emacs bindings are not the model.
 
-- Before 0.2.0 code is written, the key map is drafted in
-  `arch/keys.md` and agreed with Fred.
+Decided by Fred on 2026-11-23: the Tamlinux-wide keybinding standard
+shared across all Tamlinux programs (compositor, terminal, shell, editor,
+file manager, pager) is defined in `tamlinux/arch/keybindings.md`.
+`tam-clam`'s `arch/keys.md` follows `tamlinux/arch/keybindings.md` and
+defines shell-specific bindings on top of it.
+
+- Before 0.2.0 code is written, `tamlinux/arch/keybindings.md` is agreed
+  with Fred and `arch/keys.md` is drafted against it.
 - Principles for the draft: the letter names the action where it can;
   the most frequent actions get the easiest keys; keys that terminals
   and the Linux console deliver unreliably are avoided; and every action

@@ -3,7 +3,7 @@ WHATNOW
 What tam-clam is doing now and what comes next. Read this first; revise
 it at the end of every session (work/README-work).
 
-Updated: 2026-11-23, with W11 (0.1.5)
+Updated: 2026-11-23, with W12 (0.1.5)
 
 
 STATE
@@ -24,19 +24,21 @@ STATE
   readelf -d lists only libc.so.6. make test and make sanitize pass.
 
   Fred's decisions so far are in ROADMAP.md and the plans: POSIX.1-2024
-  is the target; lint mode is P2 0.1.5 (done); tam-clam ships only its
-  own key map (no built-in readline map), drafted in arch/keys.md and
-  agreed with Fred before 0.2.0; FUNCNEST sets the function recursion
-  limit; signed 64-bit arithmetic overflow is a reported error; echo
-  recognizes -n only and does not interpret backslash escapes by default.
+  is the target; lint mode is P2 0.1.5 (done); the Tamlinux-wide
+  keybinding standard lives in tamlinux/arch/keybindings.md (decided
+  2026-11-23, W12) and tam-clam ships only its own key map (no vi mode,
+  no built-in readline map), drafted in arch/keys.md against that
+  standard before 0.2.0; FUNCNEST sets the function recursion limit;
+  signed 64-bit arithmetic overflow is a reported error; echo recognizes
+  -n only and does not interpret backslash escapes by default.
 
 
 NEXT
 
   1. Phase P3 preparation (plans/P3-interactive.md):
-     - Draft arch/keys.md proposing tam-clam's own ergonomic, mnemonic
-       key bindings (no vi mode, no built-in readline map) and agree it
-       with Fred before writing line-editor code.
+     - Once Fred finishes tamlinux/arch/keybindings.md, draft
+       arch/keys.md following it and adding shell-specific bindings, and
+       agree it with Fred before writing line-editor code.
 
   2. 0.2.0 (plans/P3-interactive.md):
      - Our own line editor on libtam's tam_tty, tam_key, and tam_uni:
@@ -46,9 +48,10 @@ NEXT
 
 WAITING FOR FRED
 
+  - Refining and agreeing tamlinux/arch/keybindings.md before drafting
+    arch/keys.md and starting 0.2.0.
   - Trying 0.1.5: ./sandbox/demo-0.1.5-lint, ./sandbox/play, or
     ./build/tam-clam --lint <script.sh>.
-  - Agreeing arch/keys.md before 0.2.0 line-editor implementation.
   - Optional: installing dash / mksh / busybox for multi-shell spec
     comparisons and clang for a 24-hour libFuzzer run.
 

@@ -1,0 +1,39 @@
+W12 KEYBINDING STANDARD REFERENCE
+
+Date: 2026-11-23
+AI harness: agy 1.5.15
+AI model: Gemini 4 Neon (Medium)
+
+GUIDANCE
+
+  Fred: "I'd like to create a keybinding standard for Tamlinux that we
+  use for all programs including our terminal and shell. Should that
+  keybinding standard go in tam-idol?"
+  Fred: "Yes, put the Tamlinux-wide keybinding standard in
+  tamlinux/arch/keybindings.md. Let me work on that and then return to
+  this session."
+  Fred: "Note in the plan that our keybinding standard is defined in
+  tamlinux/arch/keybindings.md."
+  Fred: "yes, commit. And put your initial thoughts about keybindings
+  in tamlinux/arch/keybindings.md"
+
+DONE
+
+  - Recorded in plans/P3-interactive.md that the Tamlinux-wide
+    keybinding standard is defined in tamlinux/arch/keybindings.md
+    (decided 2026-11-23) and that tam-clam's arch/keys.md will follow
+    it and add shell-specific bindings.
+  - Replaced stale "and bash's keys" in plans/P3-interactive.md Goal.
+  - Drafted initial first-principles keybinding notes in
+    tamlinux/arch/keybindings.md (in the tamlinux repository).
+  - Updated work/WHATNOW.
+
+FAILED
+
+  - Nothing.
+
+HANDOFF
+
+  - Waiting for Fred to refine and agree tamlinux/arch/keybindings.md.
+  - Next: draft tam-clam's arch/keys.md against that standard, then
+    implement 0.2.0 (line editor on libtam).
