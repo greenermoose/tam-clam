@@ -148,34 +148,149 @@ static bool buffer_incomplete(const char *s, size_t len)
 static const char guidance_text[] =
 	"--- tam-clam guidance (Escape to close) ---\n"
 	"Ctrl+X Cut   Ctrl+C Copy    Ctrl+V Paste (Alt+V prev)    Ctrl+Z Undo    Ctrl+Y Redo\n"
-	"Ctrl+A All   Ctrl+F History Ctrl+K Clear   Ctrl+L Redraw Ctrl+E Run     Ctrl+Q Quit\n"
+	"Ctrl+A All   Ctrl+F History Ctrl+K Clear   Ctrl+L Redraw Ctrl+E Chord/Run Ctrl+Q Quit\n"
 	"Ctrl+Left/Right (Alt+,/.) Word   Ctrl+Home/End (Alt+</>) Buffer   Alt+M Mark\n"
 	"Alt+Enter Newline  Alt+E $EDITOR  Alt+L Last-arg  Tab Complete  Alt+# Comment";
 
-/* Build filtered widget palette text for Ctrl+E. */
-static enum tc_widget build_palette_overlay(const char *query, char *out, size_t cap)
+static unsigned next_chord_mods(unsigned mods)
 {
-	enum tc_widget first = TC_W_NONE;
+	if (mods == 0)
+		return TAM_MOD_CTRL;
+	if (mods == TAM_MOD_CTRL)
+		return TAM_MOD_ALT;
+	if (mods == TAM_MOD_ALT)
+		return TAM_MOD_SHIFT;
+	if (mods == TAM_MOD_SHIFT)
+		return TAM_MOD_CTRL | TAM_MOD_SHIFT;
+	if (mods == (TAM_MOD_CTRL | TAM_MOD_SHIFT))
+		return TAM_MOD_ALT | TAM_MOD_SHIFT;
+	return 0;
+}
+
+static void format_chord_mods(unsigned mods, char *buf, size_t cap)
+{
 	size_t pos = 0;
-	pos += (size_t)snprintf(out + pos, cap - pos,
-				"--- execute widget: %s_ (Enter run, Escape close) ---",
-				query);
-	size_t shown = 0;
-	for (size_t i = 0; i < tc_widget_count() && shown < 8; i++) {
+	buf[0] = '\0';
+	if (mods & TAM_MOD_CTRL)
+		pos += (size_t)snprintf(buf + pos, cap - pos, "Ctrl+");
+	if (mods & TAM_MOD_ALT)
+		pos += (size_t)snprintf(buf + pos, cap - pos, "Alt+");
+	if (mods & TAM_MOD_SHIFT)
+		pos += (size_t)snprintf(buf + pos, cap - pos, "Shift+");
+}
+
+static bool tc_ci_strstr(const char *hay, const char *needle)
+{
+	if (!needle || !*needle)
+		return true;
+	if (!hay)
+		return false;
+	size_t nlen = strlen(needle);
+	for (const char *p = hay; *p; p++) {
+		size_t i = 0;
+		while (i < nlen && p[i] &&
+		       tolower((unsigned char)p[i]) == tolower((unsigned char)needle[i]))
+			i++;
+		if (i == nlen)
+			return true;
+	}
+	return false;
+}
+
+/* Build unified chord composer & filterable command menu overlay (Ctrl+E / chord-compose). */
+static enum tc_widget build_palette_overlay(const struct tc_keymap *km,
+					    const char *query,
+					    unsigned chord_mods,
+					    bool chord_has_key,
+					    const tam_key_event_t *chord_key,
+					    size_t *sel_io,
+					    size_t *total_out,
+					    char *out, size_t cap)
+{
+	size_t pos = 0;
+	char chord_prefix[64] = {0};
+	bool by_chord = (chord_mods != 0 || chord_has_key);
+
+	if (chord_has_key && chord_key) {
+		struct tc_key_seq seq = {.keys = {*chord_key}, .len = 1};
+		if (tc_key_seq_format(&seq, chord_prefix, sizeof(chord_prefix)) < 0)
+			format_chord_mods(chord_mods, chord_prefix, sizeof(chord_prefix));
+		pos += (size_t)snprintf(out + pos, cap - pos,
+					"--- chord composer: %s (Enter run, Tab mod, Esc cancel) ---",
+					chord_prefix);
+	} else if (chord_mods != 0) {
+		format_chord_mods(chord_mods, chord_prefix, sizeof(chord_prefix));
+		pos += (size_t)snprintf(out + pos, cap - pos,
+					"--- chord composer: %s_ (press key, Tab mod, Esc cancel) ---",
+					chord_prefix);
+	} else {
+		pos += (size_t)snprintf(out + pos, cap - pos,
+					"--- chord / commands: %s_ (Tab mod, Up/Down+Enter run, Esc cancel) ---",
+					query);
+	}
+
+	enum tc_widget matches[TC_W_COUNT];
+	char match_keys[TC_W_COUNT][32];
+	size_t nmatch = 0;
+
+	for (size_t i = 0; i < tc_widget_count() && nmatch < TC_W_COUNT; i++) {
 		const struct tc_widget_info *w = tc_widget_info_at(i);
 		if (!w || w->id == TC_W_NOOP)
 			continue;
-		if (query[0] != '\0' && !strstr(w->name, query))
-			continue;
-		if (first == TC_W_NONE)
-			first = w->id;
-		pos += (size_t)snprintf(out + pos, cap - pos, "\n  %-22s %s",
-					w->name, w->desc);
-		shown++;
+		char kbuf[32] = {0};
+		(void)tc_keymap_first_binding(km, w->id, kbuf, sizeof(kbuf));
+		if (by_chord) {
+			if (chord_has_key && chord_key) {
+				enum tc_widget exact = TC_W_NONE;
+				if (tc_keymap_lookup(km, chord_key, 1, &exact) == TC_MATCH_EXACT &&
+				    exact == w->id) {
+					matches[nmatch] = w->id;
+					snprintf(match_keys[nmatch], sizeof(match_keys[nmatch]), "%s", kbuf);
+					nmatch++;
+				}
+			} else if (kbuf[0] != '\0' &&
+				   strncmp(kbuf, chord_prefix, strlen(chord_prefix)) == 0) {
+				matches[nmatch] = w->id;
+				snprintf(match_keys[nmatch], sizeof(match_keys[nmatch]), "%s", kbuf);
+				nmatch++;
+			}
+		} else {
+			if (query[0] != '\0' &&
+			    !tc_ci_strstr(w->name, query) &&
+			    !tc_ci_strstr(w->desc, query) &&
+			    !tc_ci_strstr(kbuf, query))
+				continue;
+			matches[nmatch] = w->id;
+			snprintf(match_keys[nmatch], sizeof(match_keys[nmatch]), "%s", kbuf);
+			nmatch++;
+		}
 	}
-	if (shown == 0)
-		(void)snprintf(out + pos, cap - pos, "\n  (no matching widget)");
-	return first;
+
+	if (total_out)
+		*total_out = nmatch;
+	size_t sel = (sel_io && nmatch > 0) ? (*sel_io % nmatch) : 0;
+	if (sel_io)
+		*sel_io = sel;
+
+	if (nmatch == 0) {
+		(void)snprintf(out + pos, cap - pos, "\n  (no matching command)");
+		return TC_W_NONE;
+	}
+
+	size_t max_show = 8;
+	size_t start = (sel >= max_show) ? (sel - max_show + 1) : 0;
+	for (size_t i = start; i < nmatch && i < start + max_show; i++) {
+		const struct tc_widget_info *w = tc_widget_info_by_id(matches[i]);
+		if (!w)
+			continue;
+		const char *mark = (i == sel) ? "> " : "  ";
+		pos += (size_t)snprintf(out + pos, cap - pos, "\n%s%-14s %-22s %s",
+					mark, match_keys[i][0] ? match_keys[i] : "-",
+					w->name, w->desc);
+		if (pos + 4 >= cap)
+			break;
+	}
+	return matches[sel];
 }
 
 /* Open current buffer in $VISUAL or $EDITOR via a temp file. */
@@ -815,6 +930,7 @@ static void dispatch_widget(struct edit_ctx *ctx, enum tc_widget w)
 		ctx->ov_mode = (ctx->ov_mode == OV_GUIDANCE) ? OV_NONE : OV_GUIDANCE;
 		break;
 	case TC_W_EXECUTE:
+	case TC_W_CHORD_COMPOSE:
 		ctx->ov_mode = (ctx->ov_mode == OV_PALETTE) ? OV_NONE : OV_PALETTE;
 		break;
 	case TC_W_CANCEL_MODE:
@@ -911,7 +1027,12 @@ enum tc_edit_status tc_editor_readline(struct tc_editor *ed,
 
 	char pal_query[64] = {0};
 	size_t pal_len = 0;
-	char pal_overlay[1024] = {0};
+	size_t pal_sel = 0;
+	size_t pal_total = 0;
+	unsigned pal_mods = 0;
+	bool pal_has_key = false;
+	tam_key_event_t pal_key = {0};
+	char pal_overlay[1536] = {0};
 	char srch_query[128] = {0};
 	size_t srch_len = 0;
 	char srch_overlay[256] = {0};
@@ -984,6 +1105,9 @@ enum tc_edit_status tc_editor_readline(struct tc_editor *ed,
 					ctx.ov_mode = OV_NONE;
 					pal_len = 0;
 					pal_query[0] = '\0';
+					pal_sel = 0;
+					pal_mods = 0;
+					pal_has_key = false;
 				} else {
 					tc_ebuf_sel_clear(&buf);
 				}
@@ -1020,23 +1144,85 @@ enum tc_edit_status tc_editor_readline(struct tc_editor *ed,
 					ctx.ov_mode = OV_NONE;
 					pal_len = 0;
 					pal_query[0] = '\0';
+					pal_sel = 0;
+					pal_mods = 0;
+					pal_has_key = false;
+				} else if (ev.type == TAM_KEY_TAB && ev.mods == 0) {
+					pal_mods = next_chord_mods(pal_mods);
+					pal_has_key = false;
+					pal_len = 0;
+					pal_query[0] = '\0';
+					pal_sel = 0;
 				} else if (ev.type == TAM_KEY_ENTER) {
-					enum tc_widget chosen =
-						build_palette_overlay(pal_query, pal_overlay,
-								      sizeof(pal_overlay));
+					enum tc_widget chosen = build_palette_overlay(
+						&ed->keymap, pal_query, pal_mods, pal_has_key,
+						&pal_key, &pal_sel, &pal_total,
+						pal_overlay, sizeof(pal_overlay));
 					ctx.ov_mode = OV_NONE;
 					pal_len = 0;
 					pal_query[0] = '\0';
-					if (chosen != TC_W_NONE && chosen != TC_W_EXECUTE)
+					pal_sel = 0;
+					pal_mods = 0;
+					pal_has_key = false;
+					if (chosen != TC_W_NONE && chosen != TC_W_EXECUTE &&
+					    chosen != TC_W_CHORD_COMPOSE)
 						dispatch_widget(&ctx, chosen);
-				} else if (ev.type == TAM_KEY_BACKSPACE) {
-					if (pal_len > 0)
+				} else if (ev.type == TAM_KEY_BACKSPACE && pal_mods == 0) {
+					if (pal_len > 0) {
 						pal_query[--pal_len] = '\0';
+						pal_sel = 0;
+					} else {
+						ctx.ov_mode = OV_NONE;
+						pal_sel = 0;
+					}
+				} else if (pal_mods != 0) {
+					if (ev.type == TAM_KEY_BACKSPACE && pal_has_key) {
+						pal_has_key = false;
+					} else {
+						pal_key = ev;
+						pal_key.mods = pal_mods;
+						if (pal_key.type == TAM_KEY_CHAR &&
+						    (pal_mods & TAM_MOD_CTRL) &&
+						    pal_key.codepoint == '\\') {
+							pal_key.codepoint = '|';
+							pal_key.mods &= ~(unsigned)TAM_MOD_SHIFT;
+						} else if (pal_key.type == TAM_KEY_CHAR &&
+							   (pal_mods & TAM_MOD_CTRL) &&
+							   pal_key.codepoint >= 'A' &&
+							   pal_key.codepoint <= 'Z') {
+							pal_key.codepoint =
+								(uint32_t)(pal_key.codepoint - 'A' + 'a');
+							pal_key.mods &= ~(unsigned)TAM_MOD_SHIFT;
+						} else if (pal_key.type == TAM_KEY_CHAR &&
+							   (pal_mods & TAM_MOD_ALT) &&
+							   !(pal_mods & TAM_MOD_CTRL)) {
+							if (pal_mods & TAM_MOD_SHIFT) {
+								if (pal_key.codepoint >= 'a' &&
+								    pal_key.codepoint <= 'z')
+									pal_key.codepoint =
+										(uint32_t)(pal_key.codepoint - 'a' + 'A');
+							} else if (pal_key.codepoint >= 'A' &&
+								   pal_key.codepoint <= 'Z') {
+								pal_key.codepoint =
+									(uint32_t)(pal_key.codepoint - 'A' + 'a');
+							}
+							pal_key.mods &= ~(unsigned)TAM_MOD_SHIFT;
+						}
+						pal_has_key = true;
+						pal_sel = 0;
+					}
+				} else if (ev.type == TAM_KEY_UP) {
+					if (pal_total > 0)
+						pal_sel = (pal_sel == 0) ? (pal_total - 1) : (pal_sel - 1);
+				} else if (ev.type == TAM_KEY_DOWN) {
+					if (pal_total > 0)
+						pal_sel = (pal_sel + 1) % pal_total;
 				} else if (ev.type == TAM_KEY_CHAR && ev.mods == 0 &&
 					   ev.codepoint >= 0x20 && ev.codepoint < 0x7F) {
 					if (pal_len + 1 < sizeof(pal_query)) {
 						pal_query[pal_len++] = (char)ev.codepoint;
 						pal_query[pal_len] = '\0';
+						pal_sel = 0;
 					}
 				}
 				continue;
@@ -1121,7 +1307,10 @@ enum tc_edit_status tc_editor_readline(struct tc_editor *ed,
 		if (ctx.ov_mode == OV_GUIDANCE) {
 			ov = guidance_text;
 		} else if (ctx.ov_mode == OV_PALETTE) {
-			(void)build_palette_overlay(pal_query, pal_overlay, sizeof(pal_overlay));
+			(void)build_palette_overlay(&ed->keymap, pal_query, pal_mods,
+						    pal_has_key, &pal_key, &pal_sel,
+						    &pal_total, pal_overlay,
+						    sizeof(pal_overlay));
 			ov = pal_overlay;
 		} else if (ctx.ov_mode == OV_SEARCH) {
 			build_search_overlay(&ctx, srch_query, srch_overlay, sizeof(srch_overlay));

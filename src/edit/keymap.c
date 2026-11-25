@@ -46,6 +46,7 @@ static const struct tc_widget_info widgets[] = {
 	{TC_W_COMMENT_LINE,    "comment-line",            "Comment out buffer and submit"},
 	{TC_W_INSERT_VERBATIM, "insert-verbatim",         "Insert next key literally"},
 	{TC_W_EXECUTE,         "execute",                 "Open named-widget command palette"},
+	{TC_W_CHORD_COMPOSE,   "chord-compose",           "Open one-handed chord composer & command menu"},
 	{TC_W_GUIDANCE,        "guidance",                "Show keybinding guidance"},
 	{TC_W_CANCEL_MODE,     "cancel-mode",             "Dismiss overlay or selection"},
 	{TC_W_QUIT,            "quit",                    "Exit tam-clam on empty prompt"},
@@ -389,6 +390,21 @@ enum tc_bind_match tc_keymap_lookup(const struct tc_keymap *km,
 		prefix = true;
 	}
 	return prefix ? TC_MATCH_PREFIX : TC_MATCH_NONE;
+}
+
+int tc_keymap_first_binding(const struct tc_keymap *km, enum tc_widget w,
+			    char *buf, size_t cap)
+{
+	if (!km || !buf || cap == 0)
+		return 0;
+	buf[0] = '\0';
+	for (size_t i = 0; i < km->count; i++) {
+		if (km->binds[i].widget == w) {
+			int n = tc_key_seq_format(&km->binds[i].seq, buf, cap);
+			return n > 0 ? n : 0;
+		}
+	}
+	return 0;
 }
 
 static void bind_def(struct tc_keymap *km, const char *spec, enum tc_widget w)

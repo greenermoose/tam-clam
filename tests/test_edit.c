@@ -175,6 +175,11 @@ static void test_keymap_and_chords(void)
 
 	/* Meta is rejected for shell bindings. */
 	CHECK(tc_key_seq_parse("Meta+K", &seq) < 0);
+
+	/* One-handed chord composer widget & reverse key lookup. */
+	CHECK(tc_widget_by_name("chord-compose") == TC_W_CHORD_COMPOSE);
+	CHECK(tc_keymap_first_binding(&km, TC_W_CUT, fmt, sizeof(fmt)) > 0);
+	CHECK(strcmp(fmt, "Ctrl+X") == 0);
 }
 
 int main(void)

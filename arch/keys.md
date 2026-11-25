@@ -66,7 +66,7 @@ assigned separately. All 22 ASCII-clean `Ctrl+<letter>` slots plus
 | `Ctrl+B` | *(reserved)* | No-op | — |
 | `Ctrl+C` | `copy` | Copy selection (or current line if no selection); OSC 52 write + internal clipboard | 0.2.0 |
 | `Ctrl+D` | `close` | No-op (shell has no tabs/buffers; `Ctrl+Q` quits) | — |
-| `Ctrl+E` | `execute` | Open named-widget palette to search and run any action by name | 0.2.0 |
+| `Ctrl+E` | `execute` / `chord-compose` | Open unified one-handed chord composer & command menu (`Tab` cycles modifiers, `Up`/`Down` + `Enter` runs any widget, `Escape` / empty `Backspace` cancels) | 0.2.0 |
 | `Ctrl+F` | `find` | Incremental history search (prompt); next match while searching | 0.2.1 |
 | `Ctrl+G` | `guidance` | Show `tam-clam` keybinding guidance / contextual help | 0.2.0 |
 | `Ctrl+K` | `kill-line` | Clear current prompt buffer (saves to clipboard/undo) | 0.2.0 |

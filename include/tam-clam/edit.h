@@ -68,6 +68,7 @@ enum tc_widget {
 	TC_W_COMMENT_LINE,
 	TC_W_INSERT_VERBATIM,
 	TC_W_EXECUTE,
+	TC_W_CHORD_COMPOSE,
 	TC_W_GUIDANCE,
 	TC_W_CANCEL_MODE,
 	TC_W_QUIT,
@@ -225,6 +226,8 @@ bool tc_keymap_unbind(struct tc_keymap *km, const struct tc_key_seq *seq);
 enum tc_bind_match tc_keymap_lookup(const struct tc_keymap *km,
 				    const tam_key_event_t *keys, size_t len,
 				    enum tc_widget *out_widget);
+int tc_keymap_first_binding(const struct tc_keymap *km, enum tc_widget w,
+			    char *buf, size_t cap);
 
 /* --- Renderer API (src/edit/render.c) --- */
 struct tc_render_state {
