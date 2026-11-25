@@ -59,7 +59,40 @@ static void pb_ch(struct pbuf *pb, char c)
 	pb_add(pb, &c, 1);
 }
 
-static void append_cwd(const struct tc_shell *sh, struct pbuf *pb, bool base_only)
+enum tc_cwd_mode {
+	TC_CWD_FULL,
+	TC_CWD_BASE,
+	TC_CWD_TWO,
+};
+
+static void append_cwd_two(struct pbuf *pb, const char *s, size_t len)
+{
+	while (len > 1 && s[len - 1] == '/')
+		len--;
+
+	size_t slashes = 0;
+	size_t second_last = 0;
+	size_t last = 0;
+	for (size_t i = 0; i < len; i++) {
+		if (s[i] == '/') {
+			slashes++;
+			second_last = last;
+			last = i;
+		}
+	}
+
+	/* Absolute paths have a leading '/', so 3 slashes means >2 components. */
+	size_t threshold = (s[0] == '/') ? 3 : 2;
+	if (slashes >= threshold) {
+		pb_str(pb, "... ");
+		pb_add(pb, s + second_last + 1, len - (second_last + 1));
+	} else {
+		pb_add(pb, s, len);
+	}
+}
+
+static void append_cwd(const struct tc_shell *sh, struct pbuf *pb,
+		       enum tc_cwd_mode mode)
 {
 	const char *pwd = sh ? tc_var_get(&sh->vars, "PWD") : NULL;
 	char *dyn = NULL;
@@ -72,7 +105,10 @@ static void append_cwd(const struct tc_shell *sh, struct pbuf *pb, bool base_onl
 	while (hlen > 1 && home[hlen - 1] == '/')
 		hlen--;
 
-	if (base_only) {
+	bool under_home = hlen > 0 && strncmp(pwd, home, hlen) == 0 &&
+			  (pwd[hlen] == '\0' || pwd[hlen] == '/');
+
+	if (mode == TC_CWD_BASE) {
 		if (hlen > 0 && strcmp(pwd, home) == 0) {
 			pb_ch(pb, '~');
 		} else if (strcmp(pwd, "/") == 0) {
@@ -81,9 +117,21 @@ static void append_cwd(const struct tc_shell *sh, struct pbuf *pb, bool base_onl
 			const char *sl = strrchr(pwd, '/');
 			pb_str(pb, (sl && sl[1]) ? sl + 1 : pwd);
 		}
+	} else if (mode == TC_CWD_TWO) {
+		if (under_home) {
+			struct pbuf tmp = {0};
+			pb_ch(&tmp, '~');
+			pb_str(&tmp, pwd + hlen);
+			if (!tmp.oom && tmp.data)
+				append_cwd_two(pb, tmp.data, tmp.len);
+			else
+				append_cwd_two(pb, pwd, strlen(pwd));
+			free(tmp.data);
+		} else {
+			append_cwd_two(pb, pwd, strlen(pwd));
+		}
 	} else {
-		if (hlen > 0 && strncmp(pwd, home, hlen) == 0 &&
-		    (pwd[hlen] == '\0' || pwd[hlen] == '/')) {
+		if (under_home) {
 			pb_ch(pb, '~');
 			pb_str(pb, pwd + hlen);
 		} else {
@@ -136,10 +184,13 @@ char *tc_prompt_expand(const struct tc_shell *sh, const char *raw)
 			break;
 		}
 		case 'w':
-			append_cwd(sh, &pb, false);
+			append_cwd(sh, &pb, TC_CWD_FULL);
 			break;
 		case 'W':
-			append_cwd(sh, &pb, true);
+			append_cwd(sh, &pb, TC_CWD_BASE);
+			break;
+		case '2':
+			append_cwd(sh, &pb, TC_CWD_TWO);
 			break;
 		case '$':
 			pb_ch(&pb, geteuid() == 0 ? '#' : '$');

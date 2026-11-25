@@ -31,8 +31,46 @@ static void test_prompt_escapes(void)
 
 	/* Root directory / stays /. */
 	CHECK(tc_var_set(&sh.vars, "PWD", "/", 0) == TC_VAR_OK);
-	s = tc_prompt_expand(&sh, "\\w|\\W");
-	CHECK(s != NULL && strcmp(s, "/|/") == 0);
+	s = tc_prompt_expand(&sh, "\\w|\\W|\\2");
+	CHECK(s != NULL && strcmp(s, "/|/|/") == 0);
+	free(s);
+
+	/* \2 shows deepest two levels with "... " when truncated. */
+	CHECK(tc_var_set(&sh.vars, "PWD", "/home/alice", 0) == TC_VAR_OK);
+	s = tc_prompt_expand(&sh, "\\2");
+	CHECK(s != NULL && strcmp(s, "~") == 0);
+	free(s);
+
+	CHECK(tc_var_set(&sh.vars, "PWD", "/home/alice/proj", 0) == TC_VAR_OK);
+	s = tc_prompt_expand(&sh, "\\2");
+	CHECK(s != NULL && strcmp(s, "~/proj") == 0);
+	free(s);
+
+	CHECK(tc_var_set(&sh.vars, "PWD", "/home/alice/Code/tamlinux", 0) == TC_VAR_OK);
+	s = tc_prompt_expand(&sh, "\\2 \\$ ");
+	CHECK(s != NULL && strcmp(s, "... Code/tamlinux $ ") == 0);
+	free(s);
+
+	CHECK(tc_var_set(&sh.vars, "PWD", "/usr/local/bin", 0) == TC_VAR_OK);
+	s = tc_prompt_expand(&sh, "\\2");
+	CHECK(s != NULL && strcmp(s, "... local/bin") == 0);
+	free(s);
+
+	CHECK(tc_var_set(&sh.vars, "PWD", "/usr/local", 0) == TC_VAR_OK);
+	s = tc_prompt_expand(&sh, "\\2");
+	CHECK(s != NULL && strcmp(s, "/usr/local") == 0);
+	free(s);
+
+	CHECK(tc_var_set(&sh.vars, "PWD", "/tmp", 0) == TC_VAR_OK);
+	s = tc_prompt_expand(&sh, "\\2");
+	CHECK(s != NULL && strcmp(s, "/tmp") == 0);
+	free(s);
+
+	/* Default PS1 uses \2 \$ . */
+	CHECK(tc_var_set(&sh.vars, "PWD", "/home/alice/Code/tamlinux", 0) == TC_VAR_OK);
+	const char *def_ps1 = tc_var_get(&sh.vars, "PS1");
+	s = tc_prompt_expand(&sh, def_ps1);
+	CHECK(s != NULL && strcmp(s, "... Code/tamlinux $ ") == 0);
 	free(s);
 
 	/* Time escapes produce valid HH:MM:SS and HH:MM without timers. */

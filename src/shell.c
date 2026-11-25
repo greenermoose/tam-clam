@@ -78,7 +78,7 @@ void tc_shell_init(struct tc_shell *sh, const char *name)
 	if (!tc_var_get(&sh->vars, "IFS"))
 		(void)tc_var_set(&sh->vars, "IFS", " \t\n", 0);
 	if (!tc_var_get(&sh->vars, "PS1"))
-		(void)tc_var_set(&sh->vars, "PS1", geteuid() == 0 ? "# " : "$ ", 0);
+		(void)tc_var_set(&sh->vars, "PS1", "\\2 \\$ ", 0);
 	if (!tc_var_get(&sh->vars, "PS2"))
 		(void)tc_var_set(&sh->vars, "PS2", "> ", 0);
 	if (!tc_var_get(&sh->vars, "PS4"))

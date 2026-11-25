@@ -160,13 +160,21 @@ void tc_input_new_command(struct tc_input *in)
 static void write_prompt(struct tc_input *in)
 {
 	const char *p = NULL;
-	if (in->sh)
+	char *exp = NULL;
+	if (in->sh) {
 		p = tc_var_get(&in->sh->vars, in->want_ps1 ? "PS1" : "PS2");
-	else
+		if (p && *p) {
+			exp = tc_prompt_expand(in->sh, p);
+			if (exp)
+				p = exp;
+		}
+	} else {
 		p = in->want_ps1 ? "$ " : "> ";
+	}
 	in->want_ps1 = false;
 	if (p && *p)
 		(void)tc_write_all(STDERR_FILENO, p, strlen(p));
+	free(exp);
 }
 
 static int fill(struct tc_input *in)
