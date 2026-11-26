@@ -3,7 +3,7 @@ WHATNOW
 What tam-clam is doing now and what comes next. Read this first; revise
 it at the end of every session (work/README-work).
 
-Updated: 2026-11-24, with 0.3.5 (-v synonym for --version)
+Updated: 2026-11-25, with W25 (keys/keybindings.md)
 
 
 STATE
@@ -30,8 +30,8 @@ STATE
 
   Fred's decisions so far are in ROADMAP.md and the plans: POSIX.1-2024
   is the target; the Tamlinux-wide keybinding standard lives in
-  tamlinux/arch/keybindings.md and tam-clam implements it in
-  arch/keys.md (no vi mode, no built-in readline map, VINTR=Ctrl+\,
+  tam-idol/keys/keybindings.md and tam-clam implements it in
+  keys/keybindings.md (no vi mode, no built-in readline map, VINTR=Ctrl+\,
   VSUSP=Ctrl+P, Ctrl+F history search, Ctrl+Q quit); FUNCNEST sets the
   function recursion limit; signed 64-bit arithmetic overflow is a
   reported error; echo recognizes -n only and does not interpret

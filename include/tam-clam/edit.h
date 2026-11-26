@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Interactive line editor built on libtam (tam_tty, tam_key, tam_uni).
- * Follows arch/keys.md (and tamlinux/arch/keybindings.md). */
+ * Follows keys/keybindings.md (and tam-idol/keys/keybindings.md). */
 #ifndef TAM_CLAM_EDIT_H
 #define TAM_CLAM_EDIT_H
 
@@ -27,7 +27,7 @@ enum tc_edit_status {
 	TC_EDIT_ERR,
 };
 
-/* Canonical widget IDs matching arch/keys.md. */
+/* Canonical widget IDs matching keys/keybindings.md. */
 enum tc_widget {
 	TC_W_NONE = 0,
 	TC_W_CHAR_LEFT,

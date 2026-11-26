@@ -7,7 +7,7 @@ SH="$ROOT/build/tam-clam"
 
 cat <<EOF
 === tam-clam $(cat "$ROOT/VERSION") job control demo ===
-Follows arch/keys.md (Ctrl+P Pause / SIGTSTP, Ctrl+\\ Break / SIGINT).
+Follows keys/keybindings.md (Ctrl+P Pause / SIGTSTP, Ctrl+\\ Break / SIGINT).
 
 Things to try at the live prompt:
   sleep 30            press Ctrl+P to suspend -> [1]+ Stopped sleep 30

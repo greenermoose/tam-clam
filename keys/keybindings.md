@@ -1,13 +1,14 @@
 # tam-clam key bindings
 
-`tam-clam` follows the Tamlinux-wide keybinding standard in
-`tamlinux/arch/keybindings.md`. This document specifies how `tam-clam`
+`tam-clam` follows the
+[Tamlinux keybinding standard](https://github.com/greenermoose/tam-idol/blob/dev/keys/keybindings.md)
+(`tam-idol/keys/keybindings.md`). This document specifies how `tam-clam`
 implements that standard in its line editor (`src/edit/`, 0.2.0+),
 which universal `Ctrl` chords are active vs. no-op at the shell prompt,
 the shell-specific bindings added on top, the `termios` configuration
 for child processes, and the `libtam` input mapping.
 
-## Principles (from `tamlinux/arch/keybindings.md`)
+## Principles (from `tam-idol/keys/keybindings.md`)
 
 - **No double-acting `Ctrl` codes.** Every `Ctrl` key keeps its single
   Tamlinux meaning. Universal `Ctrl` chords that do not apply at a shell
@@ -45,7 +46,7 @@ for child processes, and the `libtam` input mapping.
      embedded newlines until the user presses `Enter`.
 2. **While running a foreground child command:**
    - Before handing the terminal to a foreground job, `tam-clam`
-     configures the PTY `termios` per `tamlinux/arch/keybindings.md`:
+     configures the PTY `termios` per `tam-idol/keys/keybindings.md`:
      - `VINTR` = `Ctrl+\` (`0x1C`) -> `SIGINT` (**Break**)
      - `VQUIT` = `_POSIX_VDISABLE` (so `Ctrl+\` interrupts cleanly
        without dumping core)
@@ -58,7 +59,7 @@ for child processes, and the `libtam` input mapping.
 The four legacy ASCII collisions (`Ctrl+H` == `Backspace`, `Ctrl+I` ==
 `Tab`, `Ctrl+J`/`Ctrl+M` == `Enter`, `Ctrl+[` == `Escape`) are never
 assigned separately. All 22 ASCII-clean `Ctrl+<letter>` slots plus
-`Ctrl+\` follow `tamlinux/arch/keybindings.md` verbatim:
+`Ctrl+\` follow `tam-idol/keys/keybindings.md` verbatim:
 
 | Key | Widget | Behavior in `tam-clam` | Phase |
 | --- | --- | --- | --- |
@@ -121,7 +122,7 @@ assigned separately. All 22 ASCII-clean `Ctrl+<letter>` slots plus
 | `Tab` | `complete-next` | Trigger completion / cycle forward | 0.2.3 |
 | `Shift+Tab` | `complete-prev` | Cycle completion backward | 0.2.3 |
 
-Note on `Alt+L`: `Alt+.` is `word-right` in `tamlinux/arch/keybindings.md`,
+Note on `Alt+L`: `Alt+.` is `word-right` in `tam-idol/keys/keybindings.md`,
 so `insert-last-arg` uses `Alt+L` (**L**ast argument) to stay conflict-free.
 
 ## Clipboard and OSC 52 policy
@@ -139,7 +140,7 @@ so `insert-last-arg` uses `Alt+L` (**L**ast argument) to stay conflict-free.
 ## Rebinding format (`bind` / key files)
 
 `tam-clam` uses the shared Tamlinux line-oriented format from
-`tamlinux/arch/keybindings.md`:
+`tam-idol/keys/keybindings.md`:
 
 ```text
 # Comments start with #

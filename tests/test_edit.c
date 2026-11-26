@@ -113,7 +113,7 @@ static void test_keymap_and_chords(void)
 	struct tc_keymap km;
 	tc_keymap_init_defaults(&km);
 
-	/* Verify core arch/keys.md bindings. */
+	/* Verify core keys/keybindings.md bindings. */
 	struct tc_key_seq seq;
 	enum tc_widget w = TC_W_NONE;
 

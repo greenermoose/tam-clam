@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Widget registry, physical key chord parser/formatter, and default keymap
- * implementing arch/keys.md (following tamlinux/arch/keybindings.md). */
+ * implementing keys/keybindings.md (following tam-idol/keys/keybindings.md). */
 #include <ctype.h>
 #include <stdio.h>
 #include <string.h>
@@ -418,7 +418,7 @@ void tc_keymap_init_defaults(struct tc_keymap *km)
 {
 	memset(km, 0, sizeof(*km));
 
-	/* Universal Ctrl map (arch/keys.md / tamlinux/arch/keybindings.md). */
+	/* Universal Ctrl map (keys/keybindings.md / tam-idol/keys/keybindings.md). */
 	bind_def(km, "Ctrl+A", TC_W_SEL_ALL);
 	bind_def(km, "Ctrl+B", TC_W_NOOP);
 	bind_def(km, "Ctrl+C", TC_W_COPY);

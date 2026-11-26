@@ -37,7 +37,7 @@ void tc_editor_configure_child_termios(struct tc_editor *ed)
 	if (!ed || !ed->has_orig_termios)
 		return;
 	struct termios t = ed->orig_termios;
-	/* Per tamlinux/arch/keybindings.md & arch/keys.md:
+	/* Per tam-idol/keys/keybindings.md & keys/keybindings.md:
 	 *   VINTR = Ctrl+\ (0x1C), VQUIT disabled, VSUSP = Ctrl+P (0x10). */
 	t.c_cc[VINTR] = 0x1C;
 #ifdef _POSIX_VDISABLE

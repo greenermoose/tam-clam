@@ -44,12 +44,12 @@ readline's emacs bindings are not the model.
 
 Decided by Fred on 2026-11-23: the Tamlinux-wide keybinding standard
 shared across all Tamlinux programs (compositor, terminal, shell, editor,
-file manager, pager) is defined in `tamlinux/arch/keybindings.md`.
-`tam-clam`'s `arch/keys.md` follows `tamlinux/arch/keybindings.md` and
+file manager, pager) is defined in `tam-idol/keys/keybindings.md`.
+`tam-clam`'s `keys/keybindings.md` follows `tam-idol/keys/keybindings.md` and
 defines shell-specific bindings on top of it.
 
-- Before 0.2.0 code is written, `tamlinux/arch/keybindings.md` is agreed
-  with Fred and `arch/keys.md` is drafted against it. (Drafted 2026-11-23.)
+- Before 0.2.0 code is written, `tam-idol/keys/keybindings.md` is agreed
+  with Fred and `keys/keybindings.md` is drafted against it. (Drafted 2026-11-23.)
 - Principles: no double-acting `Ctrl` codes; three-physical-key ceiling;
   the letter names the action where it can; keys that terminals and the
   Linux console deliver unreliably are avoided or paired with `Alt`
@@ -89,7 +89,7 @@ defines shell-specific bindings on top of it.
 
 ## Open points
 
-- Settled (2026-11-23): `tamlinux/arch/keybindings.md` and `arch/keys.md`.
+- Settled (2026-11-23): `tam-idol/keys/keybindings.md` and `keys/keybindings.md`.
 - Settled (2026-11-24): Fred's energy rule forbids timers/polling while
   idle; clock escapes (`\t`, `\T`, `\A`) evaluate once when the prompt is
   drawn, never ticking in the background.

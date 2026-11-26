@@ -88,6 +88,7 @@ WHERE THINGS ARE
   tests/           unit tests, script tests and refusal tests
   ideas/           ideas we collect from other shells
   arch/            architecture: principles, data structures, evaluations
+  keys/            keybinding specification (tam-idol standard)
   plans/           one plan per work phase (P1, P2, ...)
   bugs/            one record per bug (B1, B2, ...)
   reviews/         one record per review (R1, R2, ...)

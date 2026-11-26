@@ -1,5 +1,5 @@
 #!/bin/sh
-# 0.2.0 demo: interactive line editor on libtam (arch/keys.md).
+# 0.2.0 demo: interactive line editor on libtam (keys/keybindings.md).
 set -eu
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 SH="$ROOT/build/tam-clam"
@@ -7,7 +7,7 @@ SH="$ROOT/build/tam-clam"
 
 cat <<EOF
 === tam-clam $(cat "$ROOT/VERSION") line editor demo ===
-Follows arch/keys.md (and tamlinux/arch/keybindings.md).
+Follows keys/keybindings.md (and tam-idol/keys/keybindings.md).
 
 Things to try at the live prompt:
   Ctrl+G              show keybinding guidance overlay (Escape closes)
