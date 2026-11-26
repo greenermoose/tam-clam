@@ -21,7 +21,7 @@ B ?= build
 VERSION := $(shell tr -d '[:space:]' < VERSION)
 
 CFLAGS ?= -O2 -g
-override CFLAGS += -std=c11 -Wall -Wextra -Wpedantic -Wshadow -Wvla \
+override CFLAGS += -std=c17 -Wall -Wextra -Wpedantic -Wshadow -Wvla \
 	-D_POSIX_C_SOURCE=200809L -DTC_VERSION='"$(VERSION)"' \
 	-Iinclude -I$(LIBTAM_PREFIX)/include \
 	-ffile-prefix-map=$(CURDIR)=. -MMD -MP
@@ -88,11 +88,11 @@ fuzz:
 	@if command -v clang >/dev/null 2>&1; then \
 		mkdir -p build/fuzz; \
 		clang -O1 -g -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer \
-			-std=c11 -D_POSIX_C_SOURCE=200809L -DTC_VERSION='"$(VERSION)"' \
+			-std=c17 -D_POSIX_C_SOURCE=200809L -DTC_VERSION='"$(VERSION)"' \
 			-Iinclude -I$(LIBTAM_PREFIX)/include \
 			tests/fuzz/fuzz_parse.c $(CORE_SRCS) $(LIBTAM) -o build/fuzz/libfuzz_parse; \
 		clang -O1 -g -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer \
-			-std=c11 -D_POSIX_C_SOURCE=200809L -DTC_VERSION='"$(VERSION)"' \
+			-std=c17 -D_POSIX_C_SOURCE=200809L -DTC_VERSION='"$(VERSION)"' \
 			-Iinclude -I$(LIBTAM_PREFIX)/include \
 			tests/fuzz/fuzz_expand.c $(CORE_SRCS) $(LIBTAM) -o build/fuzz/libfuzz_expand; \
 		build/fuzz/libfuzz_parse -runs=$(FUZZ_ITERS) tests/fuzz/corpus/parse; \
