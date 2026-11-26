@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <termios.h>
 #include <time.h>
@@ -32,7 +33,8 @@ struct pty_sess {
 };
 
 static int pty_start_opts(struct pty_sess *s, const char *shell_path,
-			  const char *term, const char *histfile, bool priv)
+			  const char *term, const char *histfile, bool priv,
+			  const char *config, bool no_rc)
 {
 	memset(s, 0, sizeof(*s));
 	int m = posix_openpt(O_RDWR | O_NOCTTY);
@@ -70,14 +72,20 @@ static int pty_start_opts(struct pty_sess *s, const char *shell_path,
 		setenv("PS1", "CLAM$ ", 1);
 		setenv("PS2", "CLAM> ", 1);
 		setenv("TERM", term ? term : "xterm-256color", 1);
+		unsetenv("NO_COLOR");
 		if (histfile)
 			setenv("HISTFILE", histfile, 1);
 		else
 			setenv("HISTFILE", "", 1);
+		if (config)
+			setenv("XDG_CONFIG_HOME", config, 1);
+		char *args[4] = {"tam-clam"};
+		size_t count = 1;
 		if (priv)
-			execl(shell_path, "tam-clam", "--private", (char *)NULL);
-		else
-			execl(shell_path, "tam-clam", (char *)NULL);
+			args[count++] = "--private";
+		if (no_rc)
+			args[count++] = "--norc";
+		execv(shell_path, args);
 		_exit(127);
 	}
 	s->master = m;
@@ -87,7 +95,7 @@ static int pty_start_opts(struct pty_sess *s, const char *shell_path,
 
 static int pty_start(struct pty_sess *s, const char *shell_path, const char *term)
 {
-	return pty_start_opts(s, shell_path, term, NULL, false);
+	return pty_start_opts(s, shell_path, term, NULL, false, NULL, true);
 }
 
 static int pty_send(struct pty_sess *s, const char *data, size_t len)
@@ -266,7 +274,7 @@ static void test_interactive_history(const char *sh)
 	unlink(hf);
 
 	struct pty_sess s1, s2;
-	CHECK(pty_start_opts(&s1, sh, "xterm-256color", hf, false) == 0);
+	CHECK(pty_start_opts(&s1, sh, "xterm-256color", hf, false, NULL, true) == 0);
 	CHECK(pty_wait_for(&s1, "CLAM$ ", 2000));
 
 	/* Run two distinct commands. */
@@ -297,7 +305,7 @@ static void test_interactive_history(const char *sh)
 	CHECK(pty_wait_after(&s1, "LA:omega", "CLAM$ ", 2000));
 
 	/* Second concurrent shell shares the same history file via live sync. */
-	CHECK(pty_start_opts(&s2, sh, "xterm-256color", hf, false) == 0);
+	CHECK(pty_start_opts(&s2, sh, "xterm-256color", hf, false, NULL, true) == 0);
 	CHECK(pty_wait_for(&s2, "CLAM$ ", 2000));
 	pty_clear_out(&s2);
 	CHECK(pty_send(&s2, "history 2\r", 10) == 0);
@@ -311,7 +319,7 @@ static void test_interactive_history(const char *sh)
 
 	/* Private mode writes no history file. */
 	struct pty_sess sp;
-	CHECK(pty_start_opts(&sp, sh, "xterm-256color", hf, true) == 0);
+	CHECK(pty_start_opts(&sp, sh, "xterm-256color", hf, true, NULL, true) == 0);
 	CHECK(pty_wait_for(&sp, "CLAM$ ", 2000));
 	pty_clear_out(&sp);
 	CHECK(pty_send(&sp, "printf 'PRIV:ok\\n'\r", 19) == 0);
@@ -490,6 +498,62 @@ static void test_interactive_prompts_and_hooks(const char *sh)
 	CHECK(pty_finish(&s) == 0);
 }
 
+static void test_interactive_rc(const char *sh)
+{
+	char config[] = "/tmp/tam-clam-rc-XXXXXX";
+	char parent[128], dir[128], rc[128];
+	CHECK(mkdtemp(config) != NULL);
+	snprintf(parent, sizeof(parent), "%s/tamlinux", config);
+	snprintf(dir, sizeof(dir), "%s/tamlinux/tam-clam", config);
+	snprintf(rc, sizeof(rc), "%s/tamlinux/tam-clam/rc", config);
+	CHECK(mkdir(parent, 0700) == 0);
+	CHECK(mkdir(dir, 0700) == 0);
+
+	struct pty_sess s;
+	CHECK(pty_start_opts(&s, sh, NULL, NULL, true, config, false) == 0);
+	CHECK(pty_wait_for(&s, "CLAM$ ", 2000));
+	CHECK(strstr(s.out, "/rc:") == NULL);
+	CHECK(pty_send(&s, "\x11", 1) == 0);
+	CHECK(pty_finish(&s) == 0);
+
+	FILE *file = fopen(rc, "w");
+	CHECK(file != NULL);
+	if (!file)
+		return;
+	fputs("alias gg=guidance\nprintf 'rc loaded\\n'\n", file);
+	CHECK(fclose(file) == 0);
+	CHECK(pty_start_opts(&s, sh, NULL, NULL, true, config, false) == 0);
+	CHECK(pty_wait_after(&s, "rc loaded", "CLAM$ ", 2000));
+	pty_clear_out(&s);
+	CHECK(pty_send(&s, "gg\r", 3) == 0);
+	CHECK(pty_wait_after(&s, "tam-clam guidance", "CLAM$ ", 2000));
+	CHECK(strstr(s.out, "rc loaded") == NULL);
+	CHECK(pty_send(&s, "\x11", 1) == 0);
+	CHECK(pty_finish(&s) == 0);
+
+	CHECK(pty_start_opts(&s, sh, NULL, NULL, true, config, true) == 0);
+	CHECK(pty_wait_for(&s, "CLAM$ ", 2000));
+	CHECK(strstr(s.out, "rc loaded") == NULL);
+	CHECK(pty_send(&s, "\x11", 1) == 0);
+	CHECK(pty_finish(&s) == 0);
+
+	file = fopen(rc, "w");
+	CHECK(file != NULL);
+	if (!file)
+		return;
+	fputs("if then\n", file);
+	CHECK(fclose(file) == 0);
+	CHECK(pty_start_opts(&s, sh, NULL, NULL, true, config, false) == 0);
+	CHECK(pty_wait_after(&s, "rc: startup returned status 2", "CLAM$ ", 2000));
+	CHECK(pty_send(&s, "\x11", 1) == 0);
+	CHECK(pty_finish(&s) == 0);
+
+	CHECK(unlink(rc) == 0);
+	CHECK(rmdir(dir) == 0);
+	CHECK(rmdir(parent) == 0);
+	CHECK(rmdir(config) == 0);
+}
+
 int main(int argc, char **argv)
 {
 	const char *sh = argc > 1 ? argv[1] : "build/tam-clam";
@@ -500,5 +564,6 @@ int main(int argc, char **argv)
 	test_interactive_complete(sh);
 	test_interactive_highlight_and_suggest(sh);
 	test_interactive_prompts_and_hooks(sh);
+	test_interactive_rc(sh);
 	CHECK_DONE("test_pty");
 }

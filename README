@@ -81,6 +81,13 @@ USING IT
   Run with no arguments on a terminal, it prompts with "$ ". The line
   editor, history and completion arrive in 0.2.x; see ROADMAP.md.
 
+  Before the first interactive prompt, tam-clam reads
+  ${XDG_CONFIG_HOME:-$HOME/.config}/tamlinux/tam-clam/rc if present. Define
+  aliases and functions there as shell commands. Use --norc to skip the
+  file for a session. Scripts, -c and piped input skip it automatically.
+  Run guidance to print the keybindings and help pointers, or press
+  Ctrl+G to open the line editor's guidance overlay.
+
 
 WHERE THINGS ARE
 

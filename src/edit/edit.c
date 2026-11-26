@@ -144,13 +144,31 @@ static bool buffer_incomplete(const char *s, size_t len)
 	return false;
 }
 
-/* Guidance overlay text (Ctrl+G). */
+#define GUIDANCE_KEYS \
+	"Ctrl+X Cut   Ctrl+C Copy    Ctrl+V Paste (Alt+V prev)    Ctrl+Z Undo    Ctrl+Y Redo\n" \
+	"Ctrl+A All   Ctrl+F History Ctrl+K Clear   Ctrl+L Redraw Ctrl+E Chord/Run Ctrl+Q Quit\n" \
+	"Ctrl+Left/Right (Alt+,/.) Word   Ctrl+Home/End (Alt+</>) Buffer   Alt+M Mark\n" \
+	"Alt+Enter Newline  Alt+E $EDITOR  Alt+L Last-arg  Tab Complete  Alt+# Comment"
+
 static const char guidance_text[] =
-	"--- tam-clam guidance (Escape to close) ---\n"
-	"Ctrl+X Cut   Ctrl+C Copy    Ctrl+V Paste (Alt+V prev)    Ctrl+Z Undo    Ctrl+Y Redo\n"
-	"Ctrl+A All   Ctrl+F History Ctrl+K Clear   Ctrl+L Redraw Ctrl+E Chord/Run Ctrl+Q Quit\n"
-	"Ctrl+Left/Right (Alt+,/.) Word   Ctrl+Home/End (Alt+</>) Buffer   Alt+M Mark\n"
-	"Alt+Enter Newline  Alt+E $EDITOR  Alt+L Last-arg  Tab Complete  Alt+# Comment";
+	"--- tam-clam guidance (Escape to close) ---\n" GUIDANCE_KEYS;
+
+int tc_bi_guidance(struct tc_shell *sh, int argc, char **argv, unsigned long line)
+{
+	(void)argv;
+	if (argc != 1) {
+		tc_error(sh, line, "usage: guidance");
+		return TC_STATUS_USAGE;
+	}
+	static const char text[] =
+		"tam-clam guidance\n" GUIDANCE_KEYS "\n\n"
+		"Ctrl+G opens guidance in the line editor.\n"
+		"alias lists your shortcuts. history [N] lists recent commands.\n"
+		"tam-clam --help shows command-line options.\n";
+	return tc_write_all(STDOUT_FILENO, text, sizeof(text) - 1) < 0;
+}
+
+#undef GUIDANCE_KEYS
 
 static unsigned next_chord_mods(unsigned mods)
 {

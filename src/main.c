@@ -35,7 +35,7 @@ static void usage(int fd)
 	static const char text[] =
 		"usage: tam-clam -c COMMANDS [NAME [ARGS...]]\n"
 		"       tam-clam SCRIPT [ARGS...]\n"
-		"       tam-clam [--private] [-s] [ARGS...]\n"
+		"       tam-clam [--private] [--norc] [-s] [ARGS...]\n"
 		"       tam-clam --lint FILE...\n"
 		"       tam-clam -v | --version\n";
 	(void)tc_write_all(fd, text, sizeof(text) - 1);
@@ -141,6 +141,49 @@ static int open_script(struct tc_shell *sh, const char *path, int *out)
 	return 0;
 }
 
+static void load_interactive_rc(struct tc_shell *sh)
+{
+	if (getuid() != geteuid() || getgid() != getegid())
+		return;
+	char *path = tam_xdg_path(TAM_XDG_CONFIG, "tam-clam", "rc", false);
+	if (!path)
+		return;
+	int fd = open(path, O_RDONLY | O_CLOEXEC | O_NONBLOCK);
+	if (fd < 0) {
+		if (errno != ENOENT)
+			tc_error(sh, 0, "%s: %s", path, strerror(errno));
+		free(path);
+		return;
+	}
+
+	struct stat st;
+	if (fstat(fd, &st) < 0) {
+		tc_error(sh, 0, "%s: %s", path, strerror(errno));
+	} else if (!S_ISREG(st.st_mode)) {
+		tc_error(sh, 0, "%s: startup file must be a regular file", path);
+	} else {
+		int script_fd = fcntl(fd, F_DUPFD_CLOEXEC, 10);
+		if (script_fd < 0) {
+			tc_error(sh, 0, "%s: %s", path, strerror(errno));
+		} else {
+			close(fd);
+			fd = script_fd;
+			struct tc_input in;
+			tc_input_from_fd(&in, fd, false);
+			sh->dot_depth++;
+			int status = tc_exec_input(sh, &in, 0, NULL);
+			sh->dot_depth--;
+			if (sh->flow == TC_FLOW_RETURN)
+				sh->flow = TC_FLOW_NONE;
+			else if (status == TC_STATUS_USAGE && !sh->exit_requested)
+				tc_error(sh, 0, "%s: startup returned status %d", path, status);
+			sh->status = 0;
+		}
+	}
+	close(fd);
+	free(path);
+}
+
 int main(int argc, char **argv)
 {
 	(void)setlocale(LC_CTYPE, "");
@@ -151,6 +194,7 @@ int main(int argc, char **argv)
 	const char *command = NULL;
 	bool want_c = false;
 	bool lint_mode = false;
+	bool no_rc = false;
 	int read_stdin = 0;
 	for (; i < argc && (argv[i][0] == '-' || argv[i][0] == '+') &&
 	       argv[i][1] != '\0';
@@ -166,6 +210,10 @@ int main(int argc, char **argv)
 		}
 		if (strcmp(a, "--private") == 0) {
 			sh.private_mode = true;
+			continue;
+		}
+		if (strcmp(a, "--norc") == 0) {
+			no_rc = true;
 			continue;
 		}
 		if (strcmp(a, "--version") == 0 || strcmp(a, "-v") == 0) {
@@ -335,8 +383,10 @@ int main(int argc, char **argv)
 				in.ed = &ed;
 				have_ed = true;
 			}
+			if (!no_rc)
+				load_interactive_rc(&sh);
 		}
-		status = run(&sh, &in);
+		status = sh.exit_requested ? sh.exit_status : run(&sh, &in);
 		if (have_ed) {
 			tc_editor_finish(&ed);
 			sh.editor = NULL;

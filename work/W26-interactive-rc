@@ -1,0 +1,25 @@
+W26 INTERACTIVE STARTUP AND GUIDANCE
+
+Date: 2026-11-26
+AI harness: Codex 0.172.0
+AI model: gpt-6.2-sol
+
+GUIDANCE
+
+  Fred (excerpt): "g needs to be guidance (show help for tam-clam)."
+  Fred: "Implement the plan."
+
+DONE
+
+  - Load a single XDG rc in the interactive shell. Add --norc recovery.
+  - Share keybinding text between the guidance builtin and Ctrl+G.
+  - Normal and sanitizer suites passed, with new PTY startup checks.
+
+FAILED
+
+  - The first PTY run inherited NO_COLOR. The tests now set up their
+    color environment explicitly.
+
+HANDOFF
+
+  Continue interactive dogfooding with 0.3.7.

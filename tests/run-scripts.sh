@@ -202,5 +202,16 @@ expect '--lint syntax error exits 2' 2 '' \
 expect '--lint missing file exits 2' 2 '' \
 	"$shell" --lint "$tmp/no_such_lint.sh"
 
+mkdir -p "$tmp/config/tamlinux/tam-clam"
+printf 'echo should-not-load; exit 1\n' >"$tmp/config/tamlinux/tam-clam/rc"
+printf 'echo script\n' >"$tmp/no-rc.sh"
+expect 'rc skipped for -c' 0 'command' \
+	env XDG_CONFIG_HOME="$tmp/config" "$shell" -c 'echo command'
+expect 'rc skipped for script' 0 'script' \
+	env XDG_CONFIG_HOME="$tmp/config" "$shell" "$tmp/no-rc.sh"
+expect 'rc skipped for piped stdin' 0 'script' \
+	sh -c 'cat "$1" | XDG_CONFIG_HOME=$2 "$3"' - \
+	"$tmp/no-rc.sh" "$tmp/config" "$shell"
+
 echo "run-scripts: $pass passed, $fail failed (reference shell: $ref)"
 [ "$fail" -eq 0 ]

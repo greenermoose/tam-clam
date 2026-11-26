@@ -460,6 +460,7 @@ static const struct tc_builtin builtins[] = {
 	{"false", bi_false, false},
 	{"fg", tc_bi_fg, false},
 	{"getopts", tc_bi_getopts, false},
+	{"guidance", tc_bi_guidance, false},
 	{"hash", tc_bi_hash, false},
 	{"history", tc_bi_history, false},
 	{"jobs", tc_bi_jobs, false},
