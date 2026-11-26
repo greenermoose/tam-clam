@@ -25,15 +25,6 @@ static uint64_t hash_str(const char *s)
 	return h;
 }
 
-static char *xstrdup(const char *s)
-{
-	size_t n = strlen(s);
-	char *p = malloc(n + 1);
-	if (p)
-		memcpy(p, s, n + 1);
-	return p;
-}
-
 void tc_abbr_init(struct tc_abbrs *ab)
 {
 	ab->slots = NULL;
@@ -107,7 +98,7 @@ int tc_abbr_set(struct tc_abbrs *ab, const char *name, const char *expansion,
 	}
 
 	struct tc_abbr_entry *e = find_slot(ab->slots, ab->cap, name);
-	char *ecopy = xstrdup(expansion);
+	char *ecopy = strdup(expansion);
 	if (!ecopy)
 		return -1;
 	if (e->name) {
@@ -116,7 +107,7 @@ int tc_abbr_set(struct tc_abbrs *ab, const char *name, const char *expansion,
 		e->pos = pos;
 		return 0;
 	}
-	char *ncopy = xstrdup(name);
+	char *ncopy = strdup(name);
 	if (!ncopy) {
 		free(ecopy);
 		return -1;

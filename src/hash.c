@@ -12,15 +12,6 @@
 
 #define TC_HASH_INIT_CAP 32
 
-static char *xstrdup(const char *s)
-{
-	size_t len = strlen(s);
-	char *p = malloc(len + 1);
-	if (p)
-		memcpy(p, s, len + 1);
-	return p;
-}
-
 static uint64_t hash_str(const char *s)
 {
 	uint64_t h = 14695981039346656037ULL;
@@ -125,7 +116,7 @@ int tc_hash_put(struct tc_hash_table *ht, const char *name, const char *path,
 			return -1;
 	}
 	struct tc_hash_entry *e = find_slot(ht->slots, ht->cap, name);
-	char *pcopy = xstrdup(path);
+	char *pcopy = strdup(path);
 	if (!pcopy)
 		return -1;
 	if (e->name) {
@@ -135,7 +126,7 @@ int tc_hash_put(struct tc_hash_table *ht, const char *name, const char *path,
 			e->hits++;
 		return 0;
 	}
-	char *ncopy = xstrdup(name);
+	char *ncopy = strdup(name);
 	if (!ncopy) {
 		free(pcopy);
 		return -1;

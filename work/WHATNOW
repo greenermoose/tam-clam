@@ -8,7 +8,9 @@ Updated: 2026-11-26, with W28 (help builtin)
 
 STATE
 
-  Version 0.3.9 adds the `help` builtin, printing a usage guide for
+  Version 0.3.10 moves the line editor onto libtam (paste events, key
+  names, OSC 52, the external-editor run) and fixes history loading, pipes
+  and the edit temp file (W10). Version 0.3.9 adds the `help` builtin, printing a usage guide for
   tam-clam and a complete table of keybindings. Version 0.3.8 loads ~/.rc
   before the first interactive prompt (--norc skips it). The guidance
   builtin prints the same key help as the Ctrl+G overlay. Normal and

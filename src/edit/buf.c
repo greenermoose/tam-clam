@@ -124,10 +124,7 @@ size_t tc_ebuf_prev_cp(const struct tc_edit_buf *b, size_t pos)
 		return 0;
 	if (pos > b->len)
 		pos = b->len;
-	size_t p = pos - 1;
-	while (p > 0 && (((unsigned char)b->data[p] & 0xC0) == 0x80))
-		p--;
-	return p;
+	return tam_utf8_prev(b->data, pos);
 }
 
 size_t tc_ebuf_next_cp(const struct tc_edit_buf *b, size_t pos)

@@ -10,15 +10,6 @@
 
 #define TC_ASSOC_INIT_CAP 16
 
-static char *arr_strdup(const char *s)
-{
-	size_t len = strlen(s);
-	char *p = malloc(len + 1);
-	if (p)
-		memcpy(p, s, len + 1);
-	return p;
-}
-
 static uint64_t arr_hash(const char *s)
 {
 	uint64_t h = 14695981039346656037ULL;
@@ -64,7 +55,7 @@ struct tc_array *tc_array_clone(const struct tc_array *a)
 	c->cap = a->len;
 	for (size_t i = 0; i < a->len; i++) {
 		c->elems[i].idx = a->elems[i].idx;
-		c->elems[i].val = arr_strdup(a->elems[i].val);
+		c->elems[i].val = strdup(a->elems[i].val);
 		if (!c->elems[i].val) {
 			c->len = i;
 			tc_array_free(c);
@@ -135,7 +126,7 @@ int tc_array_set(struct tc_array *a, int64_t idx, const char *val)
 
 	bool found = false;
 	size_t pos = array_bsearch(a, ridx, &found);
-	char *copy = arr_strdup(val ? val : "");
+	char *copy = strdup(val ? val : "");
 	if (!copy)
 		return TC_ARR_NOMEM;
 
@@ -305,7 +296,7 @@ int tc_assoc_set(struct tc_assoc *m, const char *key, const char *val)
 		return TC_ARR_NOMEM;
 
 	struct tc_assoc_slot *s = assoc_find(m->slots, m->cap, key);
-	char *vcopy = arr_strdup(val ? val : "");
+	char *vcopy = strdup(val ? val : "");
 	if (!vcopy)
 		return TC_ARR_NOMEM;
 	if (s->key) {
@@ -313,7 +304,7 @@ int tc_assoc_set(struct tc_assoc *m, const char *key, const char *val)
 		s->val = vcopy;
 		return TC_ARR_OK;
 	}
-	char *kcopy = arr_strdup(key);
+	char *kcopy = strdup(key);
 	if (!kcopy) {
 		free(vcopy);
 		return TC_ARR_NOMEM;

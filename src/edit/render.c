@@ -374,31 +374,20 @@ int tc_render_finish(struct tc_render_state *rs, tam_tty_t *tty,
 int tc_render_osc52(tam_tty_t *tty, bool is_linux_vt,
 		    const char *data, size_t len)
 {
-	static const char b64[] =
-		"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 	if (!tty || !tty->interactive || is_linux_vt || !data || len == 0)
 		return 0;
 	if (len > TC_EDIT_BUF_MAX)
 		len = TC_EDIT_BUF_MAX;
-	size_t enc_len = ((len + 2) / 3) * 4;
-	char *out = malloc(enc_len + 16);
+	/* ESC ] 52 ; c ; <base64> BEL, as before. */
+	static const char head[] = "\x1b]52;c;";
+	size_t enc = tam_b64_encoded_len(len);
+	char *out = malloc(sizeof(head) - 1 + enc + 2);
 	if (!out)
 		return -1;
-	size_t pos = 0;
-	memcpy(out, "\x1b]52;c;", 7);
-	pos = 7;
-	for (size_t i = 0; i < len; i += 3) {
-		unsigned a = (unsigned char)data[i];
-		unsigned b = (i + 1 < len) ? (unsigned char)data[i + 1] : 0;
-		unsigned c = (i + 2 < len) ? (unsigned char)data[i + 2] : 0;
-		unsigned triple = (a << 16) | (b << 8) | c;
-		out[pos++] = b64[(triple >> 18) & 0x3F];
-		out[pos++] = b64[(triple >> 12) & 0x3F];
-		out[pos++] = (i + 1 < len) ? b64[(triple >> 6) & 0x3F] : '=';
-		out[pos++] = (i + 2 < len) ? b64[triple & 0x3F] : '=';
-	}
-	out[pos++] = '\x07';
-	int rc = tam_tty_write(tty, out, pos);
+	memcpy(out, head, sizeof(head) - 1);
+	tam_b64_encode(data, len, out + sizeof(head) - 1);
+	out[sizeof(head) - 1 + enc] = '\x07';
+	int rc = tam_tty_write(tty, out, sizeof(head) - 1 + enc + 1);
 	free(out);
 	return rc;
 }

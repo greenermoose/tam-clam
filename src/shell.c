@@ -1,4 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
+#include <tam.h>
 #include <errno.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -9,6 +10,8 @@
 
 #include "tam-clam/input.h"
 #include "tam-clam/shell.h"
+
+#include <tam.h>
 
 extern char **environ;
 
@@ -176,18 +179,9 @@ void tc_shell_finish(struct tc_shell *sh)
 
 int tc_write_all(int fd, const void *buf, size_t len)
 {
-	const char *p = buf;
-	while (len > 0) {
-		ssize_t n = write(fd, p, len);
-		if (n < 0) {
-			if (errno == EINTR)
-				continue;
-			return -1;
-		}
-		p += n;
-		len -= (size_t)n;
-	}
-	return 0;
+	/* Unlike the loop it replaces, a zero-byte write is an error, not an
+	 * endless retry. */
+	return tam_write_all(fd, buf, len);
 }
 
 void tc_error(const struct tc_shell *sh, unsigned long line, const char *fmt, ...)

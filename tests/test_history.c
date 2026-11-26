@@ -175,11 +175,36 @@ static void test_private_and_full_disk(void)
 	}
 }
 
+/* A history file over 8 MiB loads its newest entries, not its oldest. */
+static void test_large_file_loads_newest(void)
+{
+	char path[128];
+	make_tmp_path(path, sizeof(path), "big");
+	FILE *f = fopen(path, "w");
+	CHECK(f != NULL);
+	/* About 10 MiB of old entries, then a recognisable last one. */
+	for (int i = 0; i < 200000; i++)
+		fprintf(f, "v1 1700000001 0 /tmp echo old-entry-%06d-padding-padding\n", i);
+	fprintf(f, "v1 1700000009 0 /tmp echo newest-entry\n");
+	CHECK(fclose(f) == 0);
+
+	struct tc_history h;
+	tc_hist_init(&h, path, false);
+	CHECK(tc_hist_load(&h) == 0);
+	CHECK(h.count > 0);
+	CHECK(strcmp(h.entries[h.count - 1].cmd, "echo newest-entry") == 0);
+	/* The first entry kept is a whole line, not the tail of a cut one. */
+	CHECK(strncmp(h.entries[0].cmd, "echo old-entry-", 15) == 0);
+	tc_hist_finish(&h);
+	unlink(path);
+}
+
 int main(void)
 {
 	test_roundtrip_and_search();
 	test_damaged_and_truncated();
 	test_concurrent_writers();
 	test_private_and_full_disk();
+	test_large_file_loads_newest();
 	CHECK_DONE("test_history");
 }

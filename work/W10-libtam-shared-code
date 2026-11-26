@@ -1,0 +1,49 @@
+W10 ONTO LIBTAM'S SHARED CODE (TAM-CLAM 0.3.10)
+
+Date: 2026-11-26
+AI harness: Claude Code 2.1.332
+AI model: claude-opus-5-5
+Continues: W9
+
+
+GUIDANCE
+
+  Fred: "Move each program onto the shared code."
+
+
+DONE
+
+  - Line editor input: reads go to tam_key in a feed loop and bracketed
+    paste arrives as TAM_KEY_PASTE events (CR becomes LF, as before). The
+    local byte-at-a-time paste filter, which ignored tam_key_feed's
+    result and could drop input, is gone.
+  - Key names: tam_key_name_parse/format, with the shell's one rule kept:
+    Ctrl+Shift+letter means Ctrl+letter, since that is all a terminal
+    sends. "Shift+a" and "Alt+Shift+1" now bind what the terminal really
+    sends ('A', Alt+'!').
+  - OSC 52 uses tam_b64; tc_write_all wraps tam_write_all (a zero-byte
+    write is now an error, not an endless loop); tc_ebuf_prev_cp uses
+    tam_utf8_prev; five strdup copies are libc strdup/strndup.
+  - The external editor runs through tam_run_foreground (the shell
+    ignores Ctrl+C until it ends), from a close-on-exec temporary file in
+    tam_runtime_dir("tam-clam") or /tmp, read back with tam_fs_read.
+  - History: a file over 8 MiB loads its newest 8 MiB, starting at a
+    whole line (test_large_file_loads_newest); before, it loaded the
+    oldest and kept reading forward on every sync.
+  - Here-document, pipeline and command-substitution pipes are
+    close-on-exec; an end that already has the needed number keeps the
+    flag cleared.
+  - Compile-time floor libtam 0.12.0 in edit.h.
+  - make test and make sanitize pass.
+
+
+FAILED
+
+  - Nothing.
+
+
+HANDOFF
+
+  - Kept on purpose: PATH lookup (the shell's PATH variable), the SIGWINCH
+    handler (traps), setlocale (POSIX shell) and no install guard (the
+    login shell).

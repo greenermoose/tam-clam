@@ -10,6 +10,11 @@
 #include <termios.h>
 
 #include "tam_key.h"
+
+/* Paste events, key names and tty suspend need libtam 0.12.0. */
+#if TAM_VERSION_MAJOR == 0 && TAM_VERSION_MINOR < 12
+#error "tam-clam needs libtam 0.12.0 or later"
+#endif
 #include "tam_tty.h"
 
 struct tc_shell;

@@ -33,6 +33,27 @@
 #define TC_DEFAULT_PATH "/usr/local/bin:/usr/bin:/bin"
 #define TC_PATH_MAX 4096
 
+/* Pipes are made close-on-exec so no program inherits the shell's ends. An
+ * end that already has the number a command needs is not dup2'd (which
+ * would clear the flag), so clear it here. */
+static int pipe_cloexec(int fd[2])
+{
+	/* pipe2() is not POSIX; the shell is single-threaded, so setting the
+	 * flag right after pipe() leaves no window for an exec. */
+	if (pipe(fd) < 0)
+		return -1;
+	(void)fcntl(fd[0], F_SETFD, FD_CLOEXEC);
+	(void)fcntl(fd[1], F_SETFD, FD_CLOEXEC);
+	return 0;
+}
+
+static void keep_across_exec(int fd)
+{
+	int fl = fcntl(fd, F_GETFD);
+	if (fl >= 0)
+		(void)fcntl(fd, F_SETFD, fl & ~FD_CLOEXEC);
+}
+
 static int exec_one(struct tc_shell *sh, const struct tc_node *n);
 
 static bool flow_stop(const struct tc_shell *sh)
@@ -418,7 +439,7 @@ static int apply_heredoc(struct tc_shell *sh, const struct tc_redir *r,
 	}
 
 	int pfd[2];
-	if (pipe(pfd) < 0) {
+	if (pipe_cloexec(pfd) < 0) {
 		tc_error(sh, r->line, "cannot create pipe: %s", strerror(errno));
 		return -1;
 	}
@@ -461,6 +482,8 @@ static int apply_heredoc(struct tc_shell *sh, const struct tc_redir *r,
 			return -1;
 		}
 		close(pfd[0]);
+	} else {
+		keep_across_exec(pfd[0]);
 	}
 	return 0;
 }
@@ -1377,7 +1400,7 @@ static int exec_pipeline(struct tc_shell *sh, const struct tc_node *n)
 	size_t forked = 0;
 	for (size_t i = 0; i < ncmds; i++) {
 		int pfd[2] = {-1, -1};
-		if (i + 1 < ncmds && pipe(pfd) < 0) {
+		if (i + 1 < ncmds && pipe_cloexec(pfd) < 0) {
 			tc_error(sh, n->line, "cannot create pipe: %s", strerror(errno));
 			if (in_fd >= 0)
 				close(in_fd);
@@ -1422,6 +1445,8 @@ static int exec_pipeline(struct tc_shell *sh, const struct tc_node *n)
 					if (dup2(in_fd, STDIN_FILENO) < 0)
 						_exit(1);
 					close(in_fd);
+				} else {
+					keep_across_exec(in_fd);
 				}
 			}
 			if (i + 1 < ncmds) {
@@ -1430,6 +1455,8 @@ static int exec_pipeline(struct tc_shell *sh, const struct tc_node *n)
 					if (dup2(pfd[1], STDOUT_FILENO) < 0)
 						_exit(1);
 					close(pfd[1]);
+				} else {
+					keep_across_exec(pfd[1]);
 				}
 			}
 			int st = exec_one(sh, n->u.pipeline.cmds[i]);
@@ -2004,7 +2031,7 @@ int tc_exec_cmdsub(struct tc_shell *sh, const struct tc_node *cmd,
 	}
 
 	int pfd[2];
-	if (pipe(pfd) < 0) {
+	if (pipe_cloexec(pfd) < 0) {
 		tc_error(sh, line, "cannot create pipe: %s", strerror(errno));
 		return TC_ERR_IO;
 	}
@@ -2032,6 +2059,8 @@ int tc_exec_cmdsub(struct tc_shell *sh, const struct tc_node *cmd,
 			if (dup2(pfd[1], STDOUT_FILENO) < 0)
 				_exit(1);
 			close(pfd[1]);
+		} else {
+			keep_across_exec(pfd[1]);
 		}
 		int st = tc_exec(sh, cmd);
 		if (sh->flow == TC_FLOW_RETURN)

@@ -32,25 +32,6 @@ static char *xstrdup_flags(const char *s, unsigned flags)
 	return p;
 }
 
-static char *xstrdup(const char *s)
-{
-	size_t len = strlen(s);
-	char *p = malloc(len + 1);
-	if (p)
-		memcpy(p, s, len + 1);
-	return p;
-}
-
-static char *xstrndup(const char *s, size_t len)
-{
-	char *p = malloc(len + 1);
-	if (p) {
-		memcpy(p, s, len);
-		p[len] = '\0';
-	}
-	return p;
-}
-
 bool tc_var_valid_name(const char *name, size_t len)
 {
 	if (len == 0)
@@ -226,7 +207,7 @@ static struct tc_var_entry *ensure_entry(struct tc_vars *v, const char *name,
 		*err = TC_VAR_OK;
 		return e;
 	}
-	char *ncopy = xstrdup(name);
+	char *ncopy = strdup(name);
 	if (!ncopy) {
 		*err = TC_VAR_ERR_NOMEM;
 		return NULL;
@@ -355,7 +336,7 @@ int tc_var_set(struct tc_vars *v, const char *name, const char *val,
 		return TC_VAR_OK;
 	}
 
-	char *ncopy = xstrdup(name);
+	char *ncopy = strdup(name);
 	char *vcopy = val ? xstrdup_flags(val, add_flags) : NULL;
 	if (!ncopy || (val && !vcopy)) {
 		free(ncopy);
@@ -686,7 +667,7 @@ int tc_var_import_environ(struct tc_vars *v, char **envp)
 		size_t nlen = (size_t)(eq - envp[i]);
 		if (!tc_var_valid_name(envp[i], nlen))
 			continue;
-		char *name = xstrndup(envp[i], nlen);
+		char *name = strndup(envp[i], nlen);
 		if (!name)
 			return TC_VAR_ERR_NOMEM;
 		int r = tc_var_set(v, name, eq + 1, TC_VAR_EXPORT);
@@ -841,7 +822,7 @@ int tc_var_push_overrides(struct tc_vars *v, const struct tc_var_kv *kvs,
 			return TC_VAR_ERR_READONLY;
 		}
 		struct tc_var_save *sv = &saves[*out_saved];
-		sv->name = xstrdup(kvs[i].name);
+		sv->name = strdup(kvs[i].name);
 		if (!sv->name) {
 			tc_var_pop_overrides(v, saves, *out_saved);
 			*out_saved = 0;
@@ -864,7 +845,7 @@ int tc_var_push_overrides(struct tc_vars *v, const struct tc_var_kv *kvs,
 					e->assoc = NULL;
 					e->flags &= ~(TC_VAR_ARRAY | TC_VAR_ASSOC);
 				} else if (e->value) {
-					sv->value = xstrdup(e->value);
+					sv->value = strdup(e->value);
 					if (!sv->value) {
 						free(sv->name);
 						tc_var_pop_overrides(v, saves, *out_saved);
@@ -995,7 +976,7 @@ void tc_var_pop_scope(struct tc_vars *v)
 					tc_array_free(e->arr);
 					tc_assoc_free(e->assoc);
 				} else {
-					e->name = xstrdup(sv->name);
+					e->name = strdup(sv->name);
 					if (e->name)
 						v->count++;
 				}
@@ -1056,7 +1037,7 @@ int tc_var_make_local(struct tc_vars *v, const char *name)
 		sc->cap = ncap;
 	}
 
-	char *ncopy = xstrdup(name);
+	char *ncopy = strdup(name);
 	if (!ncopy)
 		return TC_VAR_ERR_NOMEM;
 

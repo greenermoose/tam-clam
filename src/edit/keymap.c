@@ -92,138 +92,22 @@ enum tc_widget tc_widget_by_name(const char *name)
 	return TC_W_NONE;
 }
 
-static int ci_eq(const char *a, size_t alen, const char *b)
-{
-	if (strlen(b) != alen)
-		return 0;
-	for (size_t i = 0; i < alen; i++) {
-		if (tolower((unsigned char)a[i]) != tolower((unsigned char)b[i]))
-			return 0;
-	}
-	return 1;
-}
-
-struct named_key {
-	const char *name;
-	tam_key_type_t type;
-};
-
-static const struct named_key named_keys[] = {
-	{"Enter",     TAM_KEY_ENTER},
-	{"Tab",       TAM_KEY_TAB},
-	{"Backspace", TAM_KEY_BACKSPACE},
-	{"Escape",    TAM_KEY_ESC},
-	{"Up",        TAM_KEY_UP},
-	{"Down",      TAM_KEY_DOWN},
-	{"Left",      TAM_KEY_LEFT},
-	{"Right",     TAM_KEY_RIGHT},
-	{"Home",      TAM_KEY_HOME},
-	{"End",       TAM_KEY_END},
-	{"PageUp",    TAM_KEY_PAGE_UP},
-	{"PageDown",  TAM_KEY_PAGE_DOWN},
-	{"Insert",    TAM_KEY_INSERT},
-	{"Delete",    TAM_KEY_DELETE},
-	{"F1",        TAM_KEY_F1},
-	{"F2",        TAM_KEY_F2},
-	{"F3",        TAM_KEY_F3},
-	{"F4",        TAM_KEY_F4},
-	{"F5",        TAM_KEY_F5},
-	{"F6",        TAM_KEY_F6},
-	{"F7",        TAM_KEY_F7},
-	{"F8",        TAM_KEY_F8},
-	{"F9",        TAM_KEY_F9},
-	{"F10",       TAM_KEY_F10},
-	{"F11",       TAM_KEY_F11},
-	{"F12",       TAM_KEY_F12},
-};
-
-/* Parse a single chord like "Ctrl+Shift+Left", "Alt+#", "Ctrl+\\". */
+/* Parse a single chord like "Ctrl+Shift+Left", "Alt+#", "Ctrl+\\" with
+ * libtam's key names. One rule is the shell's own: Ctrl+Shift+letter is
+ * Ctrl+letter, because that is all a terminal sends for it. */
 static int parse_one_key(const char *s, size_t len, tam_key_event_t *ev)
 {
-	if (len == 0)
+	if (len == 0 || len >= 64)
 		return -1;
-	memset(ev, 0, sizeof(*ev));
-	unsigned mods = 0;
-	const char *p = s;
-	const char *end = s + len;
-
-	for (;;) {
-		/* Look for modifier prefix ending in '+'. Note a lone '+' key
-		 * has nothing before it. */
-		const char *plus = memchr(p, '+', (size_t)(end - p));
-		if (!plus || plus == p || plus + 1 == end)
-			break;
-		size_t mlen = (size_t)(plus - p);
-		if (ci_eq(p, mlen, "Ctrl"))
-			mods |= TAM_MOD_CTRL;
-		else if (ci_eq(p, mlen, "Alt"))
-			mods |= TAM_MOD_ALT;
-		else if (ci_eq(p, mlen, "Shift"))
-			mods |= TAM_MOD_SHIFT;
-		else if (ci_eq(p, mlen, "Meta"))
-			return -1; /* Meta is owned by compositor */
-		else
-			return -1;
-		p = plus + 1;
-	}
-
-	size_t klen = (size_t)(end - p);
-	if (klen == 0)
+	char name[64];
+	memcpy(name, s, len);
+	name[len] = '\0';
+	if (!tam_key_name_parse(name, ev))
 		return -1;
-
-	if (ci_eq(p, klen, "Space")) {
-		ev->type = TAM_KEY_CHAR;
-		ev->codepoint = ' ';
-		ev->mods = mods;
-		return 0;
-	}
-
-	for (size_t i = 0; i < sizeof(named_keys) / sizeof(named_keys[0]); i++) {
-		if (ci_eq(p, klen, named_keys[i].name)) {
-			ev->type = named_keys[i].type;
-			ev->codepoint = 0;
-			ev->mods = mods;
-			return 0;
-		}
-	}
-
-	if (klen == 1 && (unsigned char)p[0] >= 0x20 && (unsigned char)p[0] < 0x7F) {
-		unsigned char c = (unsigned char)p[0];
-		ev->type = TAM_KEY_CHAR;
-		if (mods & TAM_MOD_CTRL) {
-			/* tam_key.c maps 0x01..0x1A to 'a'..'z', 0x1C (Ctrl+\) to '|'. */
-			if (c == '\\') {
-				ev->codepoint = '|';
-			} else if (c >= 'A' && c <= 'Z') {
-				ev->codepoint = (uint32_t)(c - 'A' + 'a');
-			} else if (c >= 'a' && c <= 'z') {
-				ev->codepoint = c;
-			} else {
-				ev->codepoint = c;
-			}
-			ev->mods = mods & ~TAM_MOD_SHIFT;
-		} else if (mods & TAM_MOD_ALT) {
-			/* Unshifted Alt+<letter> sends ESC + lowercase; Alt+Shift+<letter>
-			 * sends ESC + uppercase. */
-			if (mods & TAM_MOD_SHIFT) {
-				if (c >= 'a' && c <= 'z')
-					ev->codepoint = (uint32_t)(c - 'a' + 'A');
-				else
-					ev->codepoint = c;
-			} else {
-				if (c >= 'A' && c <= 'Z')
-					ev->codepoint = (uint32_t)(c - 'A' + 'a');
-				else
-					ev->codepoint = c;
-			}
-			ev->mods = mods & ~TAM_MOD_SHIFT;
-		} else {
-			ev->codepoint = c;
-			ev->mods = mods;
-		}
-		return 0;
-	}
-	return -1;
+	if (ev->type == TAM_KEY_CHAR && (ev->mods & TAM_MOD_CTRL) &&
+	    (ev->mods & TAM_MOD_SHIFT) && ev->codepoint >= 'a' && ev->codepoint <= 'z')
+		ev->mods &= ~(unsigned)TAM_MOD_SHIFT;
+	return 0;
 }
 
 int tc_key_seq_parse(const char *spec, struct tc_key_seq *out)
@@ -251,47 +135,8 @@ int tc_key_seq_parse(const char *spec, struct tc_key_seq *out)
 
 static int format_one_key(const tam_key_event_t *ev, char *buf, size_t cap)
 {
-	char tmp[64];
-	size_t pos = 0;
-	unsigned mods = ev->mods;
-	uint32_t cp = ev->codepoint;
-	bool alt_upper = (ev->type == TAM_KEY_CHAR && (mods & TAM_MOD_ALT) &&
-			  !(mods & TAM_MOD_CTRL) && cp >= 'A' && cp <= 'Z');
-
-	if (mods & TAM_MOD_CTRL)
-		pos += (size_t)snprintf(tmp + pos, sizeof(tmp) - pos, "Ctrl+");
-	if (mods & TAM_MOD_ALT)
-		pos += (size_t)snprintf(tmp + pos, sizeof(tmp) - pos, "Alt+");
-	if ((mods & TAM_MOD_SHIFT) || alt_upper)
-		pos += (size_t)snprintf(tmp + pos, sizeof(tmp) - pos, "Shift+");
-
-	if (ev->type == TAM_KEY_CHAR) {
-		if ((mods & TAM_MOD_CTRL) && cp == '|') {
-			pos += (size_t)snprintf(tmp + pos, sizeof(tmp) - pos, "\\");
-		} else if ((mods & (TAM_MOD_CTRL | TAM_MOD_ALT)) && cp >= 'a' && cp <= 'z') {
-			pos += (size_t)snprintf(tmp + pos, sizeof(tmp) - pos, "%c",
-						(char)(cp - 'a' + 'A'));
-		} else if (cp == ' ') {
-			pos += (size_t)snprintf(tmp + pos, sizeof(tmp) - pos, "Space");
-		} else if (cp >= 0x20 && cp < 0x7F) {
-			pos += (size_t)snprintf(tmp + pos, sizeof(tmp) - pos, "%c", (char)cp);
-		} else {
-			pos += (size_t)snprintf(tmp + pos, sizeof(tmp) - pos, "U+%04X", cp);
-		}
-	} else {
-		const char *nm = "?";
-		for (size_t i = 0; i < sizeof(named_keys) / sizeof(named_keys[0]); i++) {
-			if (named_keys[i].type == ev->type) {
-				nm = named_keys[i].name;
-				break;
-			}
-		}
-		pos += (size_t)snprintf(tmp + pos, sizeof(tmp) - pos, "%s", nm);
-	}
-	if (pos >= cap)
-		return -1;
-	memcpy(buf, tmp, pos + 1);
-	return (int)pos;
+	size_t n = tam_key_name_format(ev, buf, cap);
+	return n < cap ? (int)n : -1;
 }
 
 int tc_key_seq_format(const struct tc_key_seq *seq, char *buf, size_t cap)

@@ -12,15 +12,6 @@
 
 #define TC_ALIAS_INIT_CAP 32
 
-static char *xstrdup(const char *s)
-{
-	size_t len = strlen(s);
-	char *p = malloc(len + 1);
-	if (p)
-		memcpy(p, s, len + 1);
-	return p;
-}
-
 static uint64_t hash_str(const char *s)
 {
 	uint64_t h = 14695981039346656037ULL;
@@ -141,7 +132,7 @@ int tc_alias_set(struct tc_aliases *al, const char *name, const char *value)
 	}
 
 	struct tc_alias_entry *e = find_slot(al->slots, al->cap, name);
-	char *vcopy = xstrdup(value);
+	char *vcopy = strdup(value);
 	if (!vcopy)
 		return -1;
 	if (e->name) {
@@ -149,7 +140,7 @@ int tc_alias_set(struct tc_aliases *al, const char *name, const char *value)
 		e->value = vcopy;
 		return 0;
 	}
-	char *ncopy = xstrdup(name);
+	char *ncopy = strdup(name);
 	if (!ncopy) {
 		free(vcopy);
 		return -1;

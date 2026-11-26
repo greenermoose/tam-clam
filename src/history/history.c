@@ -282,15 +282,21 @@ static int read_from_offset(struct tc_history *h, off_t offset)
 		close(fd);
 		return 0;
 	}
-	if (lseek(fd, offset, SEEK_SET) < 0) {
+	/* Read at most 8 MiB at a time to bound memory. A first load of a
+	 * larger file reads its newest 8 MiB, not its oldest: history is used
+	 * from the end. The partial first line is skipped below. */
+	const size_t cap = 8u << 20;
+	off_t start = offset;
+	if (offset == 0 && (size_t)st.st_size > cap)
+		start = st.st_size - (off_t)cap;
+	if (lseek(fd, start, SEEK_SET) < 0) {
 		close(fd);
 		return -1;
 	}
 
-	size_t to_read = (size_t)(st.st_size - offset);
-	/* Cap single read to 8 MiB to bound memory on huge files. */
-	if (to_read > (8u << 20))
-		to_read = (8u << 20);
+	size_t to_read = (size_t)(st.st_size - start);
+	if (to_read > cap)
+		to_read = cap;
 	char *buf = malloc(to_read);
 	if (!buf) {
 		close(fd);
@@ -314,6 +320,10 @@ static int read_from_offset(struct tc_history *h, off_t offset)
 	 * line (e.g. from a crashed writer) is skipped cleanly. */
 	size_t pos = 0;
 	size_t consumed = 0;
+	if (start > offset) {
+		char *first = memchr(buf, '\n', got);
+		pos = consumed = first ? (size_t)(first - buf) + 1 : got;
+	}
 	while (pos < got) {
 		char *nl = memchr(buf + pos, '\n', got - pos);
 		if (!nl)
@@ -324,7 +334,7 @@ static int read_from_offset(struct tc_history *h, off_t offset)
 		consumed = pos;
 	}
 	free(buf);
-	h->file_offset = offset + (off_t)consumed;
+	h->file_offset = start + (off_t)consumed;
 	return 0;
 }
 

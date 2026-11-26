@@ -408,10 +408,16 @@ static int open_in_external_editor(struct tc_editor *ed, struct tc_shell *sh,
 	if (!editor || !*editor)
 		editor = "vi";
 
-	char path[] = "/tmp/tam-clam-edit-XXXXXX";
+	/* A private, close-on-exec temporary file: in the user's runtime
+	 * directory when there is one, else /tmp. */
+	char path[4096];
+	char *rdir = tam_runtime_dir("tam-clam");
+	snprintf(path, sizeof(path), "%s/edit-XXXXXX", rdir ? rdir : "/tmp");
+	free(rdir);
 	int fd = mkstemp(path);
 	if (fd < 0)
 		return -1;
+	(void)fcntl(fd, F_SETFD, FD_CLOEXEC);
 	if (buf->len > 0 && tc_write_all(fd, buf->data, buf->len) < 0) {
 		close(fd);
 		unlink(path);
@@ -424,117 +430,40 @@ static int open_in_external_editor(struct tc_editor *ed, struct tc_shell *sh,
 	tam_tty_raw(tty, false);
 	tc_editor_restore_orig_termios(ed);
 
-	pid_t pid = fork();
-	if (pid == 0) {
-		tc_signals_child();
-		execlp(editor, editor, path, (char *)NULL);
-		_exit(127);
-	}
-	int status = 0;
-	if (pid > 0) {
-		while (waitpid(pid, &status, 0) < 0 && errno == EINTR)
-			;
-	}
+	/* The shell ignores Ctrl+C and Ctrl+\ until the editor ends. */
+	const char *argv[] = { editor, path, NULL };
+	int code = -1;
+	int ran = tam_run_foreground(argv, &code);
 
 	tc_editor_configure_child_termios(ed);
 	(void)tam_tty_raw(tty, true);
 	(void)tam_tty_paste(tty, true);
 
-	if (pid > 0 && WIFEXITED(status) && WEXITSTATUS(status) == 0) {
-		int rfd = open(path, O_RDONLY);
-		if (rfd >= 0) {
-			char tmp[TC_EDIT_BUF_MAX + 1];
-			size_t total = 0;
-			for (;;) {
-				ssize_t n = read(rfd, tmp + total, TC_EDIT_BUF_MAX - total);
-				if (n < 0) {
-					if (errno == EINTR)
-						continue;
-					break;
-				}
-				if (n == 0)
-					break;
-				total += (size_t)n;
-				if (total >= TC_EDIT_BUF_MAX)
-					break;
-			}
-			close(rfd);
-			while (total > 0 && (tmp[total - 1] == '\n' || tmp[total - 1] == '\r'))
+	if (ran == 0 && code == 0) {
+		size_t total = 0;
+		char *text = tam_fs_read(path, TC_EDIT_BUF_MAX, &total);
+		if (text) {
+			while (total > 0 && (text[total - 1] == '\n' || text[total - 1] == '\r'))
 				total--;
-			(void)tc_ebuf_set(buf, tmp, total);
+			(void)tc_ebuf_set(buf, text, total);
+			free(text);
 		}
 	}
 	unlink(path);
 	return 0;
 }
 
-/* Bracketed paste stream splitter: intercepts \x1b[200~ and \x1b[201~ before
- * feeding regular bytes to tam_key_parser_t. */
-struct paste_filter {
-	bool in_paste;
-	unsigned char match[6];
-	size_t match_len;
-};
-
-static const unsigned char PASTE_START[6] = {0x1B, '[', '2', '0', '0', '~'};
-static const unsigned char PASTE_END[6]   = {0x1B, '[', '2', '0', '1', '~'};
-
-static void pf_flush_to_key(struct paste_filter *pf, tam_key_parser_t *kp)
+/* Insert a piece of a bracketed paste (tam_key's TAM_KEY_PASTE events),
+ * turning carriage returns into newlines. */
+static bool paste_insert(struct tc_edit_buf *buf, const char *text, size_t len)
 {
-	if (pf->match_len > 0) {
-		(void)tam_key_feed(kp, pf->match, pf->match_len);
-		pf->match_len = 0;
-	}
-}
-
-static void pf_flush_to_buf(struct paste_filter *pf, struct tc_edit_buf *buf)
-{
-	for (size_t i = 0; i < pf->match_len; i++) {
-		char c = (char)pf->match[i];
-		if (c == '\r')
-			c = '\n';
-		(void)tc_ebuf_insert(buf, &c, 1, false);
-	}
-	pf->match_len = 0;
-}
-
-/* Feed one byte through the bracketed paste filter. Returns true if the buffer
- * was modified directly (inside paste mode). */
-static bool pf_feed_byte(struct paste_filter *pf, unsigned char b,
-			 tam_key_parser_t *kp, struct tc_edit_buf *buf)
-{
-	const unsigned char *target = pf->in_paste ? PASTE_END : PASTE_START;
-	if (b == target[pf->match_len]) {
-		pf->match[pf->match_len++] = b;
-		if (pf->match_len == 6) {
-			pf->match_len = 0;
-			pf->in_paste = !pf->in_paste;
-		}
-		return false;
-	}
 	bool changed = false;
-	if (pf->match_len > 0) {
-		if (pf->in_paste) {
-			pf_flush_to_buf(pf, buf);
+	for (size_t i = 0; i < len; i++) {
+		char c = text[i] == '\r' ? '\n' : text[i];
+		if (tc_ebuf_insert(buf, &c, 1, false) == 0)
 			changed = true;
-		} else {
-			pf_flush_to_key(pf, kp);
-		}
-		/* Re-check b against index 0 of target. */
-		if (b == target[0]) {
-			pf->match[pf->match_len++] = b;
-			return changed;
-		}
 	}
-	if (pf->in_paste) {
-		char c = (char)b;
-		if (c == '\r')
-			c = '\n';
-		(void)tc_ebuf_insert(buf, &c, 1, false);
-		return true;
-	}
-	(void)tam_key_feed(kp, &b, 1);
-	return false;
+	return changed;
 }
 
 enum overlay_mode {
@@ -1108,8 +1037,6 @@ enum tc_edit_status tc_editor_readline(struct tc_editor *ed,
 	tc_render_init(&rs);
 	tam_key_parser_t kp;
 	tam_key_init(&kp);
-	struct paste_filter pf;
-	memset(&pf, 0, sizeof(pf));
 
 	struct edit_ctx ctx = {
 		.ed = ed,
@@ -1171,7 +1098,7 @@ enum tc_edit_status tc_editor_readline(struct tc_editor *ed,
 		}
 
 		/* Zero-CPU idle wait (-1) unless disambiguating a pending ESC. */
-		int timeout_ms = (tam_key_pending(&kp) > 0 || pf.match_len > 0) ? 50 : -1;
+		int timeout_ms = tam_key_pending(&kp) > 0 ? 50 : -1;
 		unsigned char raw[64];
 		int n = tam_tty_read(&tty, raw, sizeof(raw), timeout_ms);
 		if (n < 0) {
@@ -1183,14 +1110,6 @@ enum tc_edit_status tc_editor_readline(struct tc_editor *ed,
 		if (n == 0) {
 			if (tc_sigwinch_seen || tc_sigint_seen)
 				continue;
-			if (pf.match_len > 0) {
-				if (pf.in_paste) {
-					pf_flush_to_buf(&pf, &buf);
-					dirty = true;
-				} else {
-					pf_flush_to_key(&pf, &kp);
-				}
-			}
 			tam_key_event_t tev;
 			if (tam_key_timeout(&kp, &tev) == 1) {
 				if (ctx.ov_mode == OV_COMPLETE) {
@@ -1216,16 +1135,29 @@ enum tc_edit_status tc_editor_readline(struct tc_editor *ed,
 				chord_len = 0;
 				dirty = true;
 			}
-		} else {
-			for (int i = 0; i < n; i++) {
-				if (pf_feed_byte(&pf, raw[i], &kp, &buf))
-					dirty = true;
-			}
 		}
 
+		/* The parser takes what fits; handle its events, then feed the
+		 * rest. Pasted text arrives as TAM_KEY_PASTE and is never read as
+		 * keys. */
+		size_t fed = 0;
+		do {
+		if (n > 0 && fed < (size_t)n) {
+			int took = tam_key_feed(&kp, raw + fed, (size_t)n - fed);
+			fed = took < 0 ? (size_t)n : fed + (size_t)took;
+		}
 		tam_key_event_t ev;
 		while (!ctx.done && tam_key_next(&kp, &ev) == 1) {
 			dirty = true;
+
+			if (ev.type == TAM_KEY_PASTE_BEGIN || ev.type == TAM_KEY_PASTE_END)
+				continue;
+			if (ev.type == TAM_KEY_PASTE) {
+				(void)paste_insert(&buf, ev.text, ev.len);
+				continue;
+			}
+			if (ev.type == TAM_KEY_MOUSE)
+				continue;
 
 			if (ctx.verbatim_next) {
 				ctx.verbatim_next = false;
@@ -1405,6 +1337,7 @@ enum tc_edit_status tc_editor_readline(struct tc_editor *ed,
 				chord_len = 0;
 			}
 		}
+		} while (!ctx.done && n > 0 && fed < (size_t)n);
 
 		if (ctx.ov_mode == OV_GUIDANCE) {
 			ov = guidance_text;
