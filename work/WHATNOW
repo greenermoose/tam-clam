@@ -3,32 +3,21 @@ WHATNOW
 What tam-clam is doing now and what comes next. Read this first; revise
 it at the end of every session (work/README-work).
 
-Updated: 2026-11-26, with W27 (~/.rc interactive startup)
+Updated: 2026-11-26, with W28 (help builtin)
 
 
 STATE
 
-  Version 0.3.8 loads ~/.rc before the first interactive prompt.
-  --norc skips it. The guidance builtin prints the same key help as
-  the Ctrl+G overlay. Normal and sanitizer suites pass.
+  Version 0.3.9 adds the `help` builtin, printing a usage guide for
+  tam-clam and a complete table of keybindings. Version 0.3.8 loads ~/.rc
+  before the first interactive prompt (--norc skips it). The guidance
+  builtin prints the same key help as the Ctrl+G overlay. Normal and
+  sanitizer suites pass.
 
   Phase P4 complete (arrays, [[ ]]/=~, local/declare,
   brace expansion, process substitution, ** globstar, strict modes,
   abbreviations, man-page completion generator, and -v / --version), on
-  branch dev. 0.3.5 adds -v as a CLI synonym for --version.
-  0.3.4 adds:
-  - fish-style interactive abbreviations in include/tam-clam/abbr.h,
-    src/abbr.c, src/edit/edit.c, src/edit/highlight.c, src/builtins.c,
-    and src/shell.c: `abbr` builtin (-a/-e/-q/-l/-s, -p command|anywhere,
-    NAME=EXPANSION shorthand), in-place expansion on Space and Enter
-    outside quotes (undoable with Ctrl+Z so history records the real
-    command), and valid-command syntax highlighting;
-  - man-page completion generator tools/tam-clam-gen-comp (POSIX sh +
-    awk, installed to $(BINDIR)/tam-clam-gen-comp by `make install`)
-    writing .comp files directly into tam-clam's XDG completion path;
-  - tests/test_abbr.c (39 checks covering abbr table/builtin, line
-    editor expansion/undo/quoting, and end-to-end tam-clam-gen-comp ->
-    tc_complete loading) and sandbox/demo-0.3.4-abbr-compgen.
+  branch dev.
   readelf -d lists only libc.so.6. make test, make sanitize, and make
   fuzz pass.
 
@@ -51,7 +40,7 @@ NEXT
 
 WAITING FOR FRED
 
-  - Daily-use feedback on interactive startup and guidance.
+  - Daily-use feedback on interactive startup, guidance, and help.
 
 
 WATCH OUT

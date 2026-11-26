@@ -462,6 +462,7 @@ static const struct tc_builtin builtins[] = {
 	{"getopts", tc_bi_getopts, false},
 	{"guidance", tc_bi_guidance, false},
 	{"hash", tc_bi_hash, false},
+	{"help", tc_bi_help, false},
 	{"history", tc_bi_history, false},
 	{"jobs", tc_bi_jobs, false},
 	{"kill", tc_bi_kill, false},

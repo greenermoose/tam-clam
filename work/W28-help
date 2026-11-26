@@ -1,0 +1,24 @@
+W28 HELP
+
+Date: 2026-11-26
+AI harness: agy 1.5.18
+AI model: Gemini 4 Hydrogen (Medium)
+
+GUIDANCE
+
+  Fred: "For tam-clam 0.3.9, add a help command that shows a guide to using
+  tam-clam, including a complete table of keybindings."
+
+DONE
+
+  - Added the `help` builtin (`tc_bi_help`) in src/edit/edit.c,
+    include/tam-clam/builtins.h, and src/builtins.c.
+  - Prints a usage guide (CLI options, interactive features, clipboard and
+    signal rules) and a complete table of keybindings plus reserved Ctrl keys.
+  - Updated tc_bi_guidance and README to point to `help`.
+  - Bumped VERSION to 0.3.9 and added tests in tests/run-scripts.sh and
+    tests/pty/test_pty.c.
+
+HANDOFF
+
+  Continue interactive dogfooding with 0.3.9.

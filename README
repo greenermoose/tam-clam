@@ -85,8 +85,8 @@ USING IT
   Define aliases and functions there as shell commands. Use --norc to
   skip the file for a session. Scripts, -c and piped input skip it
   automatically.
-  Run guidance to print the keybindings and help pointers, or press
-  Ctrl+G to open the line editor's guidance overlay.
+  Run help for a full usage guide and keybinding table, guidance for a
+  quick key summary, or press Ctrl+G to open the guidance overlay.
 
 
 WHERE THINGS ARE

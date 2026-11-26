@@ -213,5 +213,22 @@ expect 'rc skipped for piped stdin' 0 'script' \
 	sh -c 'cat "$1" | HOME=$2 "$3"' - \
 	"$tmp/no-rc.sh" "$tmp/home" "$shell"
 
+# 0.3.9: help builtin.
+if "$shell" -c 'help' >"$tmp/help.out" 2>"$tmp/help.err"; then
+	if grep -q 'KEYBINDINGS' "$tmp/help.out" && \
+	   grep -q 'insert-verbatim' "$tmp/help.out" && \
+	   grep -q 'Ctrl+\\' "$tmp/help.out"; then
+		pass=$((pass + 1))
+	else
+		echo "FAIL help builtin output missing expected sections"
+		fail=$((fail + 1))
+	fi
+else
+	echo "FAIL help builtin exited non-zero"
+	fail=$((fail + 1))
+fi
+expect 'help rejects extra arguments' 2 '' \
+	"$shell" -c 'help extra'
+
 echo "run-scripts: $pass passed, $fail failed (reference shell: $ref)"
 [ "$fail" -eq 0 ]

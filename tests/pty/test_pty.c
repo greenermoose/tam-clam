@@ -524,6 +524,10 @@ static void test_interactive_rc(const char *sh)
 	CHECK(pty_send(&s, "gg\r", 3) == 0);
 	CHECK(pty_wait_after(&s, "tam-clam guidance", "CLAM$ ", 2000));
 	CHECK(strstr(s.out, "rc loaded") == NULL);
+	pty_clear_out(&s);
+	CHECK(pty_send(&s, "help\r", 5) == 0);
+	CHECK(pty_wait_after(&s, "KEYBINDINGS", "CLAM$ ", 2000));
+	CHECK(strstr(s.out, "insert-last-arg") != NULL);
 	CHECK(pty_send(&s, "\x11", 1) == 0);
 	CHECK(pty_finish(&s) == 0);
 

@@ -47,6 +47,7 @@ int tc_bi_command(struct tc_shell *sh, int argc, char **argv, unsigned long line
 int tc_bi_type(struct tc_shell *sh, int argc, char **argv, unsigned long line);
 int tc_bi_bind(struct tc_shell *sh, int argc, char **argv, unsigned long line);
 int tc_bi_guidance(struct tc_shell *sh, int argc, char **argv, unsigned long line);
+int tc_bi_help(struct tc_shell *sh, int argc, char **argv, unsigned long line);
 int tc_bi_history(struct tc_shell *sh, int argc, char **argv, unsigned long line);
 int tc_bi_jobs(struct tc_shell *sh, int argc, char **argv, unsigned long line);
 int tc_bi_fg(struct tc_shell *sh, int argc, char **argv, unsigned long line);

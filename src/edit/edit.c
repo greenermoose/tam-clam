@@ -163,12 +163,96 @@ int tc_bi_guidance(struct tc_shell *sh, int argc, char **argv, unsigned long lin
 	static const char text[] =
 		"tam-clam guidance\n" GUIDANCE_KEYS "\n\n"
 		"Ctrl+G opens guidance in the line editor.\n"
+		"help shows the full guide and keybinding table.\n"
 		"alias lists your shortcuts. history [N] lists recent commands.\n"
 		"tam-clam --help shows command-line options.\n";
 	return tc_write_all(STDOUT_FILENO, text, sizeof(text) - 1) < 0;
 }
 
 #undef GUIDANCE_KEYS
+
+#ifndef TC_VERSION
+#define TC_VERSION "unknown"
+#endif
+
+int tc_bi_help(struct tc_shell *sh, int argc, char **argv, unsigned long line)
+{
+	(void)argv;
+	if (argc != 1) {
+		tc_error(sh, line, "usage: help");
+		return TC_STATUS_USAGE;
+	}
+	static const char text[] =
+		"tam-clam " TC_VERSION " - the Tamlinux shell\n\n"
+		"STARTING TAM-CLAM\n"
+		"  tam-clam                 Interactive shell (sources ~/.rc if present)\n"
+		"  tam-clam --norc          Interactive shell without ~/.rc\n"
+		"  tam-clam --private       Do not read or write command history\n"
+		"  tam-clam -c CMD [ARGS]   Run CMD string\n"
+		"  tam-clam SCRIPT [ARGS]   Run script file (POSIX.1-2024 + extensions)\n"
+		"  tam-clam --lint FILE...  Check scripts for syntax and lint warnings\n"
+		"  tam-clam -v | --version  Print version\n"
+		"  tam-clam --help          Print command-line usage\n\n"
+		"INTERACTIVE FEATURES\n"
+		"  ~/.rc            Sourced before the first interactive prompt; define aliases,\n"
+		"                   abbreviations, functions, PS1, bind, and shopt here.\n"
+		"  help             Show this guide and the complete keybinding table.\n"
+		"  guidance         Show a compact key summary (or press Ctrl+G at the prompt).\n"
+		"  alias / unalias  Define or remove command aliases.\n"
+		"  abbr             Manage fish-style abbreviations (expanded on Space/Enter).\n"
+		"  history [N]      List recent commands (or the last N entries).\n"
+		"  bind / unbind    Bind or unbind physical key chords to editor widgets.\n"
+		"  jobs / fg / bg   List or resume background and paused jobs.\n"
+		"  shopt            Toggle optional shell modes (e.g. globstar, strict modes).\n"
+		"  tam-clam-gen-comp  Generate completions from man pages into XDG data dir.\n\n"
+		"CLIPBOARD AND SIGNALS\n"
+		"  Ctrl+C copies and Ctrl+Z undoes everywhere in Tamlinux (never signals).\n"
+		"  Use Ctrl+\\ to interrupt a running command and Ctrl+P to pause it.\n\n"
+		"KEYBINDINGS\n"
+		"  Key                 Fallback        Widget                  Action\n"
+		"  ------------------  --------------  ----------------------  ----------------------------------\n"
+		"  Ctrl+A              -               select-all              Select entire command buffer\n"
+		"  Ctrl+C              -               copy                    Copy selection or line (+ OSC 52)\n"
+		"  Ctrl+E              -               execute                 Chord composer & widget menu\n"
+		"  Ctrl+F              -               find                    Incremental history search\n"
+		"  Ctrl+G              -               guidance                Show compact guidance overlay\n"
+		"  Ctrl+K              -               kill-line               Clear current prompt buffer\n"
+		"  Ctrl+L              -               clear-screen            Clear screen and redraw prompt\n"
+		"  Ctrl+P              -               noop                    Pause foreground child (SIGTSTP)\n"
+		"  Ctrl+Q              -               quit                    Exit tam-clam on empty prompt\n"
+		"  Ctrl+V              -               paste                   Paste from clipboard\n"
+		"  Ctrl+X              -               cut                     Cut selection or line (+ OSC 52)\n"
+		"  Ctrl+Y              -               redo                    Redo last undone edit\n"
+		"  Ctrl+Z              -               undo                    Undo last edit\n"
+		"  Ctrl+\\              -               break                   Interrupt child (SIGINT) / clear\n"
+		"  Left / Right        -               char-left / char-right  Move char (Right accepts hint)\n"
+		"  Ctrl+Left / Right   Alt+, / Alt+.   word-left / word-right  Move word (Right accepts word)\n"
+		"  Home / End          -               line-start / line-end   Move to start / end of line\n"
+		"  Ctrl+Home / End     Alt+< / Alt+>   buffer-start / -end     Move to start / end of buffer\n"
+		"  Up / Down           -               up-or-history-prev/next Move line or cycle history\n"
+		"  Shift+Left / Right  Alt+M + arrows  select-char-left/right  Extend selection by character\n"
+		"  Ctrl+Shift+L / R    Alt+M + Alt+,/. select-word-left/right  Extend selection by word\n"
+		"  Shift+Home / End    Alt+M + Home/E  select-line-start/end   Extend selection to line edge\n"
+		"  Alt+M               -               toggle-mark             Toggle keyboard selection mark\n"
+		"  Backspace / Delete  -               delete-char-left/right  Delete char or active selection\n"
+		"  Ctrl+Backspace      Alt+Backspace   delete-word-left        Delete word before cursor\n"
+		"  Ctrl+Delete         Alt+D           delete-word-right       Delete word after cursor\n"
+		"  Alt+K               -               delete-to-line-end      Delete to end of line\n"
+		"  Alt+Shift+K         -               delete-to-line-start    Delete to start of line\n"
+		"  Enter               -               accept-line             Submit command (or continue)\n"
+		"  Alt+Enter           -               insert-newline          Insert literal newline\n"
+		"  Escape              -               cancel-mode             Dismiss overlay, search, selection\n"
+		"  Tab / Shift+Tab     -               complete-next / -prev   Complete / cycle completions\n"
+		"  Alt+E               -               open-in-editor          Edit buffer in $VISUAL/$EDITOR\n"
+		"  Alt+V               -               paste-prev              Cycle older clipboard entry\n"
+		"  Alt+Q               -               insert-verbatim         Insert next key literally\n"
+		"  Alt+#               -               comment-line            Comment buffer and submit\n"
+		"  Alt+L               -               insert-last-arg         Insert last arg of prev command\n"
+		"  Alt+N / Alt+Shift+N -               find-next / find-prev   Next / prev match in Ctrl+F\n\n"
+		"  Reserved no-op Ctrl keys: Ctrl+B, Ctrl+D, Ctrl+N, Ctrl+O, Ctrl+R, Ctrl+S,\n"
+		"  Ctrl+T, Ctrl+U, Ctrl+W.\n";
+	return tc_write_all(STDOUT_FILENO, text, sizeof(text) - 1) < 0;
+}
 
 static unsigned next_chord_mods(unsigned mods)
 {
