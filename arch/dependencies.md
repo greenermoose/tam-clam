@@ -23,7 +23,7 @@ dependency change.
 
 ## Build-time only
 
-- **make and a C11 compiler.** Plain Make; no other build system.
+- **make and a C17 compiler.** Plain Make; no other build system.
 - **A POSIX sh** runs `tests/run-scripts.sh`. **bash** or **dash** is the
   reference shell the script tests compare against; tests still run
   without one (`TC_REF=none`).
