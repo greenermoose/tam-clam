@@ -3,14 +3,14 @@ WHATNOW
 What tam-clam is doing now and what comes next. Read this first; revise
 it at the end of every session (work/README-work).
 
-Updated: 2026-11-26, with W26 (interactive startup)
+Updated: 2026-11-26, with W27 (~/.rc interactive startup)
 
 
 STATE
 
-  Version 0.3.7 loads an optional XDG rc before the first interactive
-  prompt. --norc skips it. The guidance builtin prints the same key
-  help as the Ctrl+G overlay. Normal and sanitizer suites pass.
+  Version 0.3.8 loads ~/.rc before the first interactive prompt.
+  --norc skips it. The guidance builtin prints the same key help as
+  the Ctrl+G overlay. Normal and sanitizer suites pass.
 
   Phase P4 complete (arrays, [[ ]]/=~, local/declare,
   brace expansion, process substitution, ** globstar, strict modes,

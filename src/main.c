@@ -145,9 +145,16 @@ static void load_interactive_rc(struct tc_shell *sh)
 {
 	if (getuid() != geteuid() || getgid() != getegid())
 		return;
-	char *path = tam_xdg_path(TAM_XDG_CONFIG, "tam-clam", "rc", false);
+	const char *home = tc_var_get(&sh->vars, "HOME");
+	if (!home || !*home)
+		return;
+	size_t hlen = strlen(home);
+	bool has_slash = home[hlen - 1] == '/';
+	size_t need = hlen + (has_slash ? 0 : 1) + sizeof(".rc");
+	char *path = malloc(need);
 	if (!path)
 		return;
+	snprintf(path, need, "%s%s.rc", home, has_slash ? "" : "/");
 	int fd = open(path, O_RDONLY | O_CLOEXEC | O_NONBLOCK);
 	if (fd < 0) {
 		if (errno != ENOENT)

@@ -1,0 +1,20 @@
+W27 HOME RC
+
+Date: 2026-11-26
+AI harness: agy 1.5.18
+AI model: Gemini 4 Hydrogen (Medium)
+
+GUIDANCE
+
+  Fred: "Update tam-clam 0.3.8 to look for run commands in ~/.rc. That
+  is where I want to put my personal run commands."
+
+DONE
+
+  - Load ~/.rc instead of the XDG config path in interactive mode.
+  - Bump VERSION to 0.3.8 and update README and startup tests.
+  - Normal and sanitizer suites passed; installed to ~/.local/bin.
+
+HANDOFF
+
+  Continue interactive dogfooding with 0.3.8.

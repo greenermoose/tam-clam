@@ -34,7 +34,7 @@ struct pty_sess {
 
 static int pty_start_opts(struct pty_sess *s, const char *shell_path,
 			  const char *term, const char *histfile, bool priv,
-			  const char *config, bool no_rc)
+			  const char *home, bool no_rc)
 {
 	memset(s, 0, sizeof(*s));
 	int m = posix_openpt(O_RDWR | O_NOCTTY);
@@ -77,8 +77,8 @@ static int pty_start_opts(struct pty_sess *s, const char *shell_path,
 			setenv("HISTFILE", histfile, 1);
 		else
 			setenv("HISTFILE", "", 1);
-		if (config)
-			setenv("XDG_CONFIG_HOME", config, 1);
+		if (home)
+			setenv("HOME", home, 1);
 		char *args[4] = {"tam-clam"};
 		size_t count = 1;
 		if (priv)
@@ -500,19 +500,15 @@ static void test_interactive_prompts_and_hooks(const char *sh)
 
 static void test_interactive_rc(const char *sh)
 {
-	char config[] = "/tmp/tam-clam-rc-XXXXXX";
-	char parent[128], dir[128], rc[128];
-	CHECK(mkdtemp(config) != NULL);
-	snprintf(parent, sizeof(parent), "%s/tamlinux", config);
-	snprintf(dir, sizeof(dir), "%s/tamlinux/tam-clam", config);
-	snprintf(rc, sizeof(rc), "%s/tamlinux/tam-clam/rc", config);
-	CHECK(mkdir(parent, 0700) == 0);
-	CHECK(mkdir(dir, 0700) == 0);
+	char home[] = "/tmp/tam-clam-rc-XXXXXX";
+	char rc[128];
+	CHECK(mkdtemp(home) != NULL);
+	snprintf(rc, sizeof(rc), "%s/.rc", home);
 
 	struct pty_sess s;
-	CHECK(pty_start_opts(&s, sh, NULL, NULL, true, config, false) == 0);
+	CHECK(pty_start_opts(&s, sh, NULL, NULL, true, home, false) == 0);
 	CHECK(pty_wait_for(&s, "CLAM$ ", 2000));
-	CHECK(strstr(s.out, "/rc:") == NULL);
+	CHECK(strstr(s.out, "/.rc:") == NULL);
 	CHECK(pty_send(&s, "\x11", 1) == 0);
 	CHECK(pty_finish(&s) == 0);
 
@@ -522,7 +518,7 @@ static void test_interactive_rc(const char *sh)
 		return;
 	fputs("alias gg=guidance\nprintf 'rc loaded\\n'\n", file);
 	CHECK(fclose(file) == 0);
-	CHECK(pty_start_opts(&s, sh, NULL, NULL, true, config, false) == 0);
+	CHECK(pty_start_opts(&s, sh, NULL, NULL, true, home, false) == 0);
 	CHECK(pty_wait_after(&s, "rc loaded", "CLAM$ ", 2000));
 	pty_clear_out(&s);
 	CHECK(pty_send(&s, "gg\r", 3) == 0);
@@ -531,7 +527,7 @@ static void test_interactive_rc(const char *sh)
 	CHECK(pty_send(&s, "\x11", 1) == 0);
 	CHECK(pty_finish(&s) == 0);
 
-	CHECK(pty_start_opts(&s, sh, NULL, NULL, true, config, true) == 0);
+	CHECK(pty_start_opts(&s, sh, NULL, NULL, true, home, true) == 0);
 	CHECK(pty_wait_for(&s, "CLAM$ ", 2000));
 	CHECK(strstr(s.out, "rc loaded") == NULL);
 	CHECK(pty_send(&s, "\x11", 1) == 0);
@@ -543,15 +539,13 @@ static void test_interactive_rc(const char *sh)
 		return;
 	fputs("if then\n", file);
 	CHECK(fclose(file) == 0);
-	CHECK(pty_start_opts(&s, sh, NULL, NULL, true, config, false) == 0);
-	CHECK(pty_wait_after(&s, "rc: startup returned status 2", "CLAM$ ", 2000));
+	CHECK(pty_start_opts(&s, sh, NULL, NULL, true, home, false) == 0);
+	CHECK(pty_wait_after(&s, ".rc: startup returned status 2", "CLAM$ ", 2000));
 	CHECK(pty_send(&s, "\x11", 1) == 0);
 	CHECK(pty_finish(&s) == 0);
 
 	CHECK(unlink(rc) == 0);
-	CHECK(rmdir(dir) == 0);
-	CHECK(rmdir(parent) == 0);
-	CHECK(rmdir(config) == 0);
+	CHECK(rmdir(home) == 0);
 }
 
 int main(int argc, char **argv)
