@@ -11,7 +11,7 @@ The goal is a bullet-proof shell: one that never crashes, never corrupts
 its history, never runs a command differently from what you typed, and
 tells you clearly what went wrong and where.
 
-Follows the tam-idol 0.2.0 standard.
+Follows the tam-idol 1.3.0 standard.
 
 
 WHAT IT WILL DO
